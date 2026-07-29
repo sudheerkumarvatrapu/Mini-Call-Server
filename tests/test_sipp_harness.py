@@ -1,8 +1,10 @@
+import io
 import json
 import socket
 import struct
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import unittest
@@ -1647,24 +1649,25 @@ Content-Length: 0
         self.assertIn("--aks-profiles", aks_doc)
         self.assertIn("v1.5.0", aks_doc)
 
-    def test_v150_start_keeps_kind_regression_path(self):
+    def test_current_release_keeps_kind_regression_path(self):
         chart = ROOT / "charts" / "playsbc"
+        current_version = "1.5.5"
         version = (ROOT / "VERSION").read_text(encoding="utf-8")
         chart_yaml = (chart / "Chart.yaml").read_text(encoding="utf-8")
         values = (chart / "values.yaml").read_text(encoding="utf-8")
         aks_values = (ROOT / "configs" / "kubernetes" / "aks-values.yaml").read_text(encoding="utf-8")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         runbook = (ROOT / "docs" / "KUBERNETES_HELM_RUNBOOK.md").read_text(encoding="utf-8")
-        release_notes = (ROOT / "release" / "RELEASE_NOTES_1.5.0.md").read_text(encoding="utf-8")
+        release_notes = (ROOT / "release" / f"RELEASE_NOTES_{current_version}.md").read_text(encoding="utf-8")
 
-        self.assertEqual(version.strip(), "1.5.0")
-        self.assertIn("version: 1.5.0", chart_yaml)
-        self.assertIn('appVersion: "1.5.0"', chart_yaml)
-        self.assertIn('tag: "1.5.0"', values)
-        self.assertIn('tag: "1.5.0"', aks_values)
-        self.assertIn("v1.5.0 chart must continue to run", readme)
-        self.assertIn("v1.5.0 development safety gate", runbook)
-        self.assertIn("builds PlaySBC, RTPengine, SIPp, and regression-runner images", release_notes)
+        self.assertEqual(version.strip(), current_version)
+        self.assertIn(f"version: {current_version}", chart_yaml)
+        self.assertIn(f'appVersion: "{current_version}"', chart_yaml)
+        self.assertIn(f'tag: "{current_version}"', values)
+        self.assertIn(f'tag: "{current_version}"', aks_values)
+        self.assertIn(f"v{current_version} chart must continue to run", readme)
+        self.assertIn("runner-image ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:1.4.2", runbook)
+        self.assertIn("Unit test for verified AKS archive generation", release_notes)
 
         args = run_k8s_regression_job.parse_args(
             [
@@ -3361,6 +3364,8 @@ class RealTopologyTests(unittest.TestCase):
         self.assertEqual(job_args.remote_output_root_name, "AKS-Regression")
         self.assertEqual(job_args.remote_report_dir_name, "AKS-reports")
         self.assertTrue(job_args.run_id.startswith("aks-regression-"))
+        self.assertTrue(job_args.aks_wait_load_balancers)
+        self.assertEqual(job_args.aks_load_balancer_wait_timeout, 1200)
         self.assertIn("--aks-profiles", command)
         self.assertIn("--aks-mode", command)
         self.assertIn("--aks-require-azure-services", command)
@@ -3369,6 +3374,104 @@ class RealTopologyTests(unittest.TestCase):
         self.assertIn("/workspace/logs/AKS-Regression", command)
         self.assertIn("/workspace/logs/AKS-reports", command)
         self.assertTrue(run_k8s_regression_job.should_cleanup_local_logs(job_args))
+
+    def test_aks_evidence_archive_is_verified(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output_root = root / "aks-regression-unit"
+            reports = output_root / "AKS-reports"
+            bundles = output_root / "AKS-Regression" / "aks-regression-unit-basic-signalling"
+            reports.mkdir(parents=True)
+            bundles.mkdir(parents=True)
+            (output_root / "runner.log").write_text("runner evidence\n", encoding="utf-8")
+            (reports / "latest.html").write_text("<html>AKS report</html>\n", encoding="utf-8")
+            (bundles / "log.sip").write_text("SIP evidence\n", encoding="utf-8")
+
+            args = run_k8s_regression_job.parse_args(
+                ["--aks-profiles", "--run-id", "aks-regression-unit", "--output-dir", str(root)]
+            )
+            archive_result = run_k8s_regression_job.create_aks_evidence_archive(args, output_root)
+
+            self.assertIsNotNone(archive_result)
+            archive_path, member_count = archive_result or (Path(), 0)
+            self.assertEqual(archive_path, root / "latest-aks-regression.tgz")
+            self.assertGreaterEqual(member_count, 4)
+            self.assertTrue((output_root / "archive-manifest.txt").exists())
+            with tarfile.open(archive_path, "r:gz") as archive:
+                names = archive.getnames()
+            self.assertIn("aks-regression-unit/AKS-reports/latest.html", names)
+            self.assertIn("aks-regression-unit/AKS-Regression/aks-regression-unit-basic-signalling/log.sip", names)
+
+    def test_aks_load_balancer_wait_polls_until_ingress_ready(self):
+        pending = {
+            "items": [
+                {
+                    "metadata": {"name": "playsbc-sip", "labels": {"playsbc.io/exposure": "sip-public"}},
+                    "spec": {"type": "LoadBalancer"},
+                    "status": {"loadBalancer": {}},
+                },
+                {
+                    "metadata": {"name": "playsbc-rtp", "labels": {"playsbc.io/exposure": "rtp-public"}},
+                    "spec": {"type": "LoadBalancer"},
+                    "status": {"loadBalancer": {}},
+                },
+            ]
+        }
+        ready = {
+            "items": [
+                {
+                    "metadata": {"name": "playsbc-sip", "labels": {"playsbc.io/exposure": "sip-public"}},
+                    "spec": {"type": "LoadBalancer"},
+                    "status": {"loadBalancer": {"ingress": [{"ip": "20.30.40.50"}]}},
+                },
+                {
+                    "metadata": {"name": "playsbc-rtp", "labels": {"playsbc.io/exposure": "rtp-public"}},
+                    "spec": {"type": "LoadBalancer"},
+                    "status": {"loadBalancer": {"ingress": [{"ip": "20.30.40.60"}]}},
+                },
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            args = run_k8s_regression_job.parse_args(
+                [
+                    "--aks-profiles",
+                    "--run-id",
+                    "aks-regression-unit",
+                    "--output-dir",
+                    str(tmp),
+                    "--aks-require-public-sip-ingress",
+                    "--aks-load-balancer-wait-timeout",
+                    "2",
+                    "--aks-load-balancer-poll-interval",
+                    "0",
+                ]
+            )
+            responses = [
+                run_k8s_regression_job.CommandResult([], 0, 0.0, json.dumps(pending), ""),
+                run_k8s_regression_job.CommandResult([], 0, 0.0, json.dumps(ready), ""),
+            ]
+            with mock.patch.object(run_k8s_regression_job, "run_command", side_effect=responses):
+                detail = run_k8s_regression_job.wait_for_aks_load_balancers(args)
+
+            self.assertIn("aks_loadbalancer_wait=ready", detail)
+            self.assertIn("20.30.40.50", detail)
+            self.assertIn("20.30.40.60", detail)
+            preflight_log = Path(tmp) / "aks-regression-unit" / "aks-loadbalancer-preflight.log"
+            self.assertIn("pending=playsbc-sip", preflight_log.read_text(encoding="utf-8"))
+
+    def test_kubernetes_job_dry_run_does_not_mutate_cluster(self):
+        args = run_k8s_regression_job.parse_args(["--aks-profiles", "--dry-run", "--set-playsbc-image"])
+
+        with (
+            mock.patch.object(run_k8s_regression_job, "ensure_binary"),
+            mock.patch.object(run_k8s_regression_job, "prepare_playsbc_image_values") as prepare,
+            mock.patch.object(run_k8s_regression_job, "run_command") as run_command,
+            mock.patch("sys.stdout", new_callable=io.StringIO),
+        ):
+            self.assertEqual(run_k8s_regression_job.run_job(args), 0)
+
+        prepare.assert_not_called()
+        run_command.assert_not_called()
 
     def test_kubernetes_full_suite_keeps_existing_output_layout(self):
         args = run_k8s_regression_job.parse_args(["--all-profiles"])

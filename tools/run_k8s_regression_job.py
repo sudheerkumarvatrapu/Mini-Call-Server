@@ -9,6 +9,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tarfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -537,6 +538,143 @@ def collect_job_outputs(args: argparse.Namespace, pod_name: str, logs_text: str)
     return output_root
 
 
+def create_aks_evidence_archive(args: argparse.Namespace, output_root: Path) -> Optional[tuple[Path, int]]:
+    if not args.aks_profiles:
+        return None
+
+    archive_path = Path(args.output_dir) / "latest-aks-regression.tgz"
+    temp_path = archive_path.with_name(f".{archive_path.name}.tmp")
+    manifest_path = output_root / "archive-manifest.txt"
+    file_paths = sorted(path for path in output_root.rglob("*") if path.is_file())
+
+    if not file_paths:
+        manifest_path.write_text(
+            "AKS evidence archive was not created because the collected output folder is empty.\n",
+            encoding="utf-8",
+        )
+        raise RuntimeError(f"AKS evidence archive would be empty: {output_root}")
+
+    manifest_path.write_text(
+        "\n".join(
+            [
+                f"run_id={args.run_id}",
+                f"archive={archive_path}",
+                f"source={output_root}",
+                f"files={len(file_paths)}",
+                "",
+                "Download this .tgz from Cloud Shell. Do not create a manual .tar from an unset RUN variable.",
+                "",
+            ]
+            + [str(path.relative_to(output_root)) for path in file_paths[:200]]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    try:
+        temp_path.unlink(missing_ok=True)
+        with tarfile.open(temp_path, "w:gz") as archive:
+            archive.add(output_root, arcname=output_root.name)
+        with tarfile.open(temp_path, "r:gz") as archive:
+            member_count = sum(1 for member in archive.getmembers() if member.isfile())
+        if member_count <= 0:
+            raise RuntimeError(f"AKS evidence archive is empty after verification: {temp_path}")
+        temp_path.replace(archive_path)
+        return archive_path, member_count
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def service_name(item: dict[str, object]) -> str:
+    metadata = item.get("metadata", {})
+    return str(metadata.get("name", "unknown")) if isinstance(metadata, dict) else "unknown"
+
+
+def service_exposure(item: dict[str, object]) -> str:
+    metadata = item.get("metadata", {})
+    labels = metadata.get("labels", {}) if isinstance(metadata, dict) else {}
+    return str(labels.get("playsbc.io/exposure", "")) if isinstance(labels, dict) else ""
+
+
+def service_ingress_values(item: dict[str, object]) -> list[str]:
+    status = item.get("status", {})
+    load_balancer = status.get("loadBalancer", {}) if isinstance(status, dict) else {}
+    ingress = load_balancer.get("ingress", []) if isinstance(load_balancer, dict) else []
+    values: list[str] = []
+    if isinstance(ingress, list):
+        for entry in ingress:
+            if not isinstance(entry, dict):
+                continue
+            value = entry.get("ip") or entry.get("hostname")
+            if value:
+                values.append(str(value))
+    return values
+
+
+def azure_load_balancer_readiness(args: argparse.Namespace) -> tuple[bool, str]:
+    result = run_command(
+        [args.kubectl_bin, "-n", args.namespace, "get", "svc", "-l", args.aks_services_selector, "-o", "json"],
+        timeout=args.kubectl_timeout,
+        check=False,
+    )
+    if result.returncode != 0:
+        return False, f"kubectl_get_services_failed={result.stderr.strip() or result.stdout.strip()}"
+
+    try:
+        parsed = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        return False, f"invalid_service_json={exc}"
+
+    raw_items = parsed.get("items", []) if isinstance(parsed, dict) else []
+    items = [item for item in raw_items if isinstance(item, dict)]
+    load_balancers = [
+        item
+        for item in items
+        if isinstance(item.get("spec", {}), dict) and item.get("spec", {}).get("type") == "LoadBalancer"
+    ]
+    if not load_balancers:
+        return False, f"no_loadbalancer_services selector={args.aks_services_selector}"
+
+    missing = [
+        f"{service_name(item)}({service_exposure(item) or 'unlabeled'})"
+        for item in load_balancers
+        if not service_ingress_values(item)
+    ]
+    ready = [
+        f"{service_name(item)}({service_exposure(item) or 'unlabeled'})={','.join(service_ingress_values(item))}"
+        for item in load_balancers
+        if service_ingress_values(item)
+    ]
+    detail = f"ready={'; '.join(ready) or 'none'} pending={'; '.join(missing) or 'none'}"
+    return not missing, detail
+
+
+def wait_for_aks_load_balancers(args: argparse.Namespace) -> str:
+    if not (args.aks_profiles and args.aks_wait_load_balancers and args.aks_require_public_sip_ingress):
+        return "aks_loadbalancer_wait=skipped"
+
+    output_root = Path(args.output_dir) / args.run_id
+    output_root.mkdir(parents=True, exist_ok=True)
+    log_path = output_root / "aks-loadbalancer-preflight.log"
+    deadline = time.monotonic() + args.aks_load_balancer_wait_timeout
+    attempts: list[str] = []
+    last_detail = "not_checked"
+
+    while time.monotonic() <= deadline:
+        ready, detail = azure_load_balancer_readiness(args)
+        last_detail = detail
+        attempts.append(f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())} | {detail}")
+        log_path.write_text("\n".join(attempts) + "\n", encoding="utf-8")
+        if ready:
+            return f"aks_loadbalancer_wait=ready {detail}"
+        time.sleep(args.aks_load_balancer_poll_interval)
+
+    raise RuntimeError(
+        "Timed out waiting for Azure LoadBalancer ingress before AKS regression: "
+        f"{last_detail}. See {log_path}"
+    )
+
+
 def should_cleanup_local_logs(args: argparse.Namespace) -> bool:
     if args.keep_old_logs:
         return False
@@ -575,6 +713,13 @@ def wait_for_runner(args: argparse.Namespace) -> tuple[str, str, str]:
 
 def run_job(args: argparse.Namespace) -> int:
     ensure_binary(args.kubectl_bin)
+    manifests = [service_account_manifest(args), role_manifest(args), role_binding_manifest(args), job_manifest(args)]
+    if args.dry_run:
+        print(json.dumps({"kind": "List", "apiVersion": "v1", "items": manifests}, indent=2))
+        print("\nRunner command:")
+        print(command_text(["python3", *runner_command_args(args)]))
+        return 0
+
     if should_cleanup_local_logs(args):
         shutil.rmtree(Path(args.output_dir), ignore_errors=True)
     if (
@@ -586,13 +731,7 @@ def run_job(args: argparse.Namespace) -> int:
     ):
         build_images(args)
     prepare_playsbc_image_values(args)
-
-    manifests = [service_account_manifest(args), role_manifest(args), role_binding_manifest(args), job_manifest(args)]
-    if args.dry_run:
-        print(json.dumps({"kind": "List", "apiVersion": "v1", "items": manifests}, indent=2))
-        print("\nRunner command:")
-        print(command_text(["python3", *runner_command_args(args)]))
-        return 0
+    aks_preflight = wait_for_aks_load_balancers(args)
 
     for manifest in manifests[:-1]:
         apply_manifest(args, manifest)
@@ -615,18 +754,27 @@ def run_job(args: argparse.Namespace) -> int:
     else:
         logs_text = "Runner pod was not found; inspect the Job events for details.\n"
     output_root = collect_job_outputs(args, pod_name, logs_text)
+    archive_result: Optional[tuple[Path, int]] = None
 
-    if not args.keep_job:
-        run_command(
-            [args.kubectl_bin, "-n", args.namespace, "delete", "job", args.job_name, "--ignore-not-found=true"],
-            timeout=args.kubectl_timeout,
-            check=False,
-        )
+    try:
+        archive_result = create_aks_evidence_archive(args, output_root)
+    finally:
+        if not args.keep_job:
+            run_command(
+                [args.kubectl_bin, "-n", args.namespace, "delete", "job", args.job_name, "--ignore-not-found=true"],
+                timeout=args.kubectl_timeout,
+                check=False,
+            )
 
     print(f"Kubernetes regression Job: {args.job_name}")
     print(f"Job status: {job_status} ({job_detail})")
     print(f"Runner pod: {pod_name or 'not found'}")
     print(f"Copied outputs: {output_root}")
+    if aks_preflight != "aks_loadbalancer_wait=skipped":
+        print(f"AKS preflight: {aks_preflight}")
+    if archive_result:
+        archive_path, member_count = archive_result
+        print(f"Evidence archive: {archive_path} ({member_count} files)")
     latest = output_root / args.remote_report_dir_name / "latest.html"
     if latest.exists():
         print(f"Latest report: {latest}")
@@ -671,6 +819,9 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--aks-require-azure-services", action=argparse.BooleanOptionalAction, default=False, help="Fail when the Azure SIP public LoadBalancer service is missing")
     parser.add_argument("--aks-require-static-sip", action=argparse.BooleanOptionalAction, default=False, help="Fail when the Azure SIP public service lacks a static IP annotation")
     parser.add_argument("--aks-require-public-sip-ingress", action=argparse.BooleanOptionalAction, default=False, help="Fail until Azure assigns an external public SIP ingress address")
+    parser.add_argument("--aks-wait-load-balancers", action=argparse.BooleanOptionalAction, default=True, help="For AKS profiles, wait for selected Azure LoadBalancer services to receive ingress before starting the Job")
+    parser.add_argument("--aks-load-balancer-wait-timeout", type=int, default=1200)
+    parser.add_argument("--aks-load-balancer-poll-interval", type=float, default=10.0)
     parser.add_argument("--rtpengine-enabled", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--active-active-topology", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--playsbc-replicas", type=int, default=2)

@@ -87,6 +87,7 @@ Azure release track:
 - `v1.5.2`: Azure Cloud Shell resilience milestone. Document the kube-credential refresh workaround for Azure CLI API-version mismatch, the need to re-export session variables, and immediate report/evidence download when Cloud Shell is ephemeral.
 - `v1.5.3`: Azure Cloud Shell cleanup milestone. Document asynchronous `az group delete --no-wait` behavior, split resource-group deletion progress, and the final verification gate that both lab resource groups are gone.
 - `v1.5.4`: Azure documentation cleanup milestone. Merge the Azure AKS and Cloud Shell playbook content into one shorter `docs/AZURE_AKS.md` guide with deploy, regression, report download, recovery, and cleanup in one flow.
+- `v1.5.5`: AKS readiness and evidence hardening milestone. Wait for Azure LoadBalancer ingress before strict AKS regression starts, generate a verified `latest-aks-regression.tgz` directly from the Kubernetes regression job wrapper, and document archive validation so failed AKS runs keep usable HTML, JSON, SIP, media, and platform evidence.
 
 Production-readiness gates:
 
