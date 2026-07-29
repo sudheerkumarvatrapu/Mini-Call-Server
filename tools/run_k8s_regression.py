@@ -9,6 +9,7 @@ import json
 import re
 import shlex
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -546,6 +547,16 @@ def k8s_pcap_capture_roles(profile: SimpleNamespace) -> tuple[str, ...]:
     return tuple(dict.fromkeys(roles))
 
 
+def k8s_pcap_capture_filter(_profile: SimpleNamespace) -> str:
+    # Keep AKS evidence focused on SIP, RTP/SRTP, and RTCP. DNS and unrelated pod traffic
+    # make Wireshark review noisy and can make profile evidence look misleading.
+    return (
+        "((udp and (portrange 5060-5079 or portrange 6000-6999 "
+        "or portrange 25000-26000 or portrange 30000-32000)) "
+        "or (tcp and portrange 5060-5079))"
+    )
+
+
 def should_run_k8s_rtcp(profile: SimpleNamespace) -> bool:
     return bool(
         getattr(profile, "rtcp_enabled", True)
@@ -612,13 +623,31 @@ def merge_pcap_files(paths: list[Path], destination: Path) -> int:
     if not existing:
         return 0
     header = existing[0].read_bytes()[:24]
+    records: list[tuple[int, int, int, bytes]] = []
+    sequence = 0
+    endian = "<" if header[:4] in (b"\xd4\xc3\xb2\xa1", b"M<\xb2\xa1") else ">"
     with destination.open("wb") as output:
         output.write(header)
         for path in existing:
             data = path.read_bytes()
             if data[:24] != header:
                 raise ValueError(f"K8s PCAP link-layer/header mismatch for {path.name}")
-            output.write(data[24:])
+            offset = 24
+            while offset + 16 <= len(data):
+                packet_header = data[offset : offset + 16]
+                ts_sec, ts_fraction, captured_len, _original_len = struct.unpack(
+                    endian + "IIII",
+                    packet_header,
+                )
+                frame_start = offset + 16
+                frame_end = frame_start + captured_len
+                if frame_end > len(data):
+                    raise ValueError(f"K8s PCAP truncated packet in {path.name}")
+                records.append((ts_sec, ts_fraction, sequence, packet_header + data[frame_start:frame_end]))
+                sequence += 1
+                offset = frame_end
+        for _ts_sec, _ts_fraction, _sequence, record in sorted(records):
+            output.write(record)
     return destination.stat().st_size
 
 
@@ -1405,7 +1434,7 @@ class K8sRegressionRunner:
             local_path = bundle / f"capture-{role}.pcap"
             step_dir = bundle / f"k8s-pcap-{role}"
             step_dir.mkdir(parents=True, exist_ok=True)
-            capture_filter = "udp or tcp"
+            capture_filter = k8s_pcap_capture_filter(profile)
             shell_command = (
                 f"rm -f {shlex.quote(remote_path)}; "
                 f"tcpdump -i any -U -n -s 0 -w {shlex.quote(remote_path)} {shlex.quote(capture_filter)}"
@@ -1427,7 +1456,10 @@ class K8sRegressionRunner:
             bundle,
             "log.networking",
             "K8S PCAP CAPTURE STARTED",
-            " ".join(f"{capture.role}={capture.pod}:{capture.remote_path}" for capture in captures),
+            (
+                f"filter={k8s_pcap_capture_filter(profile)} "
+                + " ".join(f"{capture.role}={capture.pod}:{capture.remote_path}" for capture in captures)
+            ),
         )
         return captures
 
@@ -1484,7 +1516,7 @@ class K8sRegressionRunner:
             (
                 f"status={'passed' if ok and merged_bytes > 0 else 'failed'} "
                 f"files={','.join(path.name for path in copied) or 'none'} "
-                f"merged_file=capture.pcap merged_bytes={merged_bytes}"
+                f"merged_file=capture.pcap merge=timestamp_sorted merged_bytes={merged_bytes}"
             ),
         )
         return ok and merged_bytes > 0
@@ -2511,7 +2543,9 @@ class K8sRegressionRunner:
         )
         flow.enabled = True
         self.add_registration_events(flow, profile)
-        if not getattr(profile, "run_call", True):
+        if "options" in str(getattr(profile, "profile", "")):
+            self.add_setup_only_events(flow, profile)
+        elif not getattr(profile, "run_call", True):
             self.add_setup_only_events(flow, profile)
         elif "ai-rasa" in str(getattr(profile, "profile", "")):
             self.add_ai_gateway_events(flow, profile)

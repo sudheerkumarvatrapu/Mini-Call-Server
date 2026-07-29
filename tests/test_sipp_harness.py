@@ -3130,6 +3130,44 @@ class RealTopologyTests(unittest.TestCase):
                 profile = run_k8s_regression.profile_values(profile_name, "unit-k8s")
                 self.assertEqual(run_k8s_regression.k8s_pcap_capture_roles(profile), expected)
 
+    def test_kubernetes_pcap_capture_filter_keeps_evidence_focused(self):
+        profile = run_k8s_regression.profile_values("rtpengine-transcoding", "unit-k8s")
+
+        capture_filter = run_k8s_regression.k8s_pcap_capture_filter(profile)
+
+        self.assertIn("portrange 5060-5079", capture_filter)
+        self.assertIn("portrange 30000-32000", capture_filter)
+        self.assertNotEqual(capture_filter, "udp or tcp")
+        self.assertNotIn("port 53", capture_filter)
+
+    def test_kubernetes_merged_pcap_is_sorted_by_packet_timestamp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            later = root / "capture-core.pcap"
+            earlier = root / "capture-peer.pcap"
+            destination = root / "capture.pcap"
+            write_test_pcap(later, 20.0, b"later", linktype=1)
+            write_test_pcap(earlier, 10.0, b"earlier", linktype=1)
+
+            merged_bytes = run_k8s_regression.merge_pcap_files([later, earlier], destination)
+            _header, linktype, records = run_b2bua_sipp_smoke.pcap_file_records(destination)
+
+        self.assertGreater(merged_bytes, 24)
+        self.assertEqual(linktype, 1)
+        self.assertEqual([frame for _timestamp, frame in records], [b"earlier", b"later"])
+
+    def test_kubernetes_options_catalog_ladder_is_options_only(self):
+        args = run_k8s_regression.parse_args(["--aks-profiles"])
+        runner = run_k8s_regression.K8sRegressionRunner(args, "unit-k8s")
+        profile = run_k8s_regression.profile_values("esbc-options-keepalive", "unit-k8s")
+
+        ladder = runner.dual_realm_ladder(profile)
+
+        self.assertIn("OPTIONS", ladder)
+        self.assertIn("200 OK", ladder)
+        self.assertNotIn("INVITE", ladder)
+        self.assertNotIn("BYE", ladder)
+
     def test_kubernetes_real_rasa_profile_is_selectable_and_rewrites_webhook(self):
         self.assertIn("ai-rasa-real-lab", run_k8s_regression.SELECTABLE_PROFILES)
         self.assertIn("ai-rasa-real-lab", run_k8s_regression.ALL_PROFILES)
