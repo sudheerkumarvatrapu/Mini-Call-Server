@@ -30,11 +30,12 @@ For the first real-device test, keep credentials simple and private to the lab.
 
 ```bash
 helm upgrade --install playsbc \
-  https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v1.6.6/playsbc-1.6.6.tgz \
+  https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v2.0.0/playsbc-2.0.0.tgz \
   --namespace playsbc \
   --reuse-values \
   --set playsbc.config.reject_unknown_routes=true \
   --set playsbc.config.b2bua_invite_timeout=60.0 \
+  --set playsbc.config.rtpengine_g711_only=true \
   --set-string playsbc.config.sip_advertised_ip="$SIP_PUBLIC_IP" \
   --set-string playsbc.config.b2bua_advertised_ip="$SIP_PUBLIC_IP" \
   --set authSecret.enabled=true \
@@ -141,10 +142,11 @@ Common issues:
 
 - No REGISTER: check phone SIP server IP, UDP 5062 reachability, and home router SIP ALG.
 - 401 repeats forever: wrong SIP password or realm mismatch.
-- Dialing `1002` from an ATA returns address-incomplete/failed routing: check whether the INVITE Request-URI is only the SBC public IP. PlaySBC v1.6.6 falls back to the `To` header user for that proxy-style INVITE.
+- Dialing `1002` from an ATA returns address-incomplete/failed routing: check whether the INVITE Request-URI is only the SBC public IP. PlaySBC v2.0.0 falls back to the `To` header user for that proxy-style INVITE.
 - REGISTER passes but inbound call fails: confirm the log shows the packet destination is the observed source, not only the private Contact.
 - Zoiper shows `Unparsable SDP`: check for `INVITE ROUTE FAILED`. That means PlaySBC did not have a live registrar route and answered using the fallback echo path. Re-register both endpoints after every PlaySBC pod restart and keep `playsbc.config.reject_unknown_routes=true` for the real-device lab.
 - Zoiper gets `480 Temporarily Unavailable` after the OBi rings: check for `reason=outbound_invite_timeout`. Use `playsbc.config.b2bua_invite_timeout=60.0` so a real phone can ring long enough to be answered.
+- Call connects but has no audio: enable `playsbc.config.rtpengine_g711_only=true`. OBi and softphones can offer broad codec lists; the real-device baseline clamps RTPengine offer/answer to G.711 plus telephone-event before broader codec testing.
 - One-way or no audio: check the Azure RTP public LoadBalancer, RTP port range, and `rtpengine.advertisedIP`. Internet phones must receive SDP with the Azure RTP public IP, not an AKS pod IP.
 - For this real-device UDP lab, keep OBi RTP as plain UDP. SRTP/DTLS should be tested later with the dedicated TLS/SRTP profiles.
 
@@ -167,9 +169,10 @@ The important lessons:
 - For PlaySBC digest auth, `X_UseTokenAuth` must be disabled.
 - OBi backups may not show the password, so retype `AuthPassword` manually after restoring or editing config.
 - A private Contact such as `192.168.1.9:5060` is normal behind home NAT. PlaySBC v1.6.1 routes the outbound packet to the observed REGISTER source while preserving the SIP Contact as the Request-URI.
-- Some hardphones send `INVITE sip:<proxy-ip>:5062` and keep the dialed extension in `To: <sip:1002@...>`. PlaySBC v1.6.6 routes that using `1002` instead of treating the public IP as the called user.
-- Real devices need a human-answer window. PlaySBC v1.6.6 adds `b2bua_invite_timeout`; use `60.0` for OBi/Zoiper AKS calls and keep the default `10.0` for fast SIPp regression.
-- PlaySBC v1.6.6 logs route candidates, selected route, SIP TX responses, B2BUA timeout seconds, ACK/BYE forwarding, and RTPengine events to pod stdout in AKS.
+- Some hardphones send `INVITE sip:<proxy-ip>:5062` and keep the dialed extension in `To: <sip:1002@...>`. PlaySBC v2.0.0 routes that using `1002` instead of treating the public IP as the called user.
+- Real devices need a human-answer window. PlaySBC v2.0.0 adds `b2bua_invite_timeout`; use `60.0` for OBi/Zoiper AKS calls and keep the default `10.0` for fast SIPp regression.
+- Real devices need conservative media negotiation first. PlaySBC v2.0.0 adds `rtpengine_g711_only`; use it for the OBi/Zoiper baseline, then remove it later when testing Opus/G722/G729 behavior intentionally.
+- PlaySBC v2.0.0 logs route candidates, selected route, SIP TX responses, B2BUA timeout seconds, ACK/BYE forwarding, and RTPengine events to pod stdout in AKS.
 
 Use this while making one test call at a time:
 

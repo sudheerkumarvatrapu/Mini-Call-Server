@@ -59,6 +59,36 @@ class SipParsingTests(unittest.TestCase):
 
         self.assertEqual(server.parse_sdp_payloads(sdp), (0, 101))
 
+    def test_filter_sdp_audio_payloads_keeps_g711_and_dtmf(self):
+        sdp = (
+            "v=0\r\n"
+            "c=IN IP4 192.0.2.10\r\n"
+            "m=audio 16604 RTP/AVP 109 9 0 8 18 101\r\n"
+            "a=rtpmap:109 opus/48000/2\r\n"
+            "a=fmtp:109 useinbandfec=1\r\n"
+            "a=rtcp-fb:109 nack\r\n"
+            "a=rtpmap:9 G722/8000\r\n"
+            "a=rtpmap:0 PCMU/8000\r\n"
+            "a=rtpmap:8 PCMA/8000\r\n"
+            "a=rtpmap:18 G729/8000\r\n"
+            "a=rtpmap:101 telephone-event/8000\r\n"
+        )
+
+        filtered = server.filter_sdp_audio_payloads(sdp, (server.PCMU, server.PCMA, 101))
+
+        self.assertIn("m=audio 16604 RTP/AVP 0 8 101", filtered)
+        self.assertIn("a=rtpmap:0 PCMU/8000", filtered)
+        self.assertIn("a=rtpmap:8 PCMA/8000", filtered)
+        self.assertIn("a=rtpmap:101 telephone-event/8000", filtered)
+        self.assertNotIn("opus/48000/2", filtered)
+        self.assertNotIn("G722/8000", filtered)
+        self.assertNotIn("G729/8000", filtered)
+
+    def test_g711_sdp_payloads_prefers_default_then_other_g711_then_dtmf(self):
+        payloads = server.g711_sdp_payloads((109, 9, server.PCMU, server.PCMA, 101), server.PCMU, 101)
+
+        self.assertEqual(payloads, (server.PCMU, server.PCMA, 101))
+
     def test_parse_sip_uri_with_default_and_explicit_ports(self):
         explicit = server.parse_sip_uri("<sip:1002@127.0.0.1:25082>")
         self.assertEqual(explicit.user, "1002")
@@ -974,6 +1004,7 @@ class ConfigTests(unittest.TestCase):
                     '"sip_advertised_ip": "172.28.0.20", '
                     '"b2bua_advertised_ip": "192.168.28.20", '
                     '"b2bua_invite_timeout": 60, '
+                    '"rtpengine_g711_only": true, '
                     '"rtpengine_timeout": 1.5}'
                 ),
                 encoding="utf-8",
@@ -1000,6 +1031,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.rtpengine_url, "udp://127.0.0.1:2223")
             self.assertEqual(config.rtpengine_timeout, 1.5)
             self.assertEqual(config.b2bua_invite_timeout, 60.0)
+            self.assertTrue(config.rtpengine_g711_only)
             self.assertEqual(config.rtpengine_directions, ("core", "peer"))
             self.assertEqual(config.rtpengine_interfaces, ("core", "peer"))
             self.assertEqual(config.sip_advertised_ip, "172.28.0.20")

@@ -42,7 +42,7 @@ Active-active, full media ranges, hardphones, and production-grade state are fut
 | `v1.6.3` | Real-device call hotfix: retry routing from the `To` user when Request-URI target is unroutable, and keep in-dialog BYE/ACK off private Contact addresses. |
 | `v1.6.4` | Real-device B2BUA hotfix: candidate-based INVITE target routing, bidirectional BYE forwarding, and stronger OBi/Zoiper diagnostics. |
 | `v1.6.5` | AKS stdout diagnostics hotfix: emit structured SIP route, response, BYE, and RTPengine evidence into `kubectl logs` when persistent logs are disabled. |
-| `v1.6.6` | Real-device answer-window hotfix: include the v1.6.5 lab cleanup, reject missing routes instead of fallback echo, and make B2BUA outbound INVITE timeout configurable for OBi/Zoiper ringing. |
+| `v2.0.0` | Real-device AKS lab baseline: OBi1022 and Zoiper registration/calls, RTPengine anchored media, dynamic public SIP IP configuration, strict route handling, human-answer timeout, and optional G.711-only RTPengine codec clamp. |
 
 ## Cost Guardrail
 
@@ -83,7 +83,7 @@ export SIP_PIP_NAME=playsbc-sip-pip
 export RTP_PIP_NAME=playsbc-rtp-pip
 export DNS_LABEL=playsbc-sip-lab-$RANDOM
 export RTP_DNS_LABEL=playsbc-rtp-lab-$RANDOM
-export PLAYSBC_VERSION=1.6.6
+export PLAYSBC_VERSION=2.0.0
 ```
 
 ## 3. Register Azure Providers
@@ -459,8 +459,9 @@ The first OBi1022 registration exposed a few practical AKS lab issues:
 - OBi1022 can send a proxy-style INVITE where the Request-URI is the AKS public IP and the dialed extension is only in the `To` header. PlaySBC v1.6.4 chooses from Request-URI and `To` candidates and logs the selected route.
 - Some devices send a private Contact in the answered dialog even after registering from a public source. PlaySBC v1.6.4 keeps ACK/BYE packets on the learned destination instead of sending them to a private LAN address from AKS.
 - B2BUA BYE is forwarded from either side of the dialog, so calls released by the callee leg should clear the caller leg too.
-- PlaySBC v1.6.6 emits SIP route, response, ACK/BYE forwarding, timeout seconds, and RTPengine evidence to `kubectl logs` when persistent file logs are disabled in AKS.
+- PlaySBC v2.0.0 emits SIP route, response, ACK/BYE forwarding, timeout seconds, codec clamp, and RTPengine evidence to `kubectl logs` when persistent file logs are disabled in AKS.
 - For real OBi/Zoiper calls, set `playsbc.config.b2bua_invite_timeout=60.0` so the outbound hardphone leg can ring long enough to be answered.
+- For the first real OBi/Zoiper media baseline, set `playsbc.config.rtpengine_g711_only=true` so RTPengine advertises only G.711 plus telephone-event instead of broad endpoint codec lists.
 - For plain real-device RTP testing, keep hardphones on RTP/UDP. SRTP/DTLS belongs in the TLS/SRTP lab profile and can break this public UDP smoke if the endpoint insists on secure media.
 - Internet phones need both SIP and RTP exposed. Enable the Azure RTP public LoadBalancer and keep its port range aligned with RTPengine `rtpMin`/`rtpMax`.
 
@@ -473,7 +474,7 @@ export LOCATION=eastus
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
-export PLAYSBC_VERSION=1.6.6
+export PLAYSBC_VERSION=2.0.0
 export ACR_NAME=$(az acr list --resource-group "$AKS_RG" --query "[0].name" -o tsv)
 ```
 
