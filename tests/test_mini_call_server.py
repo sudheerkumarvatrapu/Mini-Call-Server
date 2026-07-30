@@ -973,6 +973,7 @@ class ConfigTests(unittest.TestCase):
                     '"rtpengine_interfaces": ["core", "peer"], '
                     '"sip_advertised_ip": "172.28.0.20", '
                     '"b2bua_advertised_ip": "192.168.28.20", '
+                    '"b2bua_invite_timeout": 60, '
                     '"rtpengine_timeout": 1.5}'
                 ),
                 encoding="utf-8",
@@ -998,6 +999,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.media_backend, "rtpengine")
             self.assertEqual(config.rtpengine_url, "udp://127.0.0.1:2223")
             self.assertEqual(config.rtpengine_timeout, 1.5)
+            self.assertEqual(config.b2bua_invite_timeout, 60.0)
             self.assertEqual(config.rtpengine_directions, ("core", "peer"))
             self.assertEqual(config.rtpengine_interfaces, ("core", "peer"))
             self.assertEqual(config.sip_advertised_ip, "172.28.0.20")

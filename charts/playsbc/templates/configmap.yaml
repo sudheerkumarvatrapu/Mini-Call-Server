@@ -75,18 +75,18 @@
 {{- $_ := set $ha "failover" $failover -}}
 {{- $_ := set $ha "rtpengine_pairs" $pairs -}}
 {{- $_ := set $config "ha" $ha -}}
-{{- if eq (get $config "sip_advertised_ip" | default "") "" -}}
-{{- $_ := set $config "sip_advertised_ip" "$POD_IP" -}}
-{{- end -}}
-{{- if eq (get $config "b2bua_advertised_ip" | default "") "" -}}
-{{- $_ := set $config "b2bua_advertised_ip" "$POD_IP" -}}
-{{- end -}}
 {{- if not (get $config "rtpengine_directions") -}}
 {{- $_ := set $config "rtpengine_directions" (list "core" "peer") -}}
 {{- end -}}
 {{- if not (get $config "rtpengine_interfaces") -}}
 {{- $_ := set $config "rtpengine_interfaces" (list "core" "peer") -}}
 {{- end -}}
+{{- end -}}
+{{- if eq (get $config "sip_advertised_ip" | default "") "" -}}
+{{- $_ := set $config "sip_advertised_ip" "$POD_IP" -}}
+{{- end -}}
+{{- if eq (get $config "b2bua_advertised_ip" | default "") "" -}}
+{{- $_ := set $config "b2bua_advertised_ip" "$POD_IP" -}}
 {{- end -}}
 {{- $rasa := .Values.rasa | default dict -}}
 {{- $rasaEnabled := get $rasa "enabled" | default false -}}

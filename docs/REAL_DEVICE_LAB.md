@@ -16,8 +16,10 @@ OBi1022 / hardphone 1001
 ## 1. Get The PlaySBC SIP IP
 
 ```bash
-kubectl -n playsbc get svc playsbc-playsbc-azure-sip-public \
+export SIP_PUBLIC_IP=$(kubectl -n playsbc get svc playsbc-playsbc-azure-sip-public \
   -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}'
+)
+echo "$SIP_PUBLIC_IP"
 ```
 
 Use the returned IP as the SIP registrar/proxy.
@@ -28,9 +30,13 @@ For the first real-device test, keep credentials simple and private to the lab.
 
 ```bash
 helm upgrade --install playsbc \
-  https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v1.6.5/playsbc-1.6.5.tgz \
+  https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v1.6.6/playsbc-1.6.6.tgz \
   --namespace playsbc \
   --reuse-values \
+  --set playsbc.config.reject_unknown_routes=true \
+  --set playsbc.config.b2bua_invite_timeout=60.0 \
+  --set-string playsbc.config.sip_advertised_ip="$SIP_PUBLIC_IP" \
+  --set-string playsbc.config.b2bua_advertised_ip="$SIP_PUBLIC_IP" \
   --set authSecret.enabled=true \
   --set-string authSecret.users.1001=secret-password \
   --set-string authSecret.users.1002=secret-password
@@ -135,8 +141,10 @@ Common issues:
 
 - No REGISTER: check phone SIP server IP, UDP 5062 reachability, and home router SIP ALG.
 - 401 repeats forever: wrong SIP password or realm mismatch.
-- Dialing `1002` from an ATA returns address-incomplete/failed routing: check whether the INVITE Request-URI is only the SBC public IP. PlaySBC v1.6.5 falls back to the `To` header user for that proxy-style INVITE.
+- Dialing `1002` from an ATA returns address-incomplete/failed routing: check whether the INVITE Request-URI is only the SBC public IP. PlaySBC v1.6.6 falls back to the `To` header user for that proxy-style INVITE.
 - REGISTER passes but inbound call fails: confirm the log shows the packet destination is the observed source, not only the private Contact.
+- Zoiper shows `Unparsable SDP`: check for `INVITE ROUTE FAILED`. That means PlaySBC did not have a live registrar route and answered using the fallback echo path. Re-register both endpoints after every PlaySBC pod restart and keep `playsbc.config.reject_unknown_routes=true` for the real-device lab.
+- Zoiper gets `480 Temporarily Unavailable` after the OBi rings: check for `reason=outbound_invite_timeout`. Use `playsbc.config.b2bua_invite_timeout=60.0` so a real phone can ring long enough to be answered.
 - One-way or no audio: check the Azure RTP public LoadBalancer, RTP port range, and `rtpengine.advertisedIP`. Internet phones must receive SDP with the Azure RTP public IP, not an AKS pod IP.
 - For this real-device UDP lab, keep OBi RTP as plain UDP. SRTP/DTLS should be tested later with the dedicated TLS/SRTP profiles.
 
@@ -159,8 +167,9 @@ The important lessons:
 - For PlaySBC digest auth, `X_UseTokenAuth` must be disabled.
 - OBi backups may not show the password, so retype `AuthPassword` manually after restoring or editing config.
 - A private Contact such as `192.168.1.9:5060` is normal behind home NAT. PlaySBC v1.6.1 routes the outbound packet to the observed REGISTER source while preserving the SIP Contact as the Request-URI.
-- Some hardphones send `INVITE sip:<proxy-ip>:5062` and keep the dialed extension in `To: <sip:1002@...>`. PlaySBC v1.6.5 routes that using `1002` instead of treating the public IP as the called user.
-- PlaySBC v1.6.5 logs route candidates, selected route, SIP TX responses, B2BUA ACK/BYE forwarding, and RTPengine events to pod stdout in AKS.
+- Some hardphones send `INVITE sip:<proxy-ip>:5062` and keep the dialed extension in `To: <sip:1002@...>`. PlaySBC v1.6.6 routes that using `1002` instead of treating the public IP as the called user.
+- Real devices need a human-answer window. PlaySBC v1.6.6 adds `b2bua_invite_timeout`; use `60.0` for OBi/Zoiper AKS calls and keep the default `10.0` for fast SIPp regression.
+- PlaySBC v1.6.6 logs route candidates, selected route, SIP TX responses, B2BUA timeout seconds, ACK/BYE forwarding, and RTPengine events to pod stdout in AKS.
 
 Use this while making one test call at a time:
 

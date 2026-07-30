@@ -94,6 +94,7 @@ Azure release track:
 - `v1.6.3`: real-device call hotfix. Retry routing from the `To` user when the Request-URI user is unroutable, keep in-dialog ACK/BYE packets away from private dialog Contacts by using the learned registered destination, and allow RTPengine to advertise the Azure RTP public IP for internet media.
 - `v1.6.4`: real-device B2BUA hotfix. Use candidate-based INVITE target routing, forward BYE from either B2BUA leg, and log selected/failed route candidates for OBi1022 and Zoiper troubleshooting.
 - `v1.6.5`: real-device AKS diagnostics/media hotfix. Emit route selection, SIP TX responses, tolerant ACK/BYE forwarding, and RTPengine evidence to pod stdout; accept common hardphone target header variants; and add compact Azure RTP public port-range exposure for one-call OBi/Zoiper validation.
+- `v1.6.6`: real-device answer-window hotfix. Include the uncommitted v1.6.5 lab cleanup, reject missing registered routes instead of fallback echo, and add configurable B2BUA outbound INVITE timeout for human-answer OBi/Zoiper calls.
 
 Production-readiness gates:
 

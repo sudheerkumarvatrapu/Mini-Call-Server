@@ -53,7 +53,7 @@ except Exception:  # pragma: no cover - audioop is unavailable in newer Python b
 
 
 CRLF = "\r\n"
-PLAYSBC_VERSION = "1.6.5"
+PLAYSBC_VERSION = "1.6.6"
 PCMU = 0
 PCMA = 8
 SUPPORTED_CODECS = (PCMU, PCMA)
@@ -111,6 +111,7 @@ class ServerConfig:
     transport_policies: Tuple[Dict[str, Any], ...] = field(default_factory=tuple)
     call_admission: Dict[str, Any] = field(default_factory=dict)
     b2bua_ladder_logs: bool = True
+    b2bua_invite_timeout: float = 10.0
     media_backend: str = "internal"
     rtpengine_url: str = "udp://127.0.0.1:2223"
     rtpengine_timeout: float = 3.0
@@ -162,6 +163,7 @@ SERVER_CONFIG_KEYS = {
     "transport_policies",
     "call_admission",
     "b2bua_ladder_logs",
+    "b2bua_invite_timeout",
     "media_backend",
     "rtpengine_url",
     "rtpengine_timeout",
@@ -2092,6 +2094,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         media_backend: str = "internal",
         rtpengine_client: Optional[RtpengineClient] = None,
         reject_unknown_routes: bool = False,
+        b2bua_invite_timeout: float = 10.0,
         sip_transport: str = "udp",
         sip_advertised_ip: str = "",
         b2bua_advertised_ip: str = "",
@@ -2125,6 +2128,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         self.rtpengine_directions = rtpengine_directions
         self.rtpengine_interfaces = frozenset(rtpengine_interfaces)
         self.reject_unknown_routes = reject_unknown_routes
+        self.b2bua_invite_timeout = max(1.0, float(b2bua_invite_timeout))
         self.nonces: Dict[str, float] = {}
         self.transport: Optional[asyncio.DatagramTransport] = None
         self.registrations: Dict[str, Registration] = {}
@@ -3441,10 +3445,12 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                 to_header,
                 inbound_rtp,
                 b2bua_call,
+                timeout=self.b2bua_invite_timeout,
             )
         except asyncio.TimeoutError:
-            inbound_rtp.log("B2BUA FAILURE", f"route={target.uri} reason=outbound_invite_timeout")
-            flow_log.write("B2BUA FAILURE", f"route={target.uri} reason=outbound_invite_timeout")
+            detail = f"route={target.uri} reason=outbound_invite_timeout timeout_seconds={self.b2bua_invite_timeout:g}"
+            inbound_rtp.log("B2BUA FAILURE", detail)
+            flow_log.write("B2BUA FAILURE", detail)
             self.send_response(message, 480, "Temporarily Unavailable", to_header=to_header)
             self.cleanup_b2bua_call(b2bua_call)
             return
@@ -3681,9 +3687,13 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                 to_header,
                 None,
                 b2bua_call,
+                timeout=self.b2bua_invite_timeout,
             )
         except asyncio.TimeoutError:
-            flow_log.write("B2BUA FAILURE", f"route={target.uri} reason=outbound_invite_timeout")
+            flow_log.write(
+                "B2BUA FAILURE",
+                f"route={target.uri} reason=outbound_invite_timeout timeout_seconds={self.b2bua_invite_timeout:g}",
+            )
             self.send_response(message, 480, "Temporarily Unavailable", to_header=to_header)
             self.cleanup_b2bua_call(b2bua_call)
             return
@@ -5615,7 +5625,7 @@ def coerce_config_value(key: str, value: Any) -> Any:
         return "off" if not value else "active"
     if key in {"sip_port", "tls_port", "rtp_min", "rtp_max", "health_port", "rtpengine_max_sessions"}:
         return int(value)
-    if key == "rtpengine_timeout":
+    if key in {"rtpengine_timeout", "b2bua_invite_timeout"}:
         return float(value)
     if key in {"debug", "b2bua_ladder_logs", "reject_unknown_routes", "tls_verify_peer"}:
         if isinstance(value, bool):
@@ -6103,6 +6113,7 @@ async def main() -> None:
         media_backend=config.media_backend,
         rtpengine_client=rtpengine_client,
         reject_unknown_routes=config.reject_unknown_routes,
+        b2bua_invite_timeout=config.b2bua_invite_timeout,
         sip_transport=config.sip_transport,
         sip_advertised_ip=config.sip_advertised_ip,
         b2bua_advertised_ip=config.b2bua_advertised_ip,
