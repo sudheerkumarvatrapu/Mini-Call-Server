@@ -36,6 +36,34 @@ class SipParsingTests(unittest.TestCase):
         self.assertEqual(message.header("call-id"), "call-1")
         self.assertEqual(message.header("content-length"), "0")
 
+    def test_sip_udp_keepalive_payloads_are_detected_before_parsing(self):
+        self.assertTrue(server.is_sip_keepalive_payload(b"\r\n\r\n"))
+        self.assertTrue(server.is_sip_keepalive_payload(b"\x00\x00\x00\x00"))
+        self.assertTrue(server.is_sip_keepalive_payload(b"keep-alive\r\n"))
+        self.assertFalse(
+            server.is_sip_keepalive_payload(
+                b"OPTIONS sip:playsbc@127.0.0.1 SIP/2.0\r\nCSeq: 1 OPTIONS\r\n\r\n"
+            )
+        )
+
+    def test_receive_sip_keepalive_does_not_enter_transaction_layer(self):
+        protocol = server.SipServerProtocol(
+            "127.0.0.1",
+            25062,
+            media=None,
+            logger=server.SbcLogger(None),
+            default_payload=server.PCMU,
+            auth_realm="playsbc",
+            users={},
+            bridge_rooms=(),
+            b2bua_routes={},
+            route_policies=(),
+            b2bua_ladder_logs=False,
+        )
+
+        protocol.receive_sip_data(b"keep-alive\r\n", ("192.0.2.10", 5060))
+        protocol.receive_sip_data(b"\r\n\r\n", ("192.0.2.11", 61995))
+
     def test_sdp_payload_and_dtmf_detection(self):
         sdp = (
             "c=IN IP4 127.0.0.1\r\n"
