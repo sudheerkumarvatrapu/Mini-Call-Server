@@ -13,6 +13,7 @@ Real-device AKS lab baseline for OBi1022 and Zoiper.
 
 - Adds `b2bua_invite_timeout` so a real hardphone can ring long enough before PlaySBC returns `480 Temporarily Unavailable`.
 - Adds `rtpengine_g711_only` for the first OBi/Zoiper media baseline, clamping broad endpoint SDP to G.711 plus telephone-event before RTPengine offer/answer.
+- Adds `rtpengine_plain_rtp_sdp` for the OBi/Zoiper baseline, removing ICE, RTCP-mux, fingerprint, setup, bundle, and other WebRTC-style SDP attributes while keeping plain `RTP/AVP` G.711 plus telephone-event.
 - Handles OBi/Zoiper UDP NAT keepalives such as CRLF and `keep-alive` without pushing them into SIP transaction CSeq validation.
 - Logs RTPengine codec clamp, route selection, SIP responses, ACK/BYE forwarding, timeout seconds, and media query evidence to pod stdout.
 
@@ -24,6 +25,7 @@ Recommended AKS real-device values:
 --set playsbc.config.reject_unknown_routes=true
 --set playsbc.config.b2bua_invite_timeout=60.0
 --set playsbc.config.rtpengine_g711_only=true
+--set playsbc.config.rtpengine_plain_rtp_sdp=true
 --set-string playsbc.config.sip_advertised_ip="$SIP_PUBLIC_IP"
 --set-string playsbc.config.b2bua_advertised_ip="$SIP_PUBLIC_IP"
 --set-string rtpengine.advertisedIP="$RTP_PUBLIC_IP"

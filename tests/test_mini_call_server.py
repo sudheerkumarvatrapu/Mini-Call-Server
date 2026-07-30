@@ -117,6 +117,43 @@ class SipParsingTests(unittest.TestCase):
 
         self.assertEqual(payloads, (server.PCMU, server.PCMA, 101))
 
+    def test_normalize_plain_rtp_sdp_strips_ice_and_rtcp_mux(self):
+        sdp = (
+            "v=0\r\n"
+            "o=zoiper 1 1 IN IP4 122.171.69.148\r\n"
+            "s=-\r\n"
+            "c=IN IP4 122.171.69.148\r\n"
+            "a=group:BUNDLE audio\r\n"
+            "m=audio 53492 RTP/SAVPF 109 0 8 101\r\n"
+            "a=mid:audio\r\n"
+            "a=rtpmap:109 opus/48000/2\r\n"
+            "a=rtpmap:0 PCMU/8000\r\n"
+            "a=rtpmap:8 PCMA/8000\r\n"
+            "a=rtpmap:101 telephone-event/8000\r\n"
+            "a=fmtp:109 useinbandfec=1\r\n"
+            "a=ice-ufrag:abcd\r\n"
+            "a=ice-pwd:secret\r\n"
+            "a=candidate:1 1 UDP 2130706431 192.0.2.20 53492 typ host\r\n"
+            "a=fingerprint:sha-256 00:11:22\r\n"
+            "a=setup:actpass\r\n"
+            "a=rtcp-mux\r\n"
+            "a=sendrecv\r\n"
+        )
+
+        normalized = server.normalize_plain_rtp_sdp(sdp, (server.PCMU, server.PCMA, 101))
+
+        self.assertIn("m=audio 53492 RTP/AVP 0 8 101", normalized)
+        self.assertIn("a=rtpmap:0 PCMU/8000", normalized)
+        self.assertIn("a=rtpmap:8 PCMA/8000", normalized)
+        self.assertIn("a=rtpmap:101 telephone-event/8000", normalized)
+        self.assertNotIn("opus/48000/2", normalized)
+        self.assertNotIn("a=ice-", normalized)
+        self.assertNotIn("a=candidate:", normalized)
+        self.assertNotIn("a=fingerprint:", normalized)
+        self.assertNotIn("a=setup:", normalized)
+        self.assertNotIn("a=rtcp-mux", normalized)
+        self.assertNotIn("a=group:BUNDLE", normalized)
+
     def test_parse_sip_uri_with_default_and_explicit_ports(self):
         explicit = server.parse_sip_uri("<sip:1002@127.0.0.1:25082>")
         self.assertEqual(explicit.user, "1002")
@@ -1033,6 +1070,7 @@ class ConfigTests(unittest.TestCase):
                     '"b2bua_advertised_ip": "192.168.28.20", '
                     '"b2bua_invite_timeout": 60, '
                     '"rtpengine_g711_only": true, '
+                    '"rtpengine_plain_rtp_sdp": true, '
                     '"rtpengine_timeout": 1.5}'
                 ),
                 encoding="utf-8",
@@ -1060,6 +1098,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.rtpengine_timeout, 1.5)
             self.assertEqual(config.b2bua_invite_timeout, 60.0)
             self.assertTrue(config.rtpengine_g711_only)
+            self.assertTrue(config.rtpengine_plain_rtp_sdp)
             self.assertEqual(config.rtpengine_directions, ("core", "peer"))
             self.assertEqual(config.rtpengine_interfaces, ("core", "peer"))
             self.assertEqual(config.sip_advertised_ip, "172.28.0.20")

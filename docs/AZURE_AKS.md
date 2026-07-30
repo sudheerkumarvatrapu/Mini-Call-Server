@@ -225,6 +225,11 @@ NODE_RG=$(az aks show \
   --name "$AKS_NAME" \
   --query nodeResourceGroup \
   -o tsv)
+SIP_PUBLIC_IP=$(az network public-ip show \
+  --resource-group "$NETWORK_RG" \
+  --name "$SIP_PIP_NAME" \
+  --query ipAddress \
+  -o tsv)
 RTP_PUBLIC_IP=$(az network public-ip show \
   --resource-group "$NETWORK_RG" \
   --name "$RTP_PIP_NAME" \
@@ -270,6 +275,15 @@ rtpengine:
   rtpMin: 30000
   rtpMax: 30049
   advertisedIP: "$RTP_PUBLIC_IP"
+
+playsbc:
+  config:
+    reject_unknown_routes: true
+    b2bua_invite_timeout: 60.0
+    rtpengine_g711_only: true
+    rtpengine_plain_rtp_sdp: true
+    sip_advertised_ip: "$SIP_PUBLIC_IP"
+    b2bua_advertised_ip: "$SIP_PUBLIC_IP"
 EOF
 ```
 
@@ -462,6 +476,7 @@ The first OBi1022 registration exposed a few practical AKS lab issues:
 - PlaySBC v2.0.0 emits SIP route, response, ACK/BYE forwarding, timeout seconds, codec clamp, and RTPengine evidence to `kubectl logs` when persistent file logs are disabled in AKS.
 - For real OBi/Zoiper calls, set `playsbc.config.b2bua_invite_timeout=60.0` so the outbound hardphone leg can ring long enough to be answered.
 - For the first real OBi/Zoiper media baseline, set `playsbc.config.rtpengine_g711_only=true` so RTPengine advertises only G.711 plus telephone-event instead of broad endpoint codec lists.
+- For OBi/Zoiper public internet RTP, also set `playsbc.config.rtpengine_plain_rtp_sdp=true` to strip ICE, RTCP-mux, fingerprint, setup, bundle, and other WebRTC-style SDP attributes from the RTPengine offer/answer path.
 - OBi/Zoiper UDP NAT keepalives may be CRLF-only or `keep-alive` packets with no CSeq. PlaySBC v2.0.0 logs them as `SIP KEEP-ALIVE` and ignores them without transaction errors.
 - For plain real-device RTP testing, keep hardphones on RTP/UDP. SRTP/DTLS belongs in the TLS/SRTP lab profile and can break this public UDP smoke if the endpoint insists on secure media.
 - Internet phones need both SIP and RTP exposed. Enable the Azure RTP public LoadBalancer and keep its port range aligned with RTPengine `rtpMin`/`rtpMax`.

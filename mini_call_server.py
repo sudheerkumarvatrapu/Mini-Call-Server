@@ -121,6 +121,7 @@ class ServerConfig:
     rtpengine_offer_transport_protocol: str = ""
     rtpengine_answer_transport_protocol: str = ""
     rtpengine_g711_only: bool = False
+    rtpengine_plain_rtp_sdp: bool = False
     rtpengine_sdes: Tuple[str, ...] = field(default_factory=tuple)
     rtpengine_dtls: str = ""
     media_quality: Dict[str, Any] = field(default_factory=dict)
@@ -174,6 +175,7 @@ SERVER_CONFIG_KEYS = {
     "rtpengine_offer_transport_protocol",
     "rtpengine_answer_transport_protocol",
     "rtpengine_g711_only",
+    "rtpengine_plain_rtp_sdp",
     "rtpengine_sdes",
     "rtpengine_dtls",
     "media_quality",
@@ -2119,6 +2121,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         rtpengine_offer_transport_protocol: str = "",
         rtpengine_answer_transport_protocol: str = "",
         rtpengine_g711_only: bool = False,
+        rtpengine_plain_rtp_sdp: bool = False,
         rtpengine_sdes: Tuple[str, ...] = (),
         rtpengine_dtls: str = "",
         ai_voice_gateway: Optional[Dict[str, Any]] = None,
@@ -2172,6 +2175,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         self.rtpengine_offer_transport_protocol = rtpengine_offer_transport_protocol
         self.rtpengine_answer_transport_protocol = rtpengine_answer_transport_protocol
         self.rtpengine_g711_only = rtpengine_g711_only
+        self.rtpengine_plain_rtp_sdp = rtpengine_plain_rtp_sdp
         self.rtpengine_sdes = rtpengine_sdes
         self.rtpengine_dtls = rtpengine_dtls
         self.ai_voice_config = AiVoiceConfig.from_dict(ai_voice_gateway)
@@ -3665,6 +3669,16 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                 ),
                 call_id=inbound_call_id,
             )
+        if self.rtpengine_plain_rtp_sdp:
+            normalized_offer = normalize_plain_rtp_sdp(offer_sdp, remote_payloads)
+            if normalized_offer != offer_sdp:
+                offer_sdp = normalized_offer
+                flow_log.write("RTPENGINE PLAIN RTP SDP", "stage=offer normalized=true")
+                self.logger.media(
+                    "RTPENGINE PLAIN RTP SDP",
+                    "stage=offer normalized=true removed=ice,rtcp-mux,webrtc-attrs",
+                    call_id=inbound_call_id,
+                )
         try:
             flow_log.sip("B2BUA", "RTPengine", "OFFER")
             self.rtpengine_control_requests_total += 1
@@ -3685,6 +3699,11 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             outbound_body = str(offer_response.get("sdp") or "")
             if not outbound_body:
                 raise RtpengineError("RTPengine offer response did not include SDP")
+            if self.rtpengine_plain_rtp_sdp:
+                normalized_outbound_body = normalize_plain_rtp_sdp(outbound_body, remote_payloads)
+                if normalized_outbound_body != outbound_body:
+                    outbound_body = normalized_outbound_body
+                    flow_log.write("RTPENGINE PLAIN RTP SDP", "stage=outbound-offer normalized=true")
             flow_log.write(
                 "RTPENGINE OFFER",
                 (
@@ -3776,13 +3795,29 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         try:
             flow_log.sip("B2BUA", "RTPengine", "ANSWER")
             self.rtpengine_control_requests_total += 1
+            answer_body = final_response.body
+            if self.rtpengine_plain_rtp_sdp:
+                answer_allowed_payloads = g711_sdp_payloads(
+                    parse_sdp_payloads(final_response.body),
+                    self.default_payload,
+                    parse_dtmf_payload_type(final_response.body),
+                )
+                normalized_answer_body = normalize_plain_rtp_sdp(final_response.body, answer_allowed_payloads)
+                if normalized_answer_body != final_response.body:
+                    answer_body = normalized_answer_body
+                    flow_log.write("RTPENGINE PLAIN RTP SDP", "stage=answer normalized=true")
+                    self.logger.media(
+                        "RTPENGINE PLAIN RTP SDP",
+                        "stage=answer normalized=true removed=ice,rtcp-mux,webrtc-attrs",
+                        call_id=inbound_call_id,
+                    )
             answer_response = await retry_rtpengine_control(
                 "ANSWER",
                 lambda: self.rtpengine_client.answer(
                     call_id=inbound_call_id,
                     from_tag=from_tag,
                     to_tag=to_tag,
-                    sdp=final_response.body,
+                    sdp=answer_body,
                     codec=codec_policy,
                     transport_protocol=self.rtpengine_answer_transport_protocol,
                     sdes=self.rtpengine_sdes,
@@ -3793,6 +3828,11 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             answer_sdp = str(answer_response.get("sdp") or "")
             if not answer_sdp:
                 raise RtpengineError("RTPengine answer response did not include SDP")
+            if self.rtpengine_plain_rtp_sdp:
+                normalized_answer_sdp = normalize_plain_rtp_sdp(answer_sdp, remote_payloads)
+                if normalized_answer_sdp != answer_sdp:
+                    answer_sdp = normalized_answer_sdp
+                    flow_log.write("RTPENGINE PLAIN RTP SDP", "stage=inbound-answer normalized=true")
             flow_log.write(
                 "RTPENGINE ANSWER",
                 (
@@ -5235,6 +5275,66 @@ def filter_sdp_audio_payloads(sdp: str, allowed_payloads: Tuple[int, ...]) -> st
     return CRLF.join(filtered_lines) + CRLF
 
 
+def normalize_plain_rtp_sdp(sdp: str, allowed_payloads: Tuple[int, ...] = ()) -> str:
+    """Strip WebRTC/NAT traversal attributes for legacy SIP phone RTP/AVP interop."""
+    allowed = {str(payload) for payload in allowed_payloads}
+    stripped_prefixes = (
+        "a=group:",
+        "a=candidate:",
+        "a=end-of-candidates",
+        "a=ice-ufrag:",
+        "a=ice-pwd:",
+        "a=ice-options:",
+        "a=ice-lite",
+        "a=fingerprint:",
+        "a=setup:",
+        "a=crypto:",
+        "a=rtcp-mux",
+        "a=rtcp-rsize",
+        "a=ssrc:",
+        "a=msid",
+        "a=mid:",
+        "a=extmap:",
+    )
+    changed = False
+    normalized_lines: List[str] = []
+    for raw_line in sdp.splitlines():
+        line = raw_line.rstrip("\r")
+        lower = line.lower()
+        if any(lower.startswith(prefix) for prefix in stripped_prefixes):
+            changed = True
+            continue
+
+        media_match = re.match(r"^(m=audio\s+\d+\s+)(\S+)(\s+)(.+)$", line, re.IGNORECASE)
+        if media_match:
+            protocol = media_match.group(2)
+            payload_tokens = media_match.group(4).split()
+            kept = [payload for payload in payload_tokens if not allowed or payload in allowed]
+            if not kept:
+                kept = payload_tokens
+            new_protocol = "RTP/AVP" if protocol.upper() != "RTP/AVP" else protocol
+            new_line = f"{media_match.group(1)}{new_protocol}{media_match.group(3)}{' '.join(kept)}"
+            changed = changed or new_line != line
+            normalized_lines.append(new_line)
+            continue
+
+        attr_match = re.match(r"^a=(?:rtpmap|fmtp|rtcp-fb):(\d+)\b", line, re.IGNORECASE)
+        if attr_match and allowed and attr_match.group(1) not in allowed:
+            changed = True
+            continue
+
+        if lower in {"a=sendonly", "a=recvonly", "a=inactive"}:
+            normalized_lines.append("a=sendrecv")
+            changed = True
+            continue
+
+        normalized_lines.append(line)
+
+    if not changed:
+        return sdp
+    return CRLF.join(normalized_lines) + CRLF
+
+
 def rtpengine_codec_policy(remote_payloads: Tuple[int, ...], target_payload: int) -> Dict[str, List[str]]:
     target_codec = CODEC_NAMES.get(target_payload)
     if not target_codec:
@@ -5729,7 +5829,14 @@ def coerce_config_value(key: str, value: Any) -> Any:
         return int(value)
     if key in {"rtpengine_timeout", "b2bua_invite_timeout"}:
         return float(value)
-    if key in {"debug", "b2bua_ladder_logs", "reject_unknown_routes", "tls_verify_peer", "rtpengine_g711_only"}:
+    if key in {
+        "debug",
+        "b2bua_ladder_logs",
+        "reject_unknown_routes",
+        "tls_verify_peer",
+        "rtpengine_g711_only",
+        "rtpengine_plain_rtp_sdp",
+    }:
         if isinstance(value, bool):
             return value
         if isinstance(value, str):
@@ -6225,6 +6332,7 @@ async def main() -> None:
         rtpengine_offer_transport_protocol=config.rtpengine_offer_transport_protocol,
         rtpengine_answer_transport_protocol=config.rtpengine_answer_transport_protocol,
         rtpengine_g711_only=config.rtpengine_g711_only,
+        rtpengine_plain_rtp_sdp=config.rtpengine_plain_rtp_sdp,
         rtpengine_sdes=config.rtpengine_sdes,
         rtpengine_dtls=config.rtpengine_dtls,
         ai_voice_gateway=config.ai_voice_gateway,
