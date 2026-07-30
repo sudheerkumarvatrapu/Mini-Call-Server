@@ -248,6 +248,19 @@ class SipMessage:
         return self.headers.get(name.lower(), default)
 
 
+SIP_KEEPALIVE_TOKENS = {b"", b"keep-alive", b"keepalive"}
+
+
+def is_sip_keepalive_payload(data: bytes) -> bool:
+    """Detect CRLF/empty UDP keepalives before the SIP parser sees them."""
+    normalized = data.strip(b"\x00\r\n\t ")
+    return normalized.lower() in SIP_KEEPALIVE_TOKENS
+
+
+def is_sip_keepalive_message(message: SipMessage) -> bool:
+    return not message.is_response and message.method in {"KEEP-ALIVE", "KEEPALIVE"} and not message.header("cseq")
+
+
 @dataclass
 class SipUri:
     user: str
@@ -2572,6 +2585,10 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         transport_name: str = "udp",
         connection: Optional[SipTcpConnectionProtocol] = None,
     ) -> None:
+        if is_sip_keepalive_payload(data):
+            self.handle_sip_keepalive(data, addr, transport_name)
+            return
+
         try:
             text = data.decode("utf-8", errors="replace")
             message = parse_sip_message(text, addr, transport_name=transport_name, connection=connection)
@@ -2581,6 +2598,10 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             return
 
         self.logger.write(transport_name, f"{transport_name.upper()} RX", f"protocol=sip source={addr[0]}:{addr[1]} bytes={len(data)}")
+        if is_sip_keepalive_message(message):
+            self.handle_sip_keepalive(data, addr, transport_name)
+            return
+
         if message.is_response:
             self.observe_sip_response(message.status_code or 0, transport_name, "rx", "peer")
             logging.info(
@@ -2618,6 +2639,18 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             call_id=message.header("call-id"),
         )
         asyncio.create_task(self.handle_message(message))
+
+    def handle_sip_keepalive(self, data: bytes, addr: Tuple[str, int], transport_name: str) -> None:
+        self.logger.write(
+            transport_name,
+            f"{transport_name.upper()} RX",
+            f"protocol=sip-keepalive source={addr[0]}:{addr[1]} bytes={len(data)}",
+        )
+        logging.info("SIP KEEP-ALIVE from %s:%s bytes=%s", addr[0], addr[1], len(data))
+        self.logger.sip(
+            "SIP KEEP-ALIVE",
+            f"transport={transport_name} source={addr[0]}:{addr[1]} bytes={len(data)} ignored=true",
+        )
 
     def handle_response(self, message: SipMessage) -> None:
         call_id = message.header("call-id")

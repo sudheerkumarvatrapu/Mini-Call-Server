@@ -13,6 +13,7 @@ Real-device AKS lab baseline for OBi1022 and Zoiper.
 
 - Adds `b2bua_invite_timeout` so a real hardphone can ring long enough before PlaySBC returns `480 Temporarily Unavailable`.
 - Adds `rtpengine_g711_only` for the first OBi/Zoiper media baseline, clamping broad endpoint SDP to G.711 plus telephone-event before RTPengine offer/answer.
+- Handles OBi/Zoiper UDP NAT keepalives such as CRLF and `keep-alive` without pushing them into SIP transaction CSeq validation.
 - Logs RTPengine codec clamp, route selection, SIP responses, ACK/BYE forwarding, timeout seconds, and media query evidence to pod stdout.
 
 ## Real Device Lab Settings
