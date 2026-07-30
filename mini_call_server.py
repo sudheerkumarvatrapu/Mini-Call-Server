@@ -21,6 +21,7 @@ import argparse
 import asyncio
 import fnmatch
 import hashlib
+import ipaddress
 import json
 import logging
 import os
@@ -279,6 +280,38 @@ class Registration:
         return parse_sip_uri(self.contact_uri)
 
 
+def sip_host_needs_received_route(host: str) -> bool:
+    try:
+        address = ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return False
+    return address.is_private or address.is_loopback or address.is_link_local or address.is_unspecified
+
+
+def registration_received_destination(registration: Registration) -> Optional[Tuple[str, int]]:
+    target = registration.target
+    if target.address == registration.source:
+        return None
+    if sip_host_needs_received_route(target.host):
+        return registration.source
+    return None
+
+
+def format_endpoint(endpoint: Tuple[str, int]) -> str:
+    return f"{endpoint[0]}:{endpoint[1]}"
+
+
+def response_via_header(via_header: str, source: Tuple[str, int]) -> str:
+    if not via_header:
+        return via_header
+    via = via_header
+    if "received=" not in via.lower():
+        via += f";received={source[0]}"
+    if re.search(r"(?i)(^|;)rport($|;)", via):
+        via = re.sub(r"(?i)(^|;)rport($|;)", rf"\1rport={source[1]}\2", via, count=1)
+    return via
+
+
 @dataclass
 class RoutePolicy:
     name: str
@@ -310,6 +343,7 @@ class RouteResult:
     routed_user: str = ""
     trunk_name: str = ""
     group_name: str = ""
+    destination: Optional[Tuple[str, int]] = None
 
 
 def infer_realm_label(*values: object, default: str = "peer") -> str:
@@ -502,7 +536,14 @@ class RoutingEngine:
                 registration = registrations.get(user)
                 if registration and not registration.is_expired(now):
                     target = self._transport_target(user, registration.target)
-                    return RouteResult(target, policy.name, "registrar", original_user, user)
+                    return RouteResult(
+                        target,
+                        policy.name,
+                        "registrar",
+                        original_user,
+                        user,
+                        destination=registration_received_destination(registration),
+                    )
                 continue
 
             lowered = target.lower()
@@ -3238,7 +3279,8 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             "B2BUA ROUTE",
             (
                 f"target_user={target_user} route={target.uri} outbound_call_id={outbound_call_id} "
-                f"route_source={route.source} route_policy={route.policy_name}"
+                f"route_source={route.source} route_policy={route.policy_name} "
+                f"packet_destination={format_endpoint(route.destination) if route.destination else target.uri}"
             ),
         )
 
@@ -3642,12 +3684,13 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             )
         packet = build_sip_request("INVITE", b2bua_call.outbound_target.uri, headers, body)
         self.observe_sip_request("INVITE", transport_name, "tx", "peer")
-        self._send_packet(packet, b2bua_call.outbound_target.address, transport_name=transport_name)
+        destination = self.outbound_destination(b2bua_call)
+        self._send_packet(packet, destination, transport_name=transport_name)
         b2bua_call.flow_log.sip(
             "B2BUA",
             "SIPp B",
             "INVITE",
-            f"call_id={b2bua_call.outbound_call_id} target={b2bua_call.outbound_target.uri}",
+            f"call_id={b2bua_call.outbound_call_id} target={b2bua_call.outbound_target.uri} destination={destination[0]}:{destination[1]}",
         )
         session = self.media.get_session(b2bua_call.outbound_call_id)
         if session:
@@ -3726,6 +3769,8 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             session.log("B2BUA OUTBOUND BYE", f"target={request_uri}")
 
     def outbound_destination(self, b2bua_call: B2BUACall) -> Tuple[str, int]:
+        if b2bua_call.route_result and b2bua_call.route_result.destination:
+            return b2bua_call.route_result.destination
         if b2bua_call.outbound_contact_uri:
             try:
                 return parse_sip_uri(b2bua_call.outbound_contact_uri).address
@@ -4454,7 +4499,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         to_header: Optional[str] = None,
     ) -> None:
         headers = {
-            "Via": request.header("via"),
+            "Via": response_via_header(request.header("via"), request.source),
             "From": request.header("from"),
             "To": to_header or ensure_tag(request.header("to")),
             "Call-ID": request.header("call-id"),

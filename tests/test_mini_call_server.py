@@ -137,10 +137,55 @@ class SipParsingTests(unittest.TestCase):
         call.outbound_contact_uri = "sip:sipp-b@127.0.0.1:25082;transport=udp"
         self.assertEqual(protocol.outbound_transport(call), "udp")
 
+    def test_b2bua_outbound_destination_prefers_registrar_received_source(self):
+        protocol = server.SipServerProtocol(
+            "127.0.0.1",
+            25062,
+            media=None,
+            logger=server.SbcLogger(None),
+            default_payload=server.PCMU,
+            auth_realm="playsbc",
+            users={},
+            bridge_rooms=(),
+            b2bua_routes={},
+            route_policies=(),
+            b2bua_ladder_logs=False,
+        )
+        route = server.RouteResult(
+            target=server.SipUri("1001", "192.168.1.9", 5060),
+            policy_name="registered",
+            source="registrar",
+            destination=("122.171.34.210", 5072),
+        )
+        flow = server.B2BUAFlowLog(None, "inbound-call", "1001", route, enabled=False)
+        call = server.B2BUACall(
+            inbound_call_id="inbound-call",
+            outbound_call_id="outbound-call",
+            outbound_target=route.target,
+            outbound_from_header="<sip:b2bua@127.0.0.1>",
+            target_user="1001",
+            route_policy="registered",
+            route_source="registrar",
+            flow_log=flow,
+            route_result=route,
+        )
+
+        call.outbound_contact_uri = "sip:1001@192.168.1.9:5060"
+
+        self.assertEqual(protocol.outbound_destination(call), ("122.171.34.210", 5072))
+
     def test_register_expires_parsing_prefers_contact_parameter(self):
         self.assertEqual(server.parse_register_expires("300", "<sip:bob@127.0.0.1>;expires=60"), 60)
         self.assertEqual(server.parse_register_expires("120", "<sip:bob@127.0.0.1>"), 120)
         self.assertEqual(server.parse_register_expires("", "<sip:bob@127.0.0.1>"), 300)
+
+    def test_response_via_header_adds_received_and_rport(self):
+        via = "SIP/2.0/UDP 192.168.1.9:5060;branch=z9hG4bK-obi;rport"
+
+        response_via = server.response_via_header(via, ("122.171.34.210", 5072))
+
+        self.assertIn(";received=122.171.34.210", response_via)
+        self.assertIn(";rport=5072", response_via)
 
     def test_make_sdp_can_include_multiple_codecs_and_dtmf(self):
         sdp = server.make_sdp("127.0.0.1", 30000, server.PCMU, dtmf_payload_type=101, payloads=(0, 8, 101))
@@ -1050,6 +1095,48 @@ class RoutingEngineTests(unittest.TestCase):
         self.assertIsNotNone(route)
         self.assertEqual(route.target.address, ("127.0.0.1", 25082))
         self.assertEqual(route.source, "registrar")
+
+    def test_registrar_policy_routes_private_contact_to_received_source(self):
+        engine = server.RoutingEngine(
+            ({"name": "registered", "match": "*", "target": "registration"},),
+            {},
+        )
+        registrations = {
+            "1001": server.Registration(
+                user="1001",
+                contact_uri="sip:1001@192.168.1.9:5060",
+                source=("122.171.34.210", 5072),
+                expires_at=9999999999,
+            )
+        }
+
+        route = engine.resolve("1001", registrations)
+
+        self.assertIsNotNone(route)
+        assert route is not None
+        self.assertEqual(route.target.address, ("192.168.1.9", 5060))
+        self.assertEqual(route.destination, ("122.171.34.210", 5072))
+
+    def test_registrar_policy_keeps_matching_private_contact_destination_empty(self):
+        engine = server.RoutingEngine(
+            ({"name": "registered", "match": "*", "target": "registration"},),
+            {},
+        )
+        registrations = {
+            "1002": server.Registration(
+                user="1002",
+                contact_uri="sip:1002@10.244.0.10:5060",
+                source=("10.244.0.10", 5060),
+                expires_at=9999999999,
+            )
+        }
+
+        route = engine.resolve("1002", registrations)
+
+        self.assertIsNotNone(route)
+        assert route is not None
+        self.assertEqual(route.target.address, ("10.244.0.10", 5060))
+        self.assertIsNone(route.destination)
 
     def test_route_policy_can_template_static_target(self):
         engine = server.RoutingEngine(

@@ -89,6 +89,7 @@ Azure release track:
 - `v1.5.4`: Azure documentation cleanup milestone. Merge the Azure AKS and Cloud Shell playbook content into one shorter `docs/AZURE_AKS.md` guide with deploy, regression, report download, recovery, and cleanup in one flow.
 - `v1.5.5`: AKS readiness and evidence hardening milestone. Wait for Azure LoadBalancer ingress before strict AKS regression starts, generate a verified `latest-aks-regression.tgz` directly from the Kubernetes regression job wrapper, and document archive validation so failed AKS runs keep usable HTML, JSON, SIP, media, and platform evidence.
 - `v1.6.0`: AKS evidence correctness milestone. Keep OPTIONS keepalive ladders OPTIONS-only, merge core/peer captures into one timestamp-sorted `capture.pcap`, and filter AKS packet capture to SIP/RTP/SRTP/RTCP ports so Wireshark evidence is clean.
+- `v1.6.1`: real-device AKS milestone. Validate OBi1022 REGISTER through Azure public SIP LoadBalancer, document OBi/Zoiper setup, and add home-NAT registrar routing so private Contact addresses can still receive B2BUA outbound legs via the observed REGISTER source.
 
 Production-readiness gates:
 
