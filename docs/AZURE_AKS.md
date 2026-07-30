@@ -40,6 +40,7 @@ Active-active, full media ranges, hardphones, and production-grade state are fut
 | `v1.6.1` | Real-device AKS lab milestone: home-NAT REGISTER routing, OBi1022/Zoiper runbook, and AKS hardphone troubleshooting notes. |
 | `v1.6.2` | Real-device call hotfix: route proxy-style hardphone INVITEs from the `To` user when the Request-URI is host-only. |
 | `v1.6.3` | Real-device call hotfix: retry routing from the `To` user when Request-URI target is unroutable, and keep in-dialog BYE/ACK off private Contact addresses. |
+| `v1.6.4` | Real-device B2BUA hotfix: candidate-based INVITE target routing, bidirectional BYE forwarding, and stronger OBi/Zoiper diagnostics. |
 
 ## Cost Guardrail
 
@@ -80,7 +81,7 @@ export SIP_PIP_NAME=playsbc-sip-pip
 export RTP_PIP_NAME=playsbc-rtp-pip
 export DNS_LABEL=playsbc-sip-lab-$RANDOM
 export RTP_DNS_LABEL=playsbc-rtp-lab-$RANDOM
-export PLAYSBC_VERSION=1.6.3
+export PLAYSBC_VERSION=1.6.4
 ```
 
 ## 3. Register Azure Providers
@@ -470,8 +471,9 @@ The first OBi1022 registration exposed a few practical AKS lab issues:
 - SIPp `OPTIONS` and digest `REGISTER` from a Mac proved AKS UDP 5062 was reachable before the hardphone worked.
 - OBi1022 required `X_DnsSrv=false` for a direct public IP and `X_UseTokenAuth=false` for normal SIP digest auth.
 - OBi1022 registered with Contact `sip:1001@192.168.1.9:5060`; PlaySBC v1.6.1 keeps that Contact in signalling but routes packets to the observed REGISTER source so home-NAT hardphone calls can proceed.
-- OBi1022 can send a proxy-style INVITE where the Request-URI is the AKS public IP and the dialed extension is only in the `To` header. PlaySBC v1.6.3 routes that call using the `To` user instead of treating the public IP as the called user.
-- Some devices send a private Contact in the answered dialog even after registering from a public source. PlaySBC v1.6.3 keeps ACK/BYE packets on the learned registered destination instead of sending them to a private LAN address from AKS.
+- OBi1022 can send a proxy-style INVITE where the Request-URI is the AKS public IP and the dialed extension is only in the `To` header. PlaySBC v1.6.4 chooses from Request-URI and `To` candidates and logs the selected route.
+- Some devices send a private Contact in the answered dialog even after registering from a public source. PlaySBC v1.6.4 keeps ACK/BYE packets on the learned destination instead of sending them to a private LAN address from AKS.
+- B2BUA BYE is forwarded from either side of the dialog, so calls released by the callee leg should clear the caller leg too.
 
 ## 15. Recover Kube Credentials
 
@@ -482,7 +484,7 @@ export LOCATION=eastus
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
-export PLAYSBC_VERSION=1.6.3
+export PLAYSBC_VERSION=1.6.4
 export ACR_NAME=$(az acr list --resource-group "$AKS_RG" --query "[0].name" -o tsv)
 ```
 

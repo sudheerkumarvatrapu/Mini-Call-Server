@@ -92,6 +92,7 @@ Azure release track:
 - `v1.6.1`: real-device AKS milestone. Validate OBi1022 REGISTER through Azure public SIP LoadBalancer, document OBi/Zoiper setup, and add home-NAT registrar routing so private Contact addresses can still receive B2BUA outbound legs via the observed REGISTER source.
 - `v1.6.2`: real-device call hotfix. Support OBi/ATA proxy-style INVITEs where the Request-URI is the SBC public IP and the dialed extension is carried in the `To` header.
 - `v1.6.3`: real-device call hotfix. Retry routing from the `To` user when the Request-URI user is unroutable, keep in-dialog ACK/BYE packets away from private dialog Contacts by using the learned registered destination, and allow RTPengine to advertise the Azure RTP public IP for internet media.
+- `v1.6.4`: real-device B2BUA hotfix. Use candidate-based INVITE target routing, forward BYE from either B2BUA leg, and log selected/failed route candidates for OBi1022 and Zoiper troubleshooting.
 
 Production-readiness gates:
 

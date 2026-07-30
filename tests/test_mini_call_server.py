@@ -82,6 +82,7 @@ class SipParsingTests(unittest.TestCase):
     def test_request_uri_user_detection_for_real_device_proxy_invites(self):
         direct = "INVITE sip:1002@20.102.44.81:5062 SIP/2.0"
         proxy_style = "INVITE sip:20.102.44.81:5062 SIP/2.0"
+        host_user = "INVITE sip:20.102.44.81@20.102.44.81:5062 SIP/2.0"
 
         self.assertEqual(server.extract_request_uri(direct), "sip:1002@20.102.44.81:5062")
         self.assertTrue(server.request_uri_has_user(direct))
@@ -90,6 +91,10 @@ class SipParsingTests(unittest.TestCase):
         self.assertEqual(server.extract_request_uri(proxy_style), "sip:20.102.44.81:5062")
         self.assertFalse(server.request_uri_has_user(proxy_style))
         self.assertEqual(server.extract_request_user(proxy_style), "20.102.44.81")
+        self.assertEqual(
+            server.invite_target_candidates(host_user, "<sip:1002@20.102.44.81>"),
+            ["1002", "20.102.44.81"],
+        )
 
     def test_route_policy_can_target_ai_voice_gateway(self):
         engine = server.RoutingEngine(
@@ -221,6 +226,42 @@ class SipParsingTests(unittest.TestCase):
         call.outbound_contact_uri = "sip:1001@192.168.1.9:5060"
 
         self.assertEqual(protocol.outbound_destination(call), ("122.171.34.210", 5060))
+
+    def test_b2bua_inbound_destination_uses_invite_source_for_private_dialog_contact(self):
+        protocol = server.SipServerProtocol(
+            "127.0.0.1",
+            25062,
+            media=None,
+            logger=server.SbcLogger(None),
+            default_payload=server.PCMU,
+            auth_realm="playsbc",
+            users={},
+            bridge_rooms=(),
+            b2bua_routes={},
+            route_policies=(),
+            b2bua_ladder_logs=False,
+        )
+        route = server.RouteResult(
+            target=server.SipUri("1002", "122.171.34.210", 61995),
+            policy_name="registered",
+            source="registrar",
+        )
+        flow = server.B2BUAFlowLog(None, "inbound-call", "1002", route, enabled=False)
+        call = server.B2BUACall(
+            inbound_call_id="inbound-call",
+            outbound_call_id="outbound-call",
+            outbound_target=route.target,
+            outbound_from_header="<sip:b2bua@127.0.0.1>",
+            target_user="1002",
+            route_policy="registered",
+            route_source="registrar",
+            flow_log=flow,
+            route_result=route,
+            inbound_contact_uri="sip:1001@192.168.1.9:5060",
+            inbound_destination=("122.171.34.210", 5060),
+        )
+
+        self.assertEqual(protocol.inbound_destination(call), ("122.171.34.210", 5060))
 
     def test_invite_target_falls_back_to_to_header_when_request_user_is_not_routable(self):
         protocol = server.SipServerProtocol(

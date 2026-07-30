@@ -1423,6 +1423,12 @@ class B2BUACall:
     outbound_cseq: int = 1
     outbound_bye_sent: bool = False
     outbound_cancel_sent: bool = False
+    inbound_from_header: str = ""
+    inbound_to_header: str = ""
+    inbound_contact_uri: str = ""
+    inbound_destination: Optional[Tuple[str, int]] = None
+    inbound_cseq: int = 1
+    inbound_bye_sent: bool = False
     finalized: bool = False
 
 
@@ -2896,6 +2902,15 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         if method == "BYE":
             call_id = message.header("call-id")
             session = self.media.get_session(call_id)
+            outbound_leg_call = self.b2bua_calls_by_outbound.get(call_id)
+            if outbound_leg_call:
+                outbound_leg_call.flow_log.sip("SIPp B", "B2BUA", "BYE")
+                self.send_response(message, 200, "OK")
+                outbound_leg_call.flow_log.sip("B2BUA", "SIPp B", "200 OK", "BYE")
+                self.send_inbound_bye(outbound_leg_call)
+                self.media.close_session(outbound_leg_call.inbound_call_id)
+                self.schedule_b2bua_finalizer(outbound_leg_call)
+                return
             try:
                 dialog = self.terminate_dialog(
                     call_id,
@@ -2942,31 +2957,40 @@ class SipServerProtocol(asyncio.DatagramProtocol):
     def resolve_invite_target(self, message: SipMessage, call_id: str) -> Tuple[str, Optional[RouteResult]]:
         request_user = extract_request_user(message.start_line)
         to_user = extract_user(message.header("to"))
-        if to_user and not request_uri_has_user(message.start_line):
-            target_user = to_user
-            self.logger.sip(
-                "INVITE TARGET FROM TO HEADER",
-                f"request_uri={extract_request_uri(message.start_line) or 'unknown'} to_user={to_user}",
-                call_id=call_id,
-            )
-        else:
-            target_user = request_user or to_user or "echo"
-
         self.cleanup_registrations()
-        route = self.routing_engine.resolve(target_user, self.registrations)
-        if not route and to_user and to_user != target_user:
-            fallback_route = self.routing_engine.resolve(to_user, self.registrations)
-            if fallback_route:
+        candidates = invite_target_candidates(message.start_line, message.header("to"))
+        self.logger.sip(
+            "INVITE ROUTE CANDIDATES",
+            (
+                f"request_uri={extract_request_uri(message.start_line) or 'unknown'} "
+                f"request_user={request_user or 'none'} to_user={to_user or 'none'} "
+                f"candidates={','.join(candidates) or 'none'}"
+            ),
+            call_id=call_id,
+        )
+        for candidate in candidates:
+            route = self.routing_engine.resolve(candidate, self.registrations)
+            if route:
+                event = "INVITE ROUTE SELECTED"
+                if candidate == to_user and candidate != request_user:
+                    event = "INVITE TARGET FALLBACK TO HEADER"
                 self.logger.sip(
-                    "INVITE TARGET FALLBACK TO HEADER",
+                    event,
                     (
-                        f"request_uri={extract_request_uri(message.start_line) or 'unknown'} "
-                        f"request_user={request_user or 'none'} to_user={to_user}"
+                        f"target_user={candidate} route={route.target.uri} "
+                        f"route_source={route.source} route_policy={route.policy_name} "
+                        f"destination={format_endpoint(route.destination) if route.destination else route.target.uri}"
                     ),
                     call_id=call_id,
                 )
-                return to_user, fallback_route
-        return target_user, route
+                return candidate, route
+        target_user = candidates[0] if candidates else "echo"
+        self.logger.sip(
+            "INVITE ROUTE FAILED",
+            f"target_user={target_user} request_user={request_user or 'none'} to_user={to_user or 'none'}",
+            call_id=call_id,
+        )
+        return target_user, None
 
     async def handle_ai_gateway_invite(
         self,
@@ -3295,6 +3319,10 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             route_source=route.source,
             flow_log=flow_log,
             route_result=route,
+            inbound_from_header=message.header("from"),
+            inbound_to_header=to_header,
+            inbound_contact_uri=extract_sip_uri(message.header("contact")),
+            inbound_destination=message.source,
         )
         self.b2bua_calls_total += 1
         self.b2bua_calls_by_inbound[inbound_call_id] = b2bua_call
@@ -3543,6 +3571,10 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             media_backend="rtpengine",
             rtpengine_call_id=inbound_call_id,
             rtpengine_from_tag=from_tag,
+            inbound_from_header=message.header("from"),
+            inbound_to_header=to_header,
+            inbound_contact_uri=extract_sip_uri(message.header("contact")),
+            inbound_destination=message.source,
         )
         self.b2bua_calls_total += 1
         self.b2bua_calls_by_inbound[inbound_call_id] = b2bua_call
@@ -3794,6 +3826,51 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         session = self.media.get_session(b2bua_call.outbound_call_id)
         if session:
             session.log("B2BUA OUTBOUND BYE", f"target={request_uri}")
+
+    def send_inbound_bye(self, b2bua_call: B2BUACall) -> None:
+        caller = extract_user(b2bua_call.inbound_from_header) or "caller"
+        request_uri = b2bua_call.inbound_contact_uri or f"sip:{caller}@{self.b2bua_advertised_ip}:{self.local_port}"
+        b2bua_call.inbound_cseq += 1
+        b2bua_call.inbound_bye_sent = True
+        transport_name = "udp"
+        try:
+            if b2bua_call.inbound_contact_uri:
+                transport_name = parse_sip_uri(b2bua_call.inbound_contact_uri).transport
+        except ValueError:
+            transport_name = "udp"
+        headers = {
+            "Via": self.make_via_header(transport_name),
+            "From": b2bua_call.inbound_to_header,
+            "To": b2bua_call.inbound_from_header,
+            "Call-ID": b2bua_call.inbound_call_id,
+            "CSeq": f"{b2bua_call.inbound_cseq} BYE",
+            "Contact": f"<{self.local_contact_uri(transport_name)}>",
+            "Max-Forwards": "69",
+        }
+        destination = self.inbound_destination(b2bua_call)
+        self._send_packet(
+            build_sip_request("BYE", request_uri, headers),
+            destination,
+            transport_name=transport_name,
+        )
+        self.observe_sip_request("BYE", transport_name, "tx", "core")
+        b2bua_call.flow_log.sip("B2BUA", "SIPp A", "BYE")
+        b2bua_call.flow_log.write(
+            "B2BUA INBOUND BYE",
+            f"target={request_uri} destination={destination[0]}:{destination[1]}",
+        )
+
+    def inbound_destination(self, b2bua_call: B2BUACall) -> Tuple[str, int]:
+        fallback = b2bua_call.inbound_destination or ("127.0.0.1", self.local_port)
+        if b2bua_call.inbound_contact_uri:
+            try:
+                contact = parse_sip_uri(b2bua_call.inbound_contact_uri)
+                if sip_host_needs_received_route(contact.host):
+                    return fallback
+                return contact.address
+            except ValueError:
+                pass
+        return fallback
 
     def outbound_destination(self, b2bua_call: B2BUACall) -> Tuple[str, int]:
         if b2bua_call.route_result and b2bua_call.route_result.destination:
@@ -4711,12 +4788,38 @@ def extract_request_uri(start_line: str) -> str:
     return parts[1] if len(parts) >= 2 else ""
 
 
+def sip_user_looks_like_host(user: str) -> bool:
+    value = user.strip("[]")
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return value.lower() == "localhost" or "." in value
+
+
 def request_uri_has_user(start_line: str) -> bool:
     uri = extract_request_uri(start_line)
     if not uri.lower().startswith("sip:"):
         return False
     authority = uri[4:].split(";", 1)[0].split("?", 1)[0]
     return "@" in authority
+
+
+def invite_target_candidates(start_line: str, to_header: str) -> List[str]:
+    request_user = extract_request_user(start_line)
+    to_user = extract_user(to_header)
+    candidates: List[str] = []
+
+    prefer_to = bool(to_user) and (
+        not request_uri_has_user(start_line)
+        or not request_user
+        or sip_user_looks_like_host(request_user)
+    )
+    ordered = (to_user, request_user) if prefer_to else (request_user, to_user)
+    for candidate in ordered:
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
 
 
 def parse_cseq_method(cseq_header: str) -> str:
