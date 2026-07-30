@@ -2715,19 +2715,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             remote_payloads = parse_sdp_payloads(message.body)
             dtmf_payload_type = parse_dtmf_payload_type(message.body)
             preferred_payload = choose_payload(remote_payloads, self.default_payload)
-            request_user = extract_request_user(message.start_line)
-            to_user = extract_user(message.header("to"))
-            if to_user and not request_uri_has_user(message.start_line):
-                target_user = to_user
-                self.logger.sip(
-                    "INVITE TARGET FROM TO HEADER",
-                    f"request_uri={extract_request_uri(message.start_line) or 'unknown'} to_user={to_user}",
-                    call_id=call_id,
-                )
-            else:
-                target_user = request_user or to_user or "echo"
-            self.cleanup_registrations()
-            route = self.routing_engine.resolve(target_user, self.registrations)
+            target_user, route = self.resolve_invite_target(message, call_id)
             if route:
                 routed_user = route.routed_user or target_user
                 if routed_user != target_user:
@@ -2950,6 +2938,35 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             return
 
         self.send_response(message, 405, "Method Not Allowed", extra_headers={"Allow": "REGISTER, OPTIONS, INVITE, ACK, BYE, CANCEL"})
+
+    def resolve_invite_target(self, message: SipMessage, call_id: str) -> Tuple[str, Optional[RouteResult]]:
+        request_user = extract_request_user(message.start_line)
+        to_user = extract_user(message.header("to"))
+        if to_user and not request_uri_has_user(message.start_line):
+            target_user = to_user
+            self.logger.sip(
+                "INVITE TARGET FROM TO HEADER",
+                f"request_uri={extract_request_uri(message.start_line) or 'unknown'} to_user={to_user}",
+                call_id=call_id,
+            )
+        else:
+            target_user = request_user or to_user or "echo"
+
+        self.cleanup_registrations()
+        route = self.routing_engine.resolve(target_user, self.registrations)
+        if not route and to_user and to_user != target_user:
+            fallback_route = self.routing_engine.resolve(to_user, self.registrations)
+            if fallback_route:
+                self.logger.sip(
+                    "INVITE TARGET FALLBACK TO HEADER",
+                    (
+                        f"request_uri={extract_request_uri(message.start_line) or 'unknown'} "
+                        f"request_user={request_user or 'none'} to_user={to_user}"
+                    ),
+                    call_id=call_id,
+                )
+                return to_user, fallback_route
+        return target_user, route
 
     async def handle_ai_gateway_invite(
         self,
@@ -3783,7 +3800,10 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             return b2bua_call.route_result.destination
         if b2bua_call.outbound_contact_uri:
             try:
-                return parse_sip_uri(b2bua_call.outbound_contact_uri).address
+                contact = parse_sip_uri(b2bua_call.outbound_contact_uri)
+                if sip_host_needs_received_route(contact.host):
+                    return b2bua_call.outbound_target.address
+                return contact.address
             except ValueError:
                 pass
         return b2bua_call.outbound_target.address

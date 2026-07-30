@@ -123,7 +123,7 @@ class SipParsingTests(unittest.TestCase):
             users={},
             bridge_rooms=(),
             b2bua_routes={},
-            route_policies=(),
+            route_policies=({"name": "registrar", "match": "*", "target": "registration"},),
             b2bua_ladder_logs=False,
         )
         route = server.RouteResult(
@@ -160,7 +160,7 @@ class SipParsingTests(unittest.TestCase):
             users={},
             bridge_rooms=(),
             b2bua_routes={},
-            route_policies=(),
+            route_policies=({"name": "registrar", "match": "*", "target": "registration"},),
             b2bua_ladder_logs=False,
         )
         route = server.RouteResult(
@@ -185,6 +185,80 @@ class SipParsingTests(unittest.TestCase):
         call.outbound_contact_uri = "sip:1001@192.168.1.9:5060"
 
         self.assertEqual(protocol.outbound_destination(call), ("122.171.34.210", 5072))
+
+    def test_b2bua_outbound_destination_uses_registered_target_for_private_dialog_contact(self):
+        protocol = server.SipServerProtocol(
+            "127.0.0.1",
+            25062,
+            media=None,
+            logger=server.SbcLogger(None),
+            default_payload=server.PCMU,
+            auth_realm="playsbc",
+            users={},
+            bridge_rooms=(),
+            b2bua_routes={},
+            route_policies=(),
+            b2bua_ladder_logs=False,
+        )
+        route = server.RouteResult(
+            target=server.SipUri("1001", "122.171.34.210", 5060),
+            policy_name="registered",
+            source="registrar",
+        )
+        flow = server.B2BUAFlowLog(None, "inbound-call", "1001", route, enabled=False)
+        call = server.B2BUACall(
+            inbound_call_id="inbound-call",
+            outbound_call_id="outbound-call",
+            outbound_target=route.target,
+            outbound_from_header="<sip:b2bua@127.0.0.1>",
+            target_user="1001",
+            route_policy="registered",
+            route_source="registrar",
+            flow_log=flow,
+            route_result=route,
+        )
+
+        call.outbound_contact_uri = "sip:1001@192.168.1.9:5060"
+
+        self.assertEqual(protocol.outbound_destination(call), ("122.171.34.210", 5060))
+
+    def test_invite_target_falls_back_to_to_header_when_request_user_is_not_routable(self):
+        protocol = server.SipServerProtocol(
+            "127.0.0.1",
+            25062,
+            media=None,
+            logger=server.SbcLogger(None),
+            default_payload=server.PCMU,
+            auth_realm="playsbc",
+            users={},
+            bridge_rooms=(),
+            b2bua_routes={},
+            route_policies=({"name": "registrar", "match": "*", "target": "registration"},),
+            b2bua_ladder_logs=False,
+        )
+        protocol.registrations["1002"] = server.Registration(
+            user="1002",
+            contact_uri="sip:1002@122.171.34.210:61995;transport=UDP",
+            source=("122.171.34.210", 61995),
+            expires_at=9999999999,
+        )
+        message = server.SipMessage(
+            "INVITE sip:20.102.44.81@20.102.44.81:5062 SIP/2.0",
+            {
+                "to": "<sip:1002@20.102.44.81>",
+                "from": "<sip:1001@20.102.44.81>;tag=obi",
+            },
+            "",
+            ("122.171.34.210", 5060),
+        )
+
+        target_user, route = protocol.resolve_invite_target(message, "real-device-call")
+
+        self.assertEqual(target_user, "1002")
+        self.assertIsNotNone(route)
+        assert route is not None
+        self.assertEqual(route.target.user, "1002")
+        self.assertEqual(route.target.address, ("122.171.34.210", 61995))
 
     def test_register_expires_parsing_prefers_contact_parameter(self):
         self.assertEqual(server.parse_register_expires("300", "<sip:bob@127.0.0.1>;expires=60"), 60)

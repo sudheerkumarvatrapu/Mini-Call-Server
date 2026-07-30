@@ -10,6 +10,7 @@
 {{- if lt $replicas 1 -}}
 {{- $replicas = 1 -}}
 {{- end -}}
+{{- $advertisedIP := get .Values.rtpengine "advertisedIP" | default "" -}}
 {{- $multus := get $topology "multus" | default dict -}}
 {{- $multusEnabled := get $multus "enabled" | default false -}}
 {{- $coreNetwork := get $multus "coreNetwork" | default dict -}}
@@ -63,9 +64,9 @@ spec:
             - >-
               exec rtpengine --foreground --log-stderr
 {{- if .Values.rtpengine.hostNetwork }}
-              --interface=default/${NODE_IP}
+              --interface=default/${NODE_IP}{{ if $advertisedIP }}!{{ $advertisedIP }}{{ end }}
 {{- else }}
-              --interface=default/${POD_IP}
+              --interface=default/${POD_IP}{{ if $advertisedIP }}!{{ $advertisedIP }}{{ end }}
 {{- end }}
               --listen-ng=0.0.0.0:{{ .Values.rtpengine.controlPort }}
               --port-min={{ .Values.rtpengine.rtpMin }}

@@ -61,7 +61,7 @@ image:
   # For direct deployments after image publishing, use:
   # repository: ghcr.io/sudheerkumarvatrapu/playsbc
   repository: playsbc
-  tag: "1.6.2"
+  tag: "1.6.3"
   pullPolicy: IfNotPresent
 
 service:
@@ -182,6 +182,7 @@ rtpengine:
   controlPort: 2223
   rtpMin: 30000
   rtpMax: 32000
+  advertisedIP: ""
   replicas: 1
   hostNetwork: true
   sessionAffinity: ClientIP
