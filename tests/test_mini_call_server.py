@@ -79,6 +79,18 @@ class SipParsingTests(unittest.TestCase):
             "sip:1002@127.0.0.1:25082;transport=tcp",
         )
 
+    def test_request_uri_user_detection_for_real_device_proxy_invites(self):
+        direct = "INVITE sip:1002@20.102.44.81:5062 SIP/2.0"
+        proxy_style = "INVITE sip:20.102.44.81:5062 SIP/2.0"
+
+        self.assertEqual(server.extract_request_uri(direct), "sip:1002@20.102.44.81:5062")
+        self.assertTrue(server.request_uri_has_user(direct))
+        self.assertEqual(server.extract_request_user(direct), "1002")
+
+        self.assertEqual(server.extract_request_uri(proxy_style), "sip:20.102.44.81:5062")
+        self.assertFalse(server.request_uri_has_user(proxy_style))
+        self.assertEqual(server.extract_request_user(proxy_style), "20.102.44.81")
+
     def test_route_policy_can_target_ai_voice_gateway(self):
         engine = server.RoutingEngine(
             (

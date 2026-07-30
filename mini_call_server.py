@@ -2715,7 +2715,17 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             remote_payloads = parse_sdp_payloads(message.body)
             dtmf_payload_type = parse_dtmf_payload_type(message.body)
             preferred_payload = choose_payload(remote_payloads, self.default_payload)
-            target_user = extract_request_user(message.start_line) or "echo"
+            request_user = extract_request_user(message.start_line)
+            to_user = extract_user(message.header("to"))
+            if to_user and not request_uri_has_user(message.start_line):
+                target_user = to_user
+                self.logger.sip(
+                    "INVITE TARGET FROM TO HEADER",
+                    f"request_uri={extract_request_uri(message.start_line) or 'unknown'} to_user={to_user}",
+                    call_id=call_id,
+                )
+            else:
+                target_user = request_user or to_user or "echo"
             self.cleanup_registrations()
             route = self.routing_engine.resolve(target_user, self.registrations)
             if route:
@@ -4674,6 +4684,19 @@ def extract_user(header_value: str) -> Optional[str]:
 def extract_request_user(start_line: str) -> Optional[str]:
     match = re.search(r"^\S+\s+sip:([^@;:\s>]+)", start_line, re.IGNORECASE)
     return match.group(1) if match else None
+
+
+def extract_request_uri(start_line: str) -> str:
+    parts = start_line.split()
+    return parts[1] if len(parts) >= 2 else ""
+
+
+def request_uri_has_user(start_line: str) -> bool:
+    uri = extract_request_uri(start_line)
+    if not uri.lower().startswith("sip:"):
+        return False
+    authority = uri[4:].split(";", 1)[0].split("?", 1)[0]
+    return "@" in authority
 
 
 def parse_cseq_method(cseq_header: str) -> str:

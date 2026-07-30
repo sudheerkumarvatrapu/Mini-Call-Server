@@ -28,7 +28,7 @@ For the first real-device test, keep credentials simple and private to the lab.
 
 ```bash
 helm upgrade --install playsbc \
-  https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v1.6.1/playsbc-1.6.1.tgz \
+  https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v1.6.2/playsbc-1.6.2.tgz \
   --namespace playsbc \
   --reuse-values \
   --set authSecret.enabled=true \
@@ -132,6 +132,7 @@ Common issues:
 
 - No REGISTER: check phone SIP server IP, UDP 5062 reachability, and home router SIP ALG.
 - 401 repeats forever: wrong SIP password or realm mismatch.
+- Dialing `1002` from an ATA returns address-incomplete/failed routing: check whether the INVITE Request-URI is only the SBC public IP. PlaySBC v1.6.2 falls back to the `To` header user for that proxy-style INVITE.
 - REGISTER passes but inbound call fails: confirm the log shows the packet destination is the observed source, not only the private Contact.
 - One-way audio: check RTPengine public media service exposure and home NAT/firewall behavior.
 
@@ -154,3 +155,4 @@ The important lessons:
 - For PlaySBC digest auth, `X_UseTokenAuth` must be disabled.
 - OBi backups may not show the password, so retype `AuthPassword` manually after restoring or editing config.
 - A private Contact such as `192.168.1.9:5060` is normal behind home NAT. PlaySBC v1.6.1 routes the outbound packet to the observed REGISTER source while preserving the SIP Contact as the Request-URI.
+- Some hardphones send `INVITE sip:<proxy-ip>:5062` and keep the dialed extension in `To: <sip:1002@...>`. PlaySBC v1.6.2 routes that using `1002` instead of treating the public IP as the called user.
