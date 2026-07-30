@@ -53,7 +53,7 @@ except Exception:  # pragma: no cover - audioop is unavailable in newer Python b
 
 
 CRLF = "\r\n"
-PLAYSBC_VERSION = "1.6.6"
+PLAYSBC_VERSION = "2.0.0"
 PCMU = 0
 PCMA = 8
 SUPPORTED_CODECS = (PCMU, PCMA)
@@ -120,6 +120,7 @@ class ServerConfig:
     rtpengine_max_sessions: int = -1
     rtpengine_offer_transport_protocol: str = ""
     rtpengine_answer_transport_protocol: str = ""
+    rtpengine_g711_only: bool = False
     rtpengine_sdes: Tuple[str, ...] = field(default_factory=tuple)
     rtpengine_dtls: str = ""
     media_quality: Dict[str, Any] = field(default_factory=dict)
@@ -172,6 +173,7 @@ SERVER_CONFIG_KEYS = {
     "rtpengine_max_sessions",
     "rtpengine_offer_transport_protocol",
     "rtpengine_answer_transport_protocol",
+    "rtpengine_g711_only",
     "rtpengine_sdes",
     "rtpengine_dtls",
     "media_quality",
@@ -2103,6 +2105,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         rtpengine_max_sessions: int = -1,
         rtpengine_offer_transport_protocol: str = "",
         rtpengine_answer_transport_protocol: str = "",
+        rtpengine_g711_only: bool = False,
         rtpengine_sdes: Tuple[str, ...] = (),
         rtpengine_dtls: str = "",
         ai_voice_gateway: Optional[Dict[str, Any]] = None,
@@ -2155,6 +2158,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         self.rtpengine_max_sessions = rtpengine_max_sessions
         self.rtpengine_offer_transport_protocol = rtpengine_offer_transport_protocol
         self.rtpengine_answer_transport_protocol = rtpengine_answer_transport_protocol
+        self.rtpengine_g711_only = rtpengine_g711_only
         self.rtpengine_sdes = rtpengine_sdes
         self.rtpengine_dtls = rtpengine_dtls
         self.ai_voice_config = AiVoiceConfig.from_dict(ai_voice_gateway)
@@ -3591,6 +3595,23 @@ class SipServerProtocol(asyncio.DatagramProtocol):
 
         from_tag = extract_header_tag(message.header("from")) or dialog.remote_tag or secrets.token_hex(6)
         remote_payloads = parse_sdp_payloads(message.body)
+        offer_sdp = message.body
+        if self.rtpengine_g711_only:
+            allowed_payloads = g711_sdp_payloads(remote_payloads, self.default_payload, parse_dtmf_payload_type(message.body))
+            clamped_sdp = filter_sdp_audio_payloads(message.body, allowed_payloads)
+            clamped_payloads = parse_sdp_payloads(clamped_sdp)
+            if clamped_payloads != remote_payloads:
+                flow_log.write(
+                    "RTPENGINE CODEC CLAMP",
+                    f"mode=g711_only original={format_payloads(remote_payloads)} clamped={format_payloads(clamped_payloads)}",
+                )
+                self.logger.media(
+                    "RTPENGINE CODEC CLAMP",
+                    f"mode=g711_only original={format_payloads(remote_payloads)} clamped={format_payloads(clamped_payloads)}",
+                    call_id=inbound_call_id,
+                )
+                offer_sdp = clamped_sdp
+                remote_payloads = clamped_payloads
         codec_policy = rtpengine_codec_policy(remote_payloads, self.default_payload)
         flow_log.write(
             "RTPENGINE CODEC POLICY",
@@ -3619,7 +3640,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                 lambda: self.rtpengine_client.offer(
                     call_id=inbound_call_id,
                     from_tag=from_tag,
-                    sdp=message.body,
+                    sdp=offer_sdp,
                     codec=codec_policy,
                     direction=self.rtpengine_directions,
                     transport_protocol=self.rtpengine_offer_transport_protocol,
@@ -5133,6 +5154,54 @@ def b2bua_outbound_offer_payloads(
     return remote_payloads
 
 
+def g711_sdp_payloads(
+    remote_payloads: Tuple[int, ...],
+    default_payload: int = PCMU,
+    dtmf_payload_type: Optional[int] = None,
+) -> Tuple[int, ...]:
+    payloads: List[int] = []
+    if default_payload in SUPPORTED_CODECS and default_payload in remote_payloads:
+        payloads.append(default_payload)
+    for payload in SUPPORTED_CODECS:
+        if payload in remote_payloads and payload not in payloads:
+            payloads.append(payload)
+    if not payloads:
+        payloads.append(choose_payload(remote_payloads, default_payload))
+    if dtmf_payload_type is not None and dtmf_payload_type in remote_payloads and dtmf_payload_type not in payloads:
+        payloads.append(dtmf_payload_type)
+    return tuple(payloads)
+
+
+def filter_sdp_audio_payloads(sdp: str, allowed_payloads: Tuple[int, ...]) -> str:
+    if not allowed_payloads:
+        return sdp
+
+    allowed = {str(payload) for payload in allowed_payloads}
+    filtered_lines: List[str] = []
+    changed = False
+    for raw_line in sdp.splitlines():
+        line = raw_line.rstrip("\r")
+        media_match = re.match(r"^(m=audio\s+\d+\s+\S+)\s+(.+)$", line, re.IGNORECASE)
+        if media_match:
+            payload_tokens = media_match.group(2).split()
+            kept = [payload for payload in payload_tokens if payload in allowed]
+            if kept:
+                new_line = f"{media_match.group(1)} {' '.join(kept)}"
+                changed = changed or new_line != line
+                filtered_lines.append(new_line)
+                continue
+
+        attr_match = re.match(r"^a=(?:rtpmap|fmtp|rtcp-fb):(\d+)\b", line, re.IGNORECASE)
+        if attr_match and attr_match.group(1) not in allowed:
+            changed = True
+            continue
+        filtered_lines.append(line)
+
+    if not changed:
+        return sdp
+    return CRLF.join(filtered_lines) + CRLF
+
+
 def rtpengine_codec_policy(remote_payloads: Tuple[int, ...], target_payload: int) -> Dict[str, List[str]]:
     target_codec = CODEC_NAMES.get(target_payload)
     if not target_codec:
@@ -5627,7 +5696,7 @@ def coerce_config_value(key: str, value: Any) -> Any:
         return int(value)
     if key in {"rtpengine_timeout", "b2bua_invite_timeout"}:
         return float(value)
-    if key in {"debug", "b2bua_ladder_logs", "reject_unknown_routes", "tls_verify_peer"}:
+    if key in {"debug", "b2bua_ladder_logs", "reject_unknown_routes", "tls_verify_peer", "rtpengine_g711_only"}:
         if isinstance(value, bool):
             return value
         if isinstance(value, str):
@@ -6122,6 +6191,7 @@ async def main() -> None:
         rtpengine_max_sessions=config.rtpengine_max_sessions,
         rtpengine_offer_transport_protocol=config.rtpengine_offer_transport_protocol,
         rtpengine_answer_transport_protocol=config.rtpengine_answer_transport_protocol,
+        rtpengine_g711_only=config.rtpengine_g711_only,
         rtpengine_sdes=config.rtpengine_sdes,
         rtpengine_dtls=config.rtpengine_dtls,
         ai_voice_gateway=config.ai_voice_gateway,
