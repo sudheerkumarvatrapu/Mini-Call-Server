@@ -96,6 +96,18 @@ class SipParsingTests(unittest.TestCase):
             ["1002", "20.102.44.81"],
         )
 
+    def test_target_user_detection_accepts_real_device_header_variants(self):
+        self.assertEqual(server.extract_user("<SIP:1002@20.102.44.81:5062>"), "1002")
+        self.assertEqual(server.extract_user("<tel:1002;phone-context=local>"), "1002")
+        self.assertEqual(server.extract_user('"1002" <sip:20.102.44.81:5062>'), "1002")
+        self.assertEqual(
+            server.invite_target_candidates(
+                "INVITE sip:20.102.44.81:5062 SIP/2.0",
+                '"1002" <sip:20.102.44.81:5062>',
+            ),
+            ["1002", "20.102.44.81"],
+        )
+
     def test_route_policy_can_target_ai_voice_gateway(self):
         engine = server.RoutingEngine(
             (
@@ -489,14 +501,14 @@ class RtcpTests(unittest.TestCase):
 
 
 class ResponseTests(unittest.TestCase):
+    class DummyTransport:
+        def __init__(self):
+            self.sent = []
+
+        def sendto(self, packet, destination):
+            self.sent.append((packet, destination))
+
     def test_send_response_can_preserve_untagged_to_header_for_trying(self):
-        class DummyTransport:
-            def __init__(self):
-                self.sent = []
-
-            def sendto(self, packet, destination):
-                self.sent.append((packet, destination))
-
         logger = server.SbcLogger(None)
         media = server.MediaServer("127.0.0.1", 12000, 12010, None, logger)
         protocol = server.SipServerProtocol(
@@ -512,7 +524,7 @@ class ResponseTests(unittest.TestCase):
             (),
             False,
         )
-        transport = DummyTransport()
+        transport = self.DummyTransport()
         protocol.transport = transport
         message = server.parse_sip_message(
             (
@@ -558,6 +570,111 @@ class ResponseTests(unittest.TestCase):
             protocol.inbound_contact_uri("callee", "tcp"),
             "sip:callee@127.0.0.1:25062;transport=tcp",
         )
+
+    def test_b2bua_ack_is_forwarded_when_dialog_validation_is_tolerated(self):
+        logger = server.SbcLogger(None)
+        media = server.MediaServer("127.0.0.1", 12000, 12010, None, logger)
+        protocol = server.SipServerProtocol(
+            "127.0.0.1",
+            25062,
+            media,
+            logger,
+            server.PCMU,
+            "playsbc",
+            {},
+            (),
+            {},
+            (),
+            False,
+        )
+        transport = self.DummyTransport()
+        protocol.transport = transport
+        route = server.RouteResult(
+            server.parse_sip_uri("sip:1001@122.171.69.148:5060"),
+            "registered",
+            "registrar",
+            destination=("122.171.69.148", 5060),
+        )
+        call = server.B2BUACall(
+            inbound_call_id="real-inbound",
+            outbound_call_id="real-outbound",
+            outbound_target=route.target,
+            outbound_from_header="<sip:b2bua@127.0.0.1>;tag=local",
+            outbound_to_header="<sip:1001@122.171.69.148>;tag=remote",
+            target_user="1001",
+            route_policy="registered",
+            route_source="registrar",
+            flow_log=server.B2BUAFlowLog(None, "real-inbound", "1001", route, enabled=False, logger=logger),
+            route_result=route,
+        )
+        protocol.b2bua_calls_by_inbound[call.inbound_call_id] = call
+        message = server.SipMessage(
+            "ACK sip:1001@127.0.0.1 SIP/2.0",
+            {"call-id": "real-inbound", "cseq": "1 ACK", "from": "<sip:1002@home>;tag=a", "to": "<sip:1001@sbc>;tag=b"},
+            "",
+            ("122.171.69.148", 61995),
+        )
+
+        asyncio.run(protocol.handle_message(message))
+
+        self.assertEqual(len(transport.sent), 1)
+        self.assertIn(b"ACK sip:1001@122.171.69.148:5060", transport.sent[0][0])
+
+    def test_b2bua_inbound_bye_gets_200_and_peer_bye_when_dialog_validation_is_tolerated(self):
+        logger = server.SbcLogger(None)
+        media = server.MediaServer("127.0.0.1", 12000, 12010, None, logger)
+        protocol = server.SipServerProtocol(
+            "127.0.0.1",
+            25062,
+            media,
+            logger,
+            server.PCMU,
+            "playsbc",
+            {},
+            (),
+            {},
+            (),
+            False,
+        )
+        transport = self.DummyTransport()
+        protocol.transport = transport
+        route = server.RouteResult(
+            server.parse_sip_uri("sip:1001@122.171.69.148:5060"),
+            "registered",
+            "registrar",
+            destination=("122.171.69.148", 5060),
+        )
+        call = server.B2BUACall(
+            inbound_call_id="real-inbound",
+            outbound_call_id="real-outbound",
+            outbound_target=route.target,
+            outbound_from_header="<sip:b2bua@127.0.0.1>;tag=local",
+            outbound_to_header="<sip:1001@122.171.69.148>;tag=remote",
+            target_user="1001",
+            route_policy="registered",
+            route_source="registrar",
+            flow_log=server.B2BUAFlowLog(None, "real-inbound", "1001", route, enabled=False, logger=logger),
+            route_result=route,
+        )
+        protocol.b2bua_calls_by_inbound[call.inbound_call_id] = call
+        message = server.SipMessage(
+            "BYE sip:1001@127.0.0.1 SIP/2.0",
+            {
+                "via": "SIP/2.0/UDP 122.171.69.148:61995;branch=z9hG4bK-bye;rport",
+                "call-id": "real-inbound",
+                "cseq": "2 BYE",
+                "from": "<sip:1002@home>;tag=a",
+                "to": "<sip:1001@sbc>;tag=b",
+            },
+            "",
+            ("122.171.69.148", 61995),
+        )
+
+        asyncio.run(protocol.handle_message(message))
+
+        packets = [packet for packet, _destination in transport.sent]
+        self.assertTrue(any(packet.startswith(b"SIP/2.0 200 OK") for packet in packets))
+        self.assertTrue(any(packet.startswith(b"BYE sip:1001@122.171.69.148:5060") for packet in packets))
 
 
 class PrometheusMetricTests(unittest.TestCase):

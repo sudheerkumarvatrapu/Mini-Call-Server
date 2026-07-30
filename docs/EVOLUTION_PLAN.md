@@ -93,6 +93,7 @@ Azure release track:
 - `v1.6.2`: real-device call hotfix. Support OBi/ATA proxy-style INVITEs where the Request-URI is the SBC public IP and the dialed extension is carried in the `To` header.
 - `v1.6.3`: real-device call hotfix. Retry routing from the `To` user when the Request-URI user is unroutable, keep in-dialog ACK/BYE packets away from private dialog Contacts by using the learned registered destination, and allow RTPengine to advertise the Azure RTP public IP for internet media.
 - `v1.6.4`: real-device B2BUA hotfix. Use candidate-based INVITE target routing, forward BYE from either B2BUA leg, and log selected/failed route candidates for OBi1022 and Zoiper troubleshooting.
+- `v1.6.5`: real-device AKS diagnostics/media hotfix. Emit route selection, SIP TX responses, tolerant ACK/BYE forwarding, and RTPengine evidence to pod stdout; accept common hardphone target header variants; and add compact Azure RTP public port-range exposure for one-call OBi/Zoiper validation.
 
 Production-readiness gates:
 

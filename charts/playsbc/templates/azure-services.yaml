@@ -119,6 +119,12 @@ spec:
 {{ end }}
 {{- if get $mediaPublic "enabled" }}
 {{- $mediaPorts := get $mediaPublic "ports" | default list -}}
+{{- $mediaPortRange := get $mediaPublic "portRange" | default dict -}}
+{{- if and (not $mediaPorts) (get $mediaPortRange "enabled" | default false) -}}
+{{- $rangeMin := int (get $mediaPortRange "min" | default 30000) -}}
+{{- $rangeMax := int (get $mediaPortRange "max" | default 30049) -}}
+{{- $mediaPorts = untilStep $rangeMin (int (add $rangeMax 1)) 1 -}}
+{{- end -}}
 {{- $mediaPublicAllowedRanges := get $mediaPublic "allowedSourceRanges" | default $globalAllowedRanges -}}
 {{- if $mediaPorts }}
 ---

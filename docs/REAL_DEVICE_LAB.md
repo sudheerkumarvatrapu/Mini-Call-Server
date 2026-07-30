@@ -28,7 +28,7 @@ For the first real-device test, keep credentials simple and private to the lab.
 
 ```bash
 helm upgrade --install playsbc \
-  https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v1.6.4/playsbc-1.6.4.tgz \
+  https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v1.6.5/playsbc-1.6.5.tgz \
   --namespace playsbc \
   --reuse-values \
   --set authSecret.enabled=true \
@@ -80,6 +80,9 @@ X_DisplayLabel: 1001
 X_DisplayNumber: 1001
 RegisterEnable: checked
 KeepAliveEnable: checked
+
+Service Providers -> ITSP Profile A -> RTP
+X_RTPTransport: UDP
 ```
 
 ## 4. Configure Zoiper As `1002`
@@ -132,9 +135,10 @@ Common issues:
 
 - No REGISTER: check phone SIP server IP, UDP 5062 reachability, and home router SIP ALG.
 - 401 repeats forever: wrong SIP password or realm mismatch.
-- Dialing `1002` from an ATA returns address-incomplete/failed routing: check whether the INVITE Request-URI is only the SBC public IP. PlaySBC v1.6.4 falls back to the `To` header user for that proxy-style INVITE.
+- Dialing `1002` from an ATA returns address-incomplete/failed routing: check whether the INVITE Request-URI is only the SBC public IP. PlaySBC v1.6.5 falls back to the `To` header user for that proxy-style INVITE.
 - REGISTER passes but inbound call fails: confirm the log shows the packet destination is the observed source, not only the private Contact.
 - One-way or no audio: check the Azure RTP public LoadBalancer, RTP port range, and `rtpengine.advertisedIP`. Internet phones must receive SDP with the Azure RTP public IP, not an AKS pod IP.
+- For this real-device UDP lab, keep OBi RTP as plain UDP. SRTP/DTLS should be tested later with the dedicated TLS/SRTP profiles.
 
 ## 8. Hurdles From The First OBi1022 AKS Test
 
@@ -155,4 +159,12 @@ The important lessons:
 - For PlaySBC digest auth, `X_UseTokenAuth` must be disabled.
 - OBi backups may not show the password, so retype `AuthPassword` manually after restoring or editing config.
 - A private Contact such as `192.168.1.9:5060` is normal behind home NAT. PlaySBC v1.6.1 routes the outbound packet to the observed REGISTER source while preserving the SIP Contact as the Request-URI.
-- Some hardphones send `INVITE sip:<proxy-ip>:5062` and keep the dialed extension in `To: <sip:1002@...>`. PlaySBC v1.6.4 routes that using `1002` instead of treating the public IP as the called user.
+- Some hardphones send `INVITE sip:<proxy-ip>:5062` and keep the dialed extension in `To: <sip:1002@...>`. PlaySBC v1.6.5 routes that using `1002` instead of treating the public IP as the called user.
+- PlaySBC v1.6.5 logs route candidates, selected route, SIP TX responses, B2BUA ACK/BYE forwarding, and RTPengine events to pod stdout in AKS.
+
+Use this while making one test call at a time:
+
+```bash
+kubectl -n playsbc logs deployment/playsbc-playsbc -f --since=10m \
+  | grep -aE "PlaySBC version|SIP (INVITE|ACK|BYE|CANCEL)|SIP TX response|SIP response|INVITE ROUTE|TARGET FALLBACK|ROUTE FAILED|B2BUA .*sent|B2BUA .*received|B2BUA .*TOLERATED|RTPENGINE|1001|1002"
+```

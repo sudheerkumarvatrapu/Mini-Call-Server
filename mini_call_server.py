@@ -53,7 +53,7 @@ except Exception:  # pragma: no cover - audioop is unavailable in newer Python b
 
 
 CRLF = "\r\n"
-PLAYSBC_VERSION = "1.5.0"
+PLAYSBC_VERSION = "1.6.5"
 PCMU = 0
 PCMA = 8
 SUPPORTED_CODECS = (PCMU, PCMA)
@@ -789,10 +789,6 @@ class SbcLogger:
             self.write(category, "LOG START", f"file={path.name}")
 
     def write(self, category: str, event: str, detail: str = "", call_id: str = "", leg: str = "") -> None:
-        if not self.enabled:
-            return
-        category = category.lower()
-        path = self.paths.get(category) or self.paths["platform"]
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
         parts = [timestamp, event]
         if call_id:
@@ -801,6 +797,11 @@ class SbcLogger:
             parts.append(f"leg={leg}")
         if detail:
             parts.append(detail)
+        if not self.enabled:
+            logging.info(" | ".join(parts))
+            return
+        category = category.lower()
+        path = self.paths.get(category) or self.paths["platform"]
         with path.open("a", encoding="utf-8") as log_file:
             log_file.write(" | ".join(parts) + "\n")
 
@@ -2574,7 +2575,15 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         self.logger.write(transport_name, f"{transport_name.upper()} RX", f"protocol=sip source={addr[0]}:{addr[1]} bytes={len(data)}")
         if message.is_response:
             self.observe_sip_response(message.status_code or 0, transport_name, "rx", "peer")
-            logging.info("SIP response %s from %s:%s", message.status_code, *addr)
+            logging.info(
+                "SIP response %s %s from %s:%s cseq=%s call_id=%s",
+                message.status_code,
+                message.reason_phrase,
+                addr[0],
+                addr[1],
+                message.header("cseq"),
+                message.header("call-id"),
+            )
             self.logger.sip(
                 "SIP RX RESPONSE",
                 f"transport={transport_name} status={message.status_code} reason={message.reason_phrase} source={addr[0]}:{addr[1]} cseq={message.header('cseq')}",
@@ -2583,7 +2592,17 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             self.handle_response(message)
             return
 
-        logging.info("SIP %s from %s:%s", message.method, *addr)
+        logging.info(
+            "SIP %s from %s:%s target=%s to=%s from=%s cseq=%s call_id=%s",
+            message.method,
+            addr[0],
+            addr[1],
+            message.start_line,
+            message.header("to"),
+            message.header("from"),
+            message.header("cseq"),
+            message.header("call-id"),
+        )
         self.observe_sip_request(message.method, transport_name, "rx", "core")
         self.logger.sip(
             "SIP RX REQUEST",
@@ -2794,8 +2813,12 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                 return
 
             if self.reject_unknown_routes:
-                self.send_response(message, 404, "Not Found", to_header=to_header)
-                logging.info("Rejected INVITE for unknown route target %s", target_user)
+                if not target_user or sip_user_looks_like_host(target_user):
+                    self.send_response(message, 484, "Address Incomplete", to_header=to_header)
+                    logging.info("Rejected INVITE with incomplete target %s", target_user or "none")
+                else:
+                    self.send_response(message, 404, "Not Found", to_header=to_header)
+                    logging.info("Rejected INVITE for unknown route target %s", target_user)
                 return
 
             self.send_response(message, 180, "Ringing", to_header=to_header)
@@ -2861,14 +2884,27 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             b2bua_call = self.b2bua_calls_by_inbound.get(call_id) or self.restore_b2bua_call_state(call_id)
             ai_call = self.ai_voice_calls_by_inbound.get(call_id)
             if session or b2bua_call or ai_call:
+                dialog = None
                 try:
                     dialog = self.acknowledge_dialog(call_id, message.header("cseq"))
                 except DialogError as exc:
-                    logging.info("Ignored invalid ACK for %s: %s", call_id, exc)
-                    return
-                if message.transport == "udp":
+                    if not b2bua_call:
+                        logging.info("Ignored invalid ACK for %s: %s", call_id, exc)
+                        return
+                    logging.info(
+                        "B2BUA tolerant ACK forwarding inbound_call_id=%s outbound_call_id=%s reason=%s",
+                        b2bua_call.inbound_call_id,
+                        b2bua_call.outbound_call_id,
+                        exc,
+                    )
+                    self.logger.sip(
+                        "B2BUA ACK DIALOG TOLERATED",
+                        f"reason={exc} source={message.source[0]}:{message.source[1]} cseq={message.header('cseq')}",
+                        call_id=call_id,
+                    )
+                if message.transport == "udp" and dialog:
                     self.transactions.acknowledge_invite(call_id, message.header("cseq"))
-                if session:
+                if session and dialog:
                     session.mark_ack()
                     session.log("DIALOG STATE", f"state={dialog.state.name} acknowledged=true")
                 if b2bua_call:
@@ -2905,11 +2941,69 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             outbound_leg_call = self.b2bua_calls_by_outbound.get(call_id)
             if outbound_leg_call:
                 outbound_leg_call.flow_log.sip("SIPp B", "B2BUA", "BYE")
+                logging.info(
+                    "B2BUA outbound-leg BYE received outbound_call_id=%s inbound_call_id=%s source=%s:%s",
+                    outbound_leg_call.outbound_call_id,
+                    outbound_leg_call.inbound_call_id,
+                    message.source[0],
+                    message.source[1],
+                )
                 self.send_response(message, 200, "OK")
                 outbound_leg_call.flow_log.sip("B2BUA", "SIPp B", "200 OK", "BYE")
-                self.send_inbound_bye(outbound_leg_call)
+                if not outbound_leg_call.inbound_bye_sent:
+                    self.send_inbound_bye(outbound_leg_call)
                 self.media.close_session(outbound_leg_call.inbound_call_id)
                 self.schedule_b2bua_finalizer(outbound_leg_call)
+                return
+            b2bua_call = self.b2bua_calls_by_inbound.get(call_id) or self.restore_b2bua_call_state(call_id)
+            if b2bua_call:
+                dialog = None
+                try:
+                    dialog = self.terminate_dialog(
+                        call_id,
+                        message.header("from"),
+                        message.header("to"),
+                        message.header("via"),
+                        message.header("cseq"),
+                    )
+                except DialogError as exc:
+                    logging.info(
+                        "B2BUA tolerant inbound-leg BYE inbound_call_id=%s outbound_call_id=%s reason=%s",
+                        b2bua_call.inbound_call_id,
+                        b2bua_call.outbound_call_id,
+                        exc,
+                    )
+                    self.logger.sip(
+                        "B2BUA BYE DIALOG TOLERATED",
+                        f"reason={exc} source={message.source[0]}:{message.source[1]} cseq={message.header('cseq')}",
+                        call_id=call_id,
+                    )
+                if session:
+                    session.log("BYE RECEIVED", f"source={message.source[0]}:{message.source[1]}")
+                b2bua_call.flow_log.sip("SIPp A", "B2BUA", "BYE")
+                logging.info(
+                    "B2BUA inbound-leg BYE received inbound_call_id=%s outbound_call_id=%s source=%s:%s",
+                    b2bua_call.inbound_call_id,
+                    b2bua_call.outbound_call_id,
+                    message.source[0],
+                    message.source[1],
+                )
+                self.send_response(message, 200, "OK")
+                b2bua_call.flow_log.sip("B2BUA", "SIPp A", "200 OK", "BYE")
+                if not b2bua_call.outbound_bye_sent:
+                    self.send_outbound_bye(b2bua_call)
+                self.media.close_session(b2bua_call.outbound_call_id)
+                self.schedule_b2bua_finalizer(b2bua_call)
+                if session and dialog:
+                    session.log(
+                        "DIALOG STATE",
+                        (
+                            f"state={dialog.state.name} remote_cseq={dialog.remote_cseq} "
+                            f"branches={','.join(sorted(dialog.branch_ids)) or 'none'}"
+                        ),
+                    )
+                    session.log("SIP RESPONSE", "200 OK for BYE")
+                self.media.close_session(call_id)
                 return
             try:
                 dialog = self.terminate_dialog(
@@ -2925,18 +3019,10 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                 return
             if session:
                 session.log("BYE RECEIVED", f"source={message.source[0]}:{message.source[1]}")
-            b2bua_call = self.b2bua_calls_by_inbound.get(call_id) or self.restore_b2bua_call_state(call_id)
-            if b2bua_call:
-                b2bua_call.flow_log.sip("SIPp A", "B2BUA", "BYE")
             ai_call = self.ai_voice_calls_by_inbound.get(call_id)
             if ai_call:
                 ai_call.flow_log.flow("SIPp A", "PlaySBC", "BYE")
             self.send_response(message, 200, "OK")
-            if b2bua_call:
-                b2bua_call.flow_log.sip("B2BUA", "SIPp A", "200 OK", "BYE")
-                self.send_outbound_bye(b2bua_call)
-                self.media.close_session(b2bua_call.outbound_call_id)
-                self.schedule_b2bua_finalizer(b2bua_call)
             if ai_call:
                 ai_call.flow_log.flow("PlaySBC", "SIPp A", "200 OK")
                 self.finalize_ai_voice_call(ai_call, "normal")
@@ -3745,6 +3831,15 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         self.observe_sip_request("INVITE", transport_name, "tx", "peer")
         destination = self.outbound_destination(b2bua_call)
         self._send_packet(packet, destination, transport_name=transport_name)
+        logging.info(
+            "B2BUA outbound INVITE sent inbound_call_id=%s outbound_call_id=%s target=%s destination=%s:%s transport=%s",
+            b2bua_call.inbound_call_id,
+            b2bua_call.outbound_call_id,
+            b2bua_call.outbound_target.uri,
+            destination[0],
+            destination[1],
+            transport_name,
+        )
         b2bua_call.flow_log.sip(
             "B2BUA",
             "SIPp B",
@@ -3768,10 +3863,20 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             "Contact": f"<{self.local_contact_uri(transport_name)}>",
             "Max-Forwards": "69",
         }
+        destination = self.outbound_destination(b2bua_call)
         self._send_packet(
             build_sip_request("ACK", request_uri, headers),
-            self.outbound_destination(b2bua_call),
+            destination,
             transport_name=transport_name,
+        )
+        logging.info(
+            "B2BUA outbound ACK sent inbound_call_id=%s outbound_call_id=%s target=%s destination=%s:%s transport=%s",
+            b2bua_call.inbound_call_id,
+            b2bua_call.outbound_call_id,
+            request_uri,
+            destination[0],
+            destination[1],
+            transport_name,
         )
         self.observe_sip_request("ACK", transport_name, "tx", "peer")
         b2bua_call.flow_log.sip("B2BUA", "SIPp B", "ACK")
@@ -3794,10 +3899,20 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             "Contact": f"<{self.local_contact_uri(transport_name)}>",
             "Max-Forwards": "69",
         }
+        destination = self.outbound_destination(b2bua_call)
         self._send_packet(
             build_sip_request("CANCEL", request_uri, headers),
-            self.outbound_destination(b2bua_call),
+            destination,
             transport_name=transport_name,
+        )
+        logging.info(
+            "B2BUA outbound CANCEL sent inbound_call_id=%s outbound_call_id=%s target=%s destination=%s:%s transport=%s",
+            b2bua_call.inbound_call_id,
+            b2bua_call.outbound_call_id,
+            request_uri,
+            destination[0],
+            destination[1],
+            transport_name,
         )
         self.observe_sip_request("CANCEL", transport_name, "tx", "peer")
         b2bua_call.flow_log.sip("B2BUA", "SIPp B", "CANCEL")
@@ -3816,9 +3931,10 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             "Contact": f"<{self.local_contact_uri(transport_name)}>",
             "Max-Forwards": "69",
         }
+        destination = self.outbound_destination(b2bua_call)
         self._send_packet(
             build_sip_request("BYE", request_uri, headers),
-            self.outbound_destination(b2bua_call),
+            destination,
             transport_name=transport_name,
         )
         self.observe_sip_request("BYE", transport_name, "tx", "peer")
@@ -3826,6 +3942,14 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         session = self.media.get_session(b2bua_call.outbound_call_id)
         if session:
             session.log("B2BUA OUTBOUND BYE", f"target={request_uri}")
+        logging.info(
+            "B2BUA outbound BYE sent inbound_call_id=%s outbound_call_id=%s target=%s destination=%s:%s",
+            b2bua_call.inbound_call_id,
+            b2bua_call.outbound_call_id,
+            request_uri,
+            destination[0],
+            destination[1],
+        )
 
     def send_inbound_bye(self, b2bua_call: B2BUACall) -> None:
         caller = extract_user(b2bua_call.inbound_from_header) or "caller"
@@ -3858,6 +3982,14 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         b2bua_call.flow_log.write(
             "B2BUA INBOUND BYE",
             f"target={request_uri} destination={destination[0]}:{destination[1]}",
+        )
+        logging.info(
+            "B2BUA inbound BYE sent inbound_call_id=%s outbound_call_id=%s target=%s destination=%s:%s",
+            b2bua_call.inbound_call_id,
+            b2bua_call.outbound_call_id,
+            request_uri,
+            destination[0],
+            destination[1],
         )
 
     def inbound_destination(self, b2bua_call: B2BUACall) -> Tuple[str, int]:
@@ -4625,6 +4757,15 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             f"transport={request.transport} status={status} reason={reason} destination={request.source[0]}:{request.source[1]} cseq={request.header('cseq')}",
             call_id=request.header("call-id"),
         )
+        logging.info(
+            "SIP TX response %s %s to %s:%s cseq=%s call_id=%s",
+            status,
+            reason,
+            request.source[0],
+            request.source[1],
+            request.header("cseq"),
+            request.header("call-id"),
+        )
         self.observe_sip_response(status, request.transport, "tx", "core")
         self._send_packet(packet, request.source, transport_name=request.transport, connection=request.connection)
         if request.transport == "udp":
@@ -4774,13 +4915,35 @@ def extract_header_tag(header_value: str) -> str:
 
 
 def extract_user(header_value: str) -> Optional[str]:
-    match = re.search(r"sip:([^@;>]+)", header_value)
+    user = extract_uri_user(header_value)
+    display_user = extract_display_user(header_value)
+    if user and not sip_user_looks_like_host(user):
+        return user
+    if display_user:
+        return display_user
+    return user
+
+
+def extract_uri_user(value: str) -> Optional[str]:
+    sip_match = re.search(r"\bsips?:([^@;:>\s]+)", value, re.IGNORECASE)
+    if sip_match:
+        return sip_match.group(1)
+    tel_match = re.search(r"\btel:([^;>\s]+)", value, re.IGNORECASE)
+    if tel_match:
+        return tel_match.group(1)
+    return None
+
+
+def extract_display_user(header_value: str) -> Optional[str]:
+    if "<" not in header_value:
+        return None
+    display = header_value.split("<", 1)[0].strip().strip('"')
+    match = re.search(r"([+*#]?\d[\d*#.-]{1,31})", display)
     return match.group(1) if match else None
 
 
 def extract_request_user(start_line: str) -> Optional[str]:
-    match = re.search(r"^\S+\s+sip:([^@;:\s>]+)", start_line, re.IGNORECASE)
-    return match.group(1) if match else None
+    return extract_uri_user(extract_request_uri(start_line))
 
 
 def extract_request_uri(start_line: str) -> str:
@@ -4799,9 +4962,12 @@ def sip_user_looks_like_host(user: str) -> bool:
 
 def request_uri_has_user(start_line: str) -> bool:
     uri = extract_request_uri(start_line)
-    if not uri.lower().startswith("sip:"):
+    lowered = uri.lower()
+    if lowered.startswith("tel:"):
+        return bool(extract_uri_user(uri))
+    if not (lowered.startswith("sip:") or lowered.startswith("sips:")):
         return False
-    authority = uri[4:].split(";", 1)[0].split("?", 1)[0]
+    authority = re.sub(r"^sips?:", "", uri, flags=re.IGNORECASE).split(";", 1)[0].split("?", 1)[0]
     return "@" in authority
 
 
@@ -5872,6 +6038,7 @@ async def main() -> None:
         logging.info("Writing call logs under %s", log_dir)
     else:
         logging.info("Persistent call logs disabled")
+    logging.info("PlaySBC version %s starting", PLAYSBC_VERSION)
     sbc_logger = SbcLogger(log_dir)
     sbc_logger.platform(
         "SERVER CONFIG",
