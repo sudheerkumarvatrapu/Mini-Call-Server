@@ -715,6 +715,93 @@ class ResponseTests(unittest.TestCase):
         self.assertEqual(len(transport.sent), 1)
         self.assertIn(b"ACK sip:1001@122.171.69.148:5060", transport.sent[0][0])
 
+    def test_b2bua_inbound_reinvite_gets_cached_sdp_answer_and_local_ack(self):
+        logger = server.SbcLogger(None)
+        media = server.MediaServer("127.0.0.1", 12000, 12010, None, logger)
+        protocol = server.SipServerProtocol(
+            "127.0.0.1",
+            25062,
+            media,
+            logger,
+            server.PCMU,
+            "playsbc",
+            {},
+            (),
+            {},
+            (),
+            False,
+        )
+        transport = self.DummyTransport()
+        protocol.transport = transport
+        route = server.RouteResult(
+            server.parse_sip_uri("sip:1002@122.171.69.148:62739"),
+            "registered",
+            "registrar",
+            destination=("122.171.69.148", 62739),
+        )
+        answer_sdp = server.make_sdp("20.102.44.82", 30040, server.PCMU, dtmf_payload_type=101)
+        call = server.B2BUACall(
+            inbound_call_id="obi-inbound",
+            outbound_call_id="zoiper-outbound",
+            outbound_target=route.target,
+            outbound_from_header="<sip:b2bua@20.102.44.81>;tag=local",
+            outbound_to_header="<sip:1002@122.171.69.148>;tag=zoiper",
+            target_user="1002",
+            route_policy="registered",
+            route_source="registrar",
+            flow_log=server.B2BUAFlowLog(None, "obi-inbound", "1002", route, enabled=False, logger=logger),
+            route_result=route,
+            inbound_from_header="<sip:1001@20.102.44.81>;tag=obi",
+            inbound_to_header="<sip:1002@20.102.44.81>;tag=sbc",
+            inbound_contact_uri="sip:1001@122.171.69.148:5060",
+            inbound_destination=("122.171.69.148", 5060),
+            inbound_cseq=8001,
+            inbound_answer_sdp=answer_sdp,
+        )
+        protocol.b2bua_calls_by_inbound[call.inbound_call_id] = call
+        reinvite = server.parse_sip_message(
+            (
+                "INVITE sip:1002@20.102.44.81:5062 SIP/2.0\r\n"
+                "Via: SIP/2.0/UDP 122.171.69.148:5060;branch=z9hG4bK-reinvite;rport\r\n"
+                "From: <sip:1001@20.102.44.81>;tag=obi\r\n"
+                "To: <sip:1002@20.102.44.81>;tag=sbc\r\n"
+                "Call-ID: obi-inbound\r\n"
+                "CSeq: 8002 INVITE\r\n"
+                "Contact: <sip:1001@122.171.69.148:5060>\r\n"
+                "Content-Type: application/sdp\r\n"
+                f"Content-Length: {len(answer_sdp.encode('utf-8'))}\r\n"
+                "\r\n"
+                f"{answer_sdp}"
+            ),
+            ("122.171.69.148", 5060),
+        )
+
+        asyncio.run(protocol.handle_message(reinvite))
+
+        packets = [packet for packet, _destination in transport.sent]
+        self.assertTrue(any(packet.startswith(b"SIP/2.0 100 Trying") for packet in packets))
+        ok_packets = [packet for packet in packets if packet.startswith(b"SIP/2.0 200 OK")]
+        self.assertEqual(len(ok_packets), 1)
+        self.assertIn(b"Content-Type: application/sdp", ok_packets[0])
+        self.assertIn(b"m=audio 30040 RTP/AVP 0 101", ok_packets[0])
+
+        transport.sent.clear()
+        ack = server.SipMessage(
+            "ACK sip:1002@20.102.44.81:5062 SIP/2.0",
+            {
+                "call-id": "obi-inbound",
+                "cseq": "8002 ACK",
+                "from": "<sip:1001@20.102.44.81>;tag=obi",
+                "to": "<sip:1002@20.102.44.81>;tag=sbc",
+            },
+            "",
+            ("122.171.69.148", 5060),
+        )
+
+        asyncio.run(protocol.handle_message(ack))
+
+        self.assertEqual(transport.sent, [])
+
     def test_b2bua_inbound_bye_gets_200_and_peer_bye_when_dialog_validation_is_tolerated(self):
         logger = server.SbcLogger(None)
         media = server.MediaServer("127.0.0.1", 12000, 12010, None, logger)

@@ -53,7 +53,7 @@ except Exception:  # pragma: no cover - audioop is unavailable in newer Python b
 
 
 CRLF = "\r\n"
-PLAYSBC_VERSION = "2.1.0"
+PLAYSBC_VERSION = "2.1.1"
 PCMU = 0
 PCMA = 8
 SUPPORTED_CODECS = (PCMU, PCMA)
@@ -1450,6 +1450,8 @@ class B2BUACall:
     inbound_contact_uri: str = ""
     inbound_destination: Optional[Tuple[str, int]] = None
     inbound_cseq: int = 1
+    inbound_answer_sdp: str = ""
+    local_reinvite_cseqs: set[int] = field(default_factory=set)
     inbound_bye_sent: bool = False
     finalized: bool = False
 
@@ -2761,6 +2763,10 @@ class SipServerProtocol(asyncio.DatagramProtocol):
 
         if method == "INVITE":
             call_id = message.header("call-id", make_call_id())
+            existing_b2bua_call = self.b2bua_calls_by_inbound.get(call_id) or self.restore_b2bua_call_state(call_id)
+            if existing_b2bua_call and extract_header_tag(message.header("to")):
+                await self.handle_b2bua_inbound_reinvite(message, existing_b2bua_call)
+                return
             if self.ha_node_draining:
                 self.logger.call(
                     "HA NODE DRAINING REJECT",
@@ -2957,6 +2963,18 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                     session.mark_ack()
                     session.log("DIALOG STATE", f"state={dialog.state.name} acknowledged=true")
                 if b2bua_call:
+                    ack_cseq = parse_cseq_number(message.header("cseq"))
+                    if ack_cseq in b2bua_call.local_reinvite_cseqs:
+                        b2bua_call.flow_log.sip("SIPp A", "B2BUA", "ACK", f"local_reinvite_cseq={ack_cseq}")
+                        self.logger.sip(
+                            "B2BUA LOCAL REINVITE ACK",
+                            (
+                                f"cseq={message.header('cseq')} source={message.source[0]}:{message.source[1]} "
+                                "action=consume"
+                            ),
+                            call_id=call_id,
+                        )
+                        return
                     b2bua_call.flow_log.sip("SIPp A", "B2BUA", "ACK")
                     self.send_outbound_ack(b2bua_call)
                 if ai_call:
@@ -3458,6 +3476,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             inbound_to_header=to_header,
             inbound_contact_uri=extract_sip_uri(message.header("contact")),
             inbound_destination=message.source,
+            inbound_cseq=parse_cseq_number(message.header("cseq")) or 1,
         )
         self.b2bua_calls_total += 1
         self.b2bua_calls_by_inbound[inbound_call_id] = b2bua_call
@@ -3540,6 +3559,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             inbound_rtp.preferred_payload,
             dtmf_payload_type=dtmf_payload_type,
         )
+        b2bua_call.inbound_answer_sdp = answer_sdp
         self.send_response(
             message,
             200,
@@ -3774,6 +3794,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             inbound_to_header=to_header,
             inbound_contact_uri=extract_sip_uri(message.header("contact")),
             inbound_destination=message.source,
+            inbound_cseq=parse_cseq_number(message.header("cseq")) or 1,
         )
         self.b2bua_calls_total += 1
         self.b2bua_calls_by_inbound[inbound_call_id] = b2bua_call
@@ -3898,6 +3919,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
 
         inbound_answer_payload = choose_payload(parse_sdp_payloads(answer_sdp), choose_payload(remote_payloads, PCMU))
         outbound_answer_payload = choose_payload(parse_sdp_payloads(final_response.body), self.default_payload)
+        b2bua_call.inbound_answer_sdp = answer_sdp
         self.send_response(
             message,
             200,
@@ -3915,6 +3937,67 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         dialog.mark_answered()
         self.save_dialog_state(dialog)
         self.save_b2bua_call_state(b2bua_call)
+
+    async def handle_b2bua_inbound_reinvite(self, message: SipMessage, b2bua_call: B2BUACall) -> None:
+        """Locally accept caller-leg in-dialog media refreshes from real SIP devices."""
+        call_id = message.header("call-id")
+        cseq_number = parse_cseq_number(message.header("cseq"))
+        answer_sdp = b2bua_call.inbound_answer_sdp
+        if not answer_sdp:
+            session = self.media.get_session(call_id)
+            if session:
+                answer_sdp = make_sdp(
+                    self.sip_advertised_ip,
+                    session.local_port,
+                    session.preferred_payload,
+                    dtmf_payload_type=parse_dtmf_payload_type(message.body),
+                )
+                b2bua_call.inbound_answer_sdp = answer_sdp
+
+        b2bua_call.flow_log.sip("SIPp A", "B2BUA", "re-INVITE", f"cseq={message.header('cseq')}")
+        self.logger.sip(
+            "B2BUA INBOUND REINVITE",
+            (
+                f"source={message.source[0]}:{message.source[1]} cseq={message.header('cseq')} "
+                f"body_bytes={len(message.body.encode('utf-8'))} action=local_answer"
+            ),
+            call_id=call_id,
+        )
+
+        if not answer_sdp:
+            self.logger.sip(
+                "B2BUA INBOUND REINVITE REJECTED",
+                "reason=no_cached_caller_sdp_answer",
+                call_id=call_id,
+            )
+            self.send_response(message, 488, "Not Acceptable Here", to_header=message.header("to"))
+            b2bua_call.flow_log.sip("B2BUA", "SIPp A", "488 Not Acceptable Here", "re-INVITE")
+            return
+
+        self.send_response(message, 100, "Trying", to_header=message.header("to"))
+        self.send_response(
+            message,
+            200,
+            "OK",
+            body=answer_sdp,
+            to_header=message.header("to"),
+            extra_headers={
+                "Contact": f"<{self.inbound_contact_uri(b2bua_call.target_user, message.transport)}>",
+                "Content-Type": "application/sdp",
+            },
+        )
+        if cseq_number:
+            b2bua_call.local_reinvite_cseqs.add(cseq_number)
+        self.save_b2bua_call_state(b2bua_call)
+        self.logger.sip(
+            "B2BUA INBOUND REINVITE ANSWERED",
+            (
+                f"cseq={message.header('cseq')} cached_sdp_bytes={len(answer_sdp.encode('utf-8'))} "
+                "ack_policy=consume_local_ack"
+            ),
+            call_id=call_id,
+        )
+        b2bua_call.flow_log.sip("B2BUA", "SIPp A", "200 OK", "re-INVITE")
 
     async def wait_for_outbound_invite(
         self,
@@ -5140,6 +5223,16 @@ def invite_target_candidates(start_line: str, to_header: str) -> List[str]:
 def parse_cseq_method(cseq_header: str) -> str:
     parts = cseq_header.strip().split()
     return parts[1].upper() if len(parts) >= 2 else ""
+
+
+def parse_cseq_number(cseq_header: str) -> int:
+    parts = cseq_header.strip().split()
+    if not parts:
+        return 0
+    try:
+        return int(parts[0])
+    except ValueError:
+        return 0
 
 
 def extract_sip_uri(value: str) -> str:

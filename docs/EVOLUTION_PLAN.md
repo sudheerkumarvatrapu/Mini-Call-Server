@@ -95,7 +95,7 @@ Azure release track:
 - `v1.6.4`: real-device B2BUA hotfix. Use candidate-based INVITE target routing, forward BYE from either B2BUA leg, and log selected/failed route candidates for OBi1022 and Zoiper troubleshooting.
 - `v1.6.5`: real-device AKS diagnostics/media hotfix. Emit route selection, SIP TX responses, tolerant ACK/BYE forwarding, and RTPengine evidence to pod stdout; accept common hardphone target header variants; and add compact Azure RTP public port-range exposure for one-call OBi/Zoiper validation.
 - `v2.0.0`: real-device AKS lab baseline. Include the v1.6.5/v1.6.6 cleanup, reject missing registered routes instead of fallback echo, add configurable B2BUA outbound INVITE timeout, add optional RTPengine G.711-only codec clamp, and add plain RTP/AVP SDP normalization for the first OBi1022/Zoiper media baseline.
-- `v2.1.0`: real-device media hardening. Add RTPengine SIP-source-address NAT learning, explicit `ICE=remove`, and forced `RTP/AVP` control-policy for OBi1022 -> Zoiper RTP through AKS.
+- `v2.1.1`: real-device media hardening. Add RTPengine SIP-source-address NAT learning, explicit `ICE=remove`, forced `RTP/AVP`, and caller-leg in-dialog re-INVITE acceptance for OBi1022 -> Zoiper RTP through AKS.
 
 Production-readiness gates:
 

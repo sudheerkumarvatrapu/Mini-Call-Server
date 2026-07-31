@@ -8,10 +8,10 @@ OBi1022 1001 -> Internet/NAT -> Azure LB UDP 5062 -> PlaySBC -> RTPengine -> Zoi
 
 ## 1. Upgrade AKS For Real Devices
 
-Run in Azure Cloud Shell after the `v2.1.0` release/images are published.
+Run in Azure Cloud Shell after the `v2.1.1` release/images are published.
 
 ```bash
-export PLAYSBC_VERSION=2.1.0
+export PLAYSBC_VERSION=2.1.1
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
@@ -164,7 +164,7 @@ Common symptoms:
 - No or one-way audio: check the Azure RTP public LoadBalancer, `rtpengine.advertisedIP`, and keep `rtpengine_g711_only=true`, `rtpengine_plain_rtp_sdp=true`, and `rtpengine_sip_source_address=true` for the baseline.
 - Keepalive noise: OBi/Zoiper may send CRLF or `keep-alive` UDP packets with no CSeq. PlaySBC logs them as `SIP KEEP-ALIVE` and ignores them; they should not create stack traces.
 
-## 6. What v2.1.0 Hardens
+## 6. What v2.1.1 Hardens
 
 - Real-device SIP users: `1001` and `1002`.
 - Dynamic AKS SIP/RTP public IPs; no hard-coded public IPs.
@@ -173,4 +173,5 @@ Common symptoms:
 - G.711-only RTPengine baseline for OBi/Zoiper media before wider codec experiments.
 - Plain RTP/AVP SDP normalization for real devices that do not like ICE, RTCP-mux, fingerprint, or WebRTC-style SDP attributes.
 - RTPengine SIP-source-address NAT learning so OBi/Zoiper media uses the observed public SIP source instead of private/fragile endpoint SDP.
+- OBi-style in-dialog re-INVITE media refreshes get a valid `200 OK` SDP answer instead of `491 Request Pending`.
 - Safe UDP NAT keepalive handling for hardphones and softphones.
