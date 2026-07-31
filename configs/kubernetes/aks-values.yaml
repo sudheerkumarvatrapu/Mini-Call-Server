@@ -37,7 +37,7 @@ replicaCount: 2
 
 image:
   repository: ghcr.io/sudheerkumarvatrapu/playsbc
-  tag: "2.1.1"
+  tag: "2.2.0"
   pullPolicy: Always
 
 service:
@@ -78,29 +78,26 @@ cloud:
         dnsLabelName: playsbc-rtp-lab
         allowedSourceRanges:
           - 203.0.113.0/24
-        # Lab-only explicit media ports. Kubernetes Services do not support
-        # a compact UDP port range, so full RTP/SRTP range exposure is handled
-        # in the Azure networking hardening track.
-        ports:
-          - 30000
-          - 30002
-          - 30004
-          - 30006
+        ports: []
+        portRange:
+          enabled: true
+          min: 30000
+          max: 30049
       documentedPortRange:
         min: 30000
-        max: 32000
+        max: 30049
 
 rtpengine:
   enabled: true
   image:
     repository: ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine
-    tag: "2.1.1"
+    tag: "2.2.0"
     pullPolicy: Always
   replicas: 2
   hostNetwork: false
   sessionAffinity: ClientIP
   rtpMin: 30000
-  rtpMax: 32000
+  rtpMax: 30049
 
 playsbc:
   config:

@@ -1154,6 +1154,8 @@ class K8sRegressionRunner:
         rtp_public = [item for item in items if exposure(item) == "rtp-public"]
         if getattr(self.args, "aks_require_azure_services", False) and not sip_public:
             issues.append("missing_sip_public_loadbalancer_service")
+        if getattr(self.args, "aks_require_public_rtp_ingress", False) and not rtp_public:
+            issues.append("missing_rtp_public_loadbalancer_service")
 
         for item in sip_public:
             name = service_name(item)
@@ -1188,9 +1190,26 @@ class K8sRegressionRunner:
 
         for item in rtp_public:
             name = service_name(item)
-            for protocol, port in port_tuples(item):
+            spec = item.get("spec", {})
+            if spec.get("type") != "LoadBalancer":
+                issues.append(f"{name}:type_not_loadbalancer")
+            if spec.get("externalTrafficPolicy") != "Local":
+                issues.append(f"{name}:externalTrafficPolicy_not_Local")
+            ingress = item.get("status", {}).get("loadBalancer", {}).get("ingress", [])
+            if getattr(self.args, "aks_require_public_rtp_ingress", False) and not ingress:
+                issues.append(f"{name}:missing_allocated_public_ingress")
+            ports = port_tuples(item)
+            for protocol, port in ports:
                 if protocol != "UDP":
                     issues.append(f"{name}:non_udp_media_port_{port}")
+            if getattr(self.args, "aks_require_rtp_port_range", False):
+                expected_ports = set(range(int(self.args.aks_rtp_port_min), int(self.args.aks_rtp_port_max) + 1))
+                exposed_ports = {port for protocol, port in ports if protocol == "UDP"}
+                missing_ports = sorted(expected_ports - exposed_ports)
+                if missing_ports:
+                    issues.append(
+                        f"{name}:missing_rtp_udp_ports_{missing_ports[0]}-{missing_ports[-1]}_count_{len(missing_ports)}"
+                    )
 
         summary = {
             "selector": selector,
@@ -1201,6 +1220,12 @@ class K8sRegressionRunner:
             "require_azure_services": bool(getattr(self.args, "aks_require_azure_services", False)),
             "require_static_sip": bool(getattr(self.args, "aks_require_static_sip", False)),
             "require_public_sip_ingress": bool(getattr(self.args, "aks_require_public_sip_ingress", False)),
+            "require_public_rtp_ingress": bool(getattr(self.args, "aks_require_public_rtp_ingress", False)),
+            "require_rtp_port_range": bool(getattr(self.args, "aks_require_rtp_port_range", False)),
+            "rtp_port_range": {
+                "min": int(getattr(self.args, "aks_rtp_port_min", 30000)),
+                "max": int(getattr(self.args, "aks_rtp_port_max", 30049)),
+            },
             "issues": issues,
         }
         (bundle / "aks-validation.json").write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
@@ -1216,6 +1241,8 @@ class K8sRegressionRunner:
             getattr(self.args, "aks_require_azure_services", False)
             or getattr(self.args, "aks_require_static_sip", False)
             or getattr(self.args, "aks_require_public_sip_ingress", False)
+            or getattr(self.args, "aks_require_public_rtp_ingress", False)
+            or getattr(self.args, "aks_require_rtp_port_range", False)
         ):
             raise RuntimeError(f"AKS Azure exposure validation failed: {', '.join(issues)}")
         return detail
@@ -3027,6 +3054,10 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--aks-require-azure-services", action=argparse.BooleanOptionalAction, default=False, help="Fail when the Azure SIP public LoadBalancer service is missing")
     parser.add_argument("--aks-require-static-sip", action=argparse.BooleanOptionalAction, default=False, help="Fail when the Azure SIP public service lacks a static IP annotation")
     parser.add_argument("--aks-require-public-sip-ingress", action=argparse.BooleanOptionalAction, default=False, help="Fail until Azure assigns an external public SIP ingress address")
+    parser.add_argument("--aks-require-public-rtp-ingress", action=argparse.BooleanOptionalAction, default=False, help="Fail until Azure assigns an external public RTP ingress address")
+    parser.add_argument("--aks-require-rtp-port-range", action=argparse.BooleanOptionalAction, default=False, help="Fail unless the Azure RTP LoadBalancer exposes the expected UDP media range")
+    parser.add_argument("--aks-rtp-port-min", type=int, default=30000)
+    parser.add_argument("--aks-rtp-port-max", type=int, default=30049)
     parser.add_argument("--list-profiles", action="store_true")
     parser.add_argument("--rtpengine-enabled", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--active-active-topology", action=argparse.BooleanOptionalAction, default=True, help="Run Kubernetes profiles with active-active PlaySBC/RTPengine topology")
@@ -3074,10 +3105,15 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         args.aks_mode = True
         args.aks_require_azure_services = True
         args.aks_require_static_sip = True
+        args.aks_require_public_sip_ingress = True
+        args.aks_require_public_rtp_ingress = True
+        args.aks_require_rtp_port_range = True
         if args.output_root == DEFAULT_OUTPUT_ROOT:
             args.output_root = AKS_OUTPUT_ROOT
         if args.report_dir == DEFAULT_REPORT_DIR:
             args.report_dir = AKS_REPORT_DIR
+    if args.aks_rtp_port_min > args.aks_rtp_port_max:
+        raise SystemExit("--aks-rtp-port-min must be less than or equal to --aks-rtp-port-max")
     if args.playsbc_replicas < 1:
         raise SystemExit("--playsbc-replicas must be at least 1")
     if args.rtpengine_replicas < 1:

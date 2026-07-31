@@ -3391,7 +3391,11 @@ class RealTopologyTests(unittest.TestCase):
         self.assertTrue(args.aks_mode)
         self.assertTrue(args.aks_require_azure_services)
         self.assertTrue(args.aks_require_static_sip)
-        self.assertFalse(args.aks_require_public_sip_ingress)
+        self.assertTrue(args.aks_require_public_sip_ingress)
+        self.assertTrue(args.aks_require_public_rtp_ingress)
+        self.assertTrue(args.aks_require_rtp_port_range)
+        self.assertEqual(args.aks_rtp_port_min, 30000)
+        self.assertEqual(args.aks_rtp_port_max, 30049)
         self.assertIn("tls-transport-policy", run_k8s_regression.AKS_PROFILES)
         self.assertIn("rtpengine-transcoding", run_k8s_regression.AKS_PROFILES)
 
@@ -3404,10 +3408,20 @@ class RealTopologyTests(unittest.TestCase):
         self.assertTrue(job_args.run_id.startswith("aks-regression-"))
         self.assertTrue(job_args.aks_wait_load_balancers)
         self.assertEqual(job_args.aks_load_balancer_wait_timeout, 1200)
+        self.assertTrue(job_args.aks_require_public_sip_ingress)
+        self.assertTrue(job_args.aks_require_public_rtp_ingress)
+        self.assertTrue(job_args.aks_require_rtp_port_range)
         self.assertIn("--aks-profiles", command)
         self.assertIn("--aks-mode", command)
         self.assertIn("--aks-require-azure-services", command)
         self.assertIn("--aks-require-static-sip", command)
+        self.assertIn("--aks-require-public-sip-ingress", command)
+        self.assertIn("--aks-require-public-rtp-ingress", command)
+        self.assertIn("--aks-require-rtp-port-range", command)
+        self.assertIn("--aks-rtp-port-min", command)
+        self.assertIn("30000", command)
+        self.assertIn("--aks-rtp-port-max", command)
+        self.assertIn("30049", command)
         self.assertNotIn("--all-profiles", command)
         self.assertIn("/workspace/logs/AKS-Regression", command)
         self.assertIn("/workspace/logs/AKS-reports", command)
@@ -3496,6 +3510,28 @@ class RealTopologyTests(unittest.TestCase):
             self.assertIn("20.30.40.60", detail)
             preflight_log = Path(tmp) / "aks-regression-unit" / "aks-loadbalancer-preflight.log"
             self.assertIn("pending=playsbc-sip", preflight_log.read_text(encoding="utf-8"))
+
+    def test_aks_load_balancer_wait_requires_rtp_public_service(self):
+        sip_only = {
+            "items": [
+                {
+                    "metadata": {"name": "playsbc-sip", "labels": {"playsbc.io/exposure": "sip-public"}},
+                    "spec": {"type": "LoadBalancer"},
+                    "status": {"loadBalancer": {"ingress": [{"ip": "20.30.40.50"}]}},
+                }
+            ]
+        }
+        args = run_k8s_regression_job.parse_args(["--aks-profiles", "--run-id", "aks-regression-unit"])
+
+        with mock.patch.object(
+            run_k8s_regression_job,
+            "run_command",
+            return_value=run_k8s_regression_job.CommandResult([], 0, 0.0, json.dumps(sip_only), ""),
+        ):
+            ready, detail = run_k8s_regression_job.azure_load_balancer_readiness(args)
+
+        self.assertFalse(ready)
+        self.assertIn("missing-rtp-public", detail)
 
     def test_kubernetes_job_dry_run_does_not_mutate_cluster(self):
         args = run_k8s_regression_job.parse_args(["--aks-profiles", "--dry-run", "--set-playsbc-image"])

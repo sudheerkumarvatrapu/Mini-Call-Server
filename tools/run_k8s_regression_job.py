@@ -257,6 +257,12 @@ def runner_command_args(args: argparse.Namespace) -> list[str]:
         command.append("--aks-require-static-sip")
     if args.aks_require_public_sip_ingress:
         command.append("--aks-require-public-sip-ingress")
+    if args.aks_require_public_rtp_ingress:
+        command.append("--aks-require-public-rtp-ingress")
+    if args.aks_require_rtp_port_range:
+        command.append("--aks-require-rtp-port-range")
+    command.extend(["--aks-rtp-port-min", str(args.aks_rtp_port_min)])
+    command.extend(["--aks-rtp-port-max", str(args.aks_rtp_port_max)])
     if args.aks_services_selector != "playsbc.io/cloud=azure":
         command.extend(["--aks-services-selector", args.aks_services_selector])
     if not args.rtpengine_enabled:
@@ -635,11 +641,15 @@ def azure_load_balancer_readiness(args: argparse.Namespace) -> tuple[bool, str]:
     if not load_balancers:
         return False, f"no_loadbalancer_services selector={args.aks_services_selector}"
 
+    required_exposures = {"sip-public", "rtp-public"} if args.aks_require_public_rtp_ingress else {"sip-public"}
+    present_exposures = {service_exposure(item) for item in load_balancers}
+    missing_exposures = sorted(required_exposures - present_exposures)
     missing = [
         f"{service_name(item)}({service_exposure(item) or 'unlabeled'})"
         for item in load_balancers
         if not service_ingress_values(item)
     ]
+    missing.extend(f"missing-{exposure}" for exposure in missing_exposures)
     ready = [
         f"{service_name(item)}({service_exposure(item) or 'unlabeled'})={','.join(service_ingress_values(item))}"
         for item in load_balancers
@@ -819,6 +829,10 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--aks-require-azure-services", action=argparse.BooleanOptionalAction, default=False, help="Fail when the Azure SIP public LoadBalancer service is missing")
     parser.add_argument("--aks-require-static-sip", action=argparse.BooleanOptionalAction, default=False, help="Fail when the Azure SIP public service lacks a static IP annotation")
     parser.add_argument("--aks-require-public-sip-ingress", action=argparse.BooleanOptionalAction, default=False, help="Fail until Azure assigns an external public SIP ingress address")
+    parser.add_argument("--aks-require-public-rtp-ingress", action=argparse.BooleanOptionalAction, default=False, help="Fail until Azure assigns an external public RTP ingress address")
+    parser.add_argument("--aks-require-rtp-port-range", action=argparse.BooleanOptionalAction, default=False, help="Fail unless the Azure RTP LoadBalancer exposes the expected UDP media range")
+    parser.add_argument("--aks-rtp-port-min", type=int, default=30000)
+    parser.add_argument("--aks-rtp-port-max", type=int, default=30049)
     parser.add_argument("--aks-wait-load-balancers", action=argparse.BooleanOptionalAction, default=True, help="For AKS profiles, wait for selected Azure LoadBalancer services to receive ingress before starting the Job")
     parser.add_argument("--aks-load-balancer-wait-timeout", type=int, default=1200)
     parser.add_argument("--aks-load-balancer-poll-interval", type=float, default=10.0)
@@ -882,6 +896,9 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         args.aks_mode = True
         args.aks_require_azure_services = True
         args.aks_require_static_sip = True
+        args.aks_require_public_sip_ingress = True
+        args.aks_require_public_rtp_ingress = True
+        args.aks_require_rtp_port_range = True
         if args.output_dir == DEFAULT_OUTPUT_DIR:
             args.output_dir = AKS_OUTPUT_DIR
         if args.remote_output_root_name == DEFAULT_REMOTE_OUTPUT_ROOT:
@@ -892,6 +909,8 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         raise SystemExit("--playsbc-replicas must be at least 1")
     if args.rtpengine_replicas < 1:
         raise SystemExit("--rtpengine-replicas must be at least 1")
+    if args.aks_rtp_port_min > args.aks_rtp_port_max:
+        raise SystemExit("--aks-rtp-port-min must be less than or equal to --aks-rtp-port-max")
     if args.require_multus and not args.multus_enabled:
         raise SystemExit("--require-multus also requires --multus-enabled")
     if args.build_playsbc_image:
