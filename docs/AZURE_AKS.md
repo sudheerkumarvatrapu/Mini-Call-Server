@@ -43,6 +43,7 @@ Active-active, full media ranges, hardphones, and production-grade state are fut
 | `v1.6.4` | Real-device B2BUA hotfix: candidate-based INVITE target routing, bidirectional BYE forwarding, and stronger OBi/Zoiper diagnostics. |
 | `v1.6.5` | AKS stdout diagnostics hotfix: emit structured SIP route, response, BYE, and RTPengine evidence into `kubectl logs` when persistent logs are disabled. |
 | `v2.0.0` | Real-device AKS lab baseline: OBi1022 and Zoiper registration/calls, RTPengine anchored media, dynamic public SIP IP configuration, strict route handling, human-answer timeout, and optional G.711-only RTPengine codec clamp. |
+| `v2.1.0` | Real-device RTP hardening: RTPengine SIP-source-address NAT learning, explicit `ICE=remove`, and forced plain `RTP/AVP` for OBi1022 -> Zoiper media. |
 
 ## Cost Guardrail
 
@@ -83,7 +84,7 @@ export SIP_PIP_NAME=playsbc-sip-pip
 export RTP_PIP_NAME=playsbc-rtp-pip
 export DNS_LABEL=playsbc-sip-lab-$RANDOM
 export RTP_DNS_LABEL=playsbc-rtp-lab-$RANDOM
-export PLAYSBC_VERSION=2.0.0
+export PLAYSBC_VERSION=2.1.0
 ```
 
 ## 3. Register Azure Providers
@@ -282,6 +283,7 @@ playsbc:
     b2bua_invite_timeout: 60.0
     rtpengine_g711_only: true
     rtpengine_plain_rtp_sdp: true
+    rtpengine_sip_source_address: true
     sip_advertised_ip: "$SIP_PUBLIC_IP"
     b2bua_advertised_ip: "$SIP_PUBLIC_IP"
 EOF
@@ -473,11 +475,12 @@ The first OBi1022 registration exposed a few practical AKS lab issues:
 - OBi1022 can send a proxy-style INVITE where the Request-URI is the AKS public IP and the dialed extension is only in the `To` header. PlaySBC v1.6.4 chooses from Request-URI and `To` candidates and logs the selected route.
 - Some devices send a private Contact in the answered dialog even after registering from a public source. PlaySBC v1.6.4 keeps ACK/BYE packets on the learned destination instead of sending them to a private LAN address from AKS.
 - B2BUA BYE is forwarded from either side of the dialog, so calls released by the callee leg should clear the caller leg too.
-- PlaySBC v2.0.0 emits SIP route, response, ACK/BYE forwarding, timeout seconds, codec clamp, and RTPengine evidence to `kubectl logs` when persistent file logs are disabled in AKS.
+- PlaySBC v2.1.0 emits SIP route, response, ACK/BYE forwarding, timeout seconds, codec clamp, NAT-learning, and RTPengine evidence to `kubectl logs` when persistent file logs are disabled in AKS.
 - For real OBi/Zoiper calls, set `playsbc.config.b2bua_invite_timeout=60.0` so the outbound hardphone leg can ring long enough to be answered.
 - For the first real OBi/Zoiper media baseline, set `playsbc.config.rtpengine_g711_only=true` so RTPengine advertises only G.711 plus telephone-event instead of broad endpoint codec lists.
 - For OBi/Zoiper public internet RTP, also set `playsbc.config.rtpengine_plain_rtp_sdp=true` to strip ICE, RTCP-mux, fingerprint, setup, bundle, and other WebRTC-style SDP attributes from the RTPengine offer/answer path.
-- OBi/Zoiper UDP NAT keepalives may be CRLF-only or `keep-alive` packets with no CSeq. PlaySBC v2.0.0 logs them as `SIP KEEP-ALIVE` and ignores them without transaction errors.
+- For OBi/Zoiper behind home NAT, set `playsbc.config.rtpengine_sip_source_address=true` so RTPengine uses the observed public SIP source address when endpoint SDP advertises private or fragile media coordinates.
+- OBi/Zoiper UDP NAT keepalives may be CRLF-only or `keep-alive` packets with no CSeq. PlaySBC logs them as `SIP KEEP-ALIVE` and ignores them without transaction errors.
 - For plain real-device RTP testing, keep hardphones on RTP/UDP. SRTP/DTLS belongs in the TLS/SRTP lab profile and can break this public UDP smoke if the endpoint insists on secure media.
 - Internet phones need both SIP and RTP exposed. Enable the Azure RTP public LoadBalancer and keep its port range aligned with RTPengine `rtpMin`/`rtpMax`.
 
@@ -490,7 +493,7 @@ export LOCATION=eastus
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
-export PLAYSBC_VERSION=2.0.0
+export PLAYSBC_VERSION=2.1.0
 export ACR_NAME=$(az acr list --resource-group "$AKS_RG" --query "[0].name" -o tsv)
 ```
 

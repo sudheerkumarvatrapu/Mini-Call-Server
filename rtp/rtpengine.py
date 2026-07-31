@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import secrets
+import ipaddress
 import socket
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Sequence, Tuple
@@ -104,6 +105,9 @@ class RtpengineClient:
         transport_protocol: str = "",
         sdes: Sequence[str] = (),
         dtls: str = "",
+        ice: str = "",
+        sip_source_address: bool = False,
+        received_from: str = "",
     ) -> Dict[str, Any]:
         return await self.request(
             "offer",
@@ -116,6 +120,9 @@ class RtpengineClient:
                 transport_protocol=transport_protocol,
                 sdes=sdes,
                 dtls=dtls,
+                ice=ice,
+                sip_source_address=sip_source_address,
+                received_from=received_from,
             ),
         )
 
@@ -130,6 +137,9 @@ class RtpengineClient:
         transport_protocol: str = "",
         sdes: Sequence[str] = (),
         dtls: str = "",
+        ice: str = "",
+        sip_source_address: bool = False,
+        received_from: str = "",
     ) -> Dict[str, Any]:
         fields = self._sdp_fields(
             call_id,
@@ -139,6 +149,9 @@ class RtpengineClient:
             transport_protocol=transport_protocol,
             sdes=sdes,
             dtls=dtls,
+            ice=ice,
+            sip_source_address=sip_source_address,
+            received_from=received_from,
         )
         fields["to-tag"] = to_tag
         return await self.request("answer", fields)
@@ -169,8 +182,11 @@ class RtpengineClient:
         transport_protocol: str = "",
         sdes: Sequence[str] = (),
         dtls: str = "",
+        ice: str = "",
+        sip_source_address: bool = False,
+        received_from: str = "",
     ) -> Dict[str, Any]:
-        flags = ["trust address"]
+        flags = ["SIP source address"] if sip_source_address else ["trust address"]
         flags.extend(f"SDES-{option}" for option in sdes)
         fields: Dict[str, Any] = {
             "call-id": call_id,
@@ -189,7 +205,16 @@ class RtpengineClient:
             fields["transport protocol"] = transport_protocol
         if dtls:
             fields["DTLS"] = dtls
+        if ice:
+            fields["ICE"] = ice
+        if received_from:
+            fields["received from"] = [rtpengine_address_family(received_from), received_from]
         return fields
+
+
+def rtpengine_address_family(address: str) -> str:
+    parsed = ipaddress.ip_address(address)
+    return "IP6" if parsed.version == 6 else "IP4"
 
 
 def normalize_bencode_value(value: Any) -> Any:

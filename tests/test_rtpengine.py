@@ -3,7 +3,14 @@ import socket
 import threading
 import unittest
 
-from rtp.rtpengine import RtpengineClient, bdecode, bencode, decode_bytes, parse_rtpengine_url
+from rtp.rtpengine import (
+    RtpengineClient,
+    bdecode,
+    bencode,
+    decode_bytes,
+    parse_rtpengine_url,
+    rtpengine_address_family,
+)
 
 
 class RtpengineEncodingTests(unittest.TestCase):
@@ -34,6 +41,37 @@ class RtpengineEncodingTests(unittest.TestCase):
         self.assertIn(b"7:command5:offer", packet)
         self.assertIn(b"7:call-id6:call-1", packet)
         self.assertIn(b"5:flagsl13:trust addresse", packet)
+
+    def test_client_builds_sip_source_address_nat_learning_fields(self):
+        client = RtpengineClient("udp://127.0.0.1:2223")
+
+        fields = client._sdp_fields(
+            "call-1",
+            "tag-a",
+            "v=0\r\n",
+            sip_source_address=True,
+            received_from="122.171.69.148",
+        )
+        packet = client.build_packet("offer", fields, cookie="cookie1")
+
+        self.assertIn(b"5:flagsl18:SIP source addresse", packet)
+        self.assertIn(b"13:received froml3:IP414:122.171.69.148e", packet)
+        self.assertNotIn(b"13:trust address", packet)
+
+    def test_client_builds_plain_rtp_ice_remove_policy(self):
+        client = RtpengineClient("udp://127.0.0.1:2223")
+
+        fields = client._sdp_fields(
+            "call-1",
+            "tag-a",
+            "v=0\r\n",
+            transport_protocol="RTP/AVP",
+            ice="remove",
+        )
+        packet = client.build_packet("offer", fields, cookie="cookie1")
+
+        self.assertIn(b"18:transport protocol7:RTP/AVP", packet)
+        self.assertIn(b"3:ICE6:remove", packet)
 
     def test_client_builds_codec_policy_for_transcoding(self):
         client = RtpengineClient("udp://127.0.0.1:2223")
@@ -174,6 +212,10 @@ class RtpengineEncodingTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             parse_rtpengine_url("udp://127.0.0.1")
+
+    def test_rtpengine_address_family_detects_ipv4_and_ipv6(self):
+        self.assertEqual(rtpengine_address_family("122.171.69.148"), "IP4")
+        self.assertEqual(rtpengine_address_family("2001:db8::1"), "IP6")
 
 
 if __name__ == "__main__":

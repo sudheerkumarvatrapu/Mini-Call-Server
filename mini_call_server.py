@@ -53,7 +53,7 @@ except Exception:  # pragma: no cover - audioop is unavailable in newer Python b
 
 
 CRLF = "\r\n"
-PLAYSBC_VERSION = "2.0.0"
+PLAYSBC_VERSION = "2.1.0"
 PCMU = 0
 PCMA = 8
 SUPPORTED_CODECS = (PCMU, PCMA)
@@ -122,6 +122,7 @@ class ServerConfig:
     rtpengine_answer_transport_protocol: str = ""
     rtpengine_g711_only: bool = False
     rtpengine_plain_rtp_sdp: bool = False
+    rtpengine_sip_source_address: bool = False
     rtpengine_sdes: Tuple[str, ...] = field(default_factory=tuple)
     rtpengine_dtls: str = ""
     media_quality: Dict[str, Any] = field(default_factory=dict)
@@ -176,6 +177,7 @@ SERVER_CONFIG_KEYS = {
     "rtpengine_answer_transport_protocol",
     "rtpengine_g711_only",
     "rtpengine_plain_rtp_sdp",
+    "rtpengine_sip_source_address",
     "rtpengine_sdes",
     "rtpengine_dtls",
     "media_quality",
@@ -2122,6 +2124,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         rtpengine_answer_transport_protocol: str = "",
         rtpengine_g711_only: bool = False,
         rtpengine_plain_rtp_sdp: bool = False,
+        rtpengine_sip_source_address: bool = False,
         rtpengine_sdes: Tuple[str, ...] = (),
         rtpengine_dtls: str = "",
         ai_voice_gateway: Optional[Dict[str, Any]] = None,
@@ -2176,6 +2179,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         self.rtpengine_answer_transport_protocol = rtpengine_answer_transport_protocol
         self.rtpengine_g711_only = rtpengine_g711_only
         self.rtpengine_plain_rtp_sdp = rtpengine_plain_rtp_sdp
+        self.rtpengine_sip_source_address = rtpengine_sip_source_address
         self.rtpengine_sdes = rtpengine_sdes
         self.rtpengine_dtls = rtpengine_dtls
         self.ai_voice_config = AiVoiceConfig.from_dict(ai_voice_gateway)
@@ -3619,14 +3623,26 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             or self.rtpengine_answer_transport_protocol
             or self.rtpengine_sdes
             or self.rtpengine_dtls
+            or self.rtpengine_plain_rtp_sdp
+            or self.rtpengine_sip_source_address
         ):
+            offer_transport = (
+                self.rtpengine_offer_transport_protocol
+                or ("RTP/AVP" if self.rtpengine_plain_rtp_sdp else "preserve")
+            )
+            answer_transport = (
+                self.rtpengine_answer_transport_protocol
+                or ("RTP/AVP" if self.rtpengine_plain_rtp_sdp else "preserve")
+            )
             flow_log.write(
                 "RTPENGINE MEDIA SECURITY",
                 (
-                    f"offer_transport={self.rtpengine_offer_transport_protocol or 'preserve'} "
-                    f"answer_transport={self.rtpengine_answer_transport_protocol or 'preserve'} "
+                    f"offer_transport={offer_transport} "
+                    f"answer_transport={answer_transport} "
                     f"sdes={','.join(self.rtpengine_sdes) or 'default'} "
-                    f"dtls={self.rtpengine_dtls or 'default'}"
+                    f"dtls={self.rtpengine_dtls or 'default'} "
+                    f"ice={'remove' if self.rtpengine_plain_rtp_sdp else 'default'} "
+                    f"sip_source_address={str(self.rtpengine_sip_source_address).lower()}"
                 ),
             )
 
@@ -3679,6 +3695,21 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                     "stage=offer normalized=true removed=ice,rtcp-mux,webrtc-attrs",
                     call_id=inbound_call_id,
                 )
+        rtpengine_offer_transport = self.rtpengine_offer_transport_protocol or (
+            "RTP/AVP" if self.rtpengine_plain_rtp_sdp else ""
+        )
+        rtpengine_answer_transport = self.rtpengine_answer_transport_protocol or (
+            "RTP/AVP" if self.rtpengine_plain_rtp_sdp else ""
+        )
+        rtpengine_ice_policy = "remove" if self.rtpengine_plain_rtp_sdp else ""
+        offer_received_from = message.source[0] if self.rtpengine_sip_source_address else ""
+        if self.rtpengine_sip_source_address:
+            flow_log.write("RTPENGINE NAT LEARNING", f"stage=offer received_from={offer_received_from}")
+            self.logger.media(
+                "RTPENGINE NAT LEARNING",
+                f"stage=offer received_from={offer_received_from} flag=sip_source_address",
+                call_id=inbound_call_id,
+            )
         try:
             flow_log.sip("B2BUA", "RTPengine", "OFFER")
             self.rtpengine_control_requests_total += 1
@@ -3690,9 +3721,12 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                     sdp=offer_sdp,
                     codec=codec_policy,
                     direction=self.rtpengine_directions,
-                    transport_protocol=self.rtpengine_offer_transport_protocol,
+                    transport_protocol=rtpengine_offer_transport,
                     sdes=self.rtpengine_sdes,
                     dtls=self.rtpengine_dtls,
+                    ice=rtpengine_ice_policy,
+                    sip_source_address=self.rtpengine_sip_source_address,
+                    received_from=offer_received_from,
                 ),
                 flow_log,
             )
@@ -3811,6 +3845,14 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                         "stage=answer normalized=true removed=ice,rtcp-mux,webrtc-attrs",
                         call_id=inbound_call_id,
                     )
+            answer_received_from = final_response.source[0] if self.rtpengine_sip_source_address else ""
+            if self.rtpengine_sip_source_address:
+                flow_log.write("RTPENGINE NAT LEARNING", f"stage=answer received_from={answer_received_from}")
+                self.logger.media(
+                    "RTPENGINE NAT LEARNING",
+                    f"stage=answer received_from={answer_received_from} flag=sip_source_address",
+                    call_id=inbound_call_id,
+                )
             answer_response = await retry_rtpengine_control(
                 "ANSWER",
                 lambda: self.rtpengine_client.answer(
@@ -3819,9 +3861,12 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                     to_tag=to_tag,
                     sdp=answer_body,
                     codec=codec_policy,
-                    transport_protocol=self.rtpengine_answer_transport_protocol,
+                    transport_protocol=rtpengine_answer_transport,
                     sdes=self.rtpengine_sdes,
                     dtls=self.rtpengine_dtls,
+                    ice=rtpengine_ice_policy,
+                    sip_source_address=self.rtpengine_sip_source_address,
+                    received_from=answer_received_from,
                 ),
                 flow_log,
             )
@@ -5836,6 +5881,7 @@ def coerce_config_value(key: str, value: Any) -> Any:
         "tls_verify_peer",
         "rtpengine_g711_only",
         "rtpengine_plain_rtp_sdp",
+        "rtpengine_sip_source_address",
     }:
         if isinstance(value, bool):
             return value
@@ -6333,6 +6379,7 @@ async def main() -> None:
         rtpengine_answer_transport_protocol=config.rtpengine_answer_transport_protocol,
         rtpengine_g711_only=config.rtpengine_g711_only,
         rtpengine_plain_rtp_sdp=config.rtpengine_plain_rtp_sdp,
+        rtpengine_sip_source_address=config.rtpengine_sip_source_address,
         rtpengine_sdes=config.rtpengine_sdes,
         rtpengine_dtls=config.rtpengine_dtls,
         ai_voice_gateway=config.ai_voice_gateway,

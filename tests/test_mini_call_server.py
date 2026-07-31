@@ -1071,6 +1071,7 @@ class ConfigTests(unittest.TestCase):
                     '"b2bua_invite_timeout": 60, '
                     '"rtpengine_g711_only": true, '
                     '"rtpengine_plain_rtp_sdp": true, '
+                    '"rtpengine_sip_source_address": true, '
                     '"rtpengine_timeout": 1.5}'
                 ),
                 encoding="utf-8",
@@ -1099,6 +1100,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.b2bua_invite_timeout, 60.0)
             self.assertTrue(config.rtpengine_g711_only)
             self.assertTrue(config.rtpengine_plain_rtp_sdp)
+            self.assertTrue(config.rtpengine_sip_source_address)
             self.assertEqual(config.rtpengine_directions, ("core", "peer"))
             self.assertEqual(config.rtpengine_interfaces, ("core", "peer"))
             self.assertEqual(config.sip_advertised_ip, "172.28.0.20")
