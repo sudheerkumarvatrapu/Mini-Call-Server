@@ -45,6 +45,7 @@ Active-active, full media ranges, hardphones, and production-grade state are fut
 | `v2.0.0` | Real-device AKS lab baseline: OBi1022 and Zoiper registration/calls, RTPengine anchored media, dynamic public SIP IP configuration, strict route handling, human-answer timeout, and optional G.711-only RTPengine codec clamp. |
 | `v2.1.1` | Real-device RTP hardening: RTPengine SIP-source-address NAT learning, explicit `ICE=remove`, forced plain `RTP/AVP`, and OBi-style in-dialog re-INVITE media refresh acceptance. |
 | `v2.2.0` | AKS regression/runtime hardening: wait for SIP and RTP public LoadBalancer ingress, require the RTP public service, validate UDP `30000-30049`, and fail early with clear preflight evidence when Azure networking is still pending. |
+| `v2.2.1` | AKS SIPp regression hotfix: keep Contact-port routing when the registered Contact host matches the REGISTER packet source host, and align PlaySBC server version reporting with the release. |
 
 ## Cost Guardrail
 
@@ -85,7 +86,7 @@ export SIP_PIP_NAME=playsbc-sip-pip
 export RTP_PIP_NAME=playsbc-rtp-pip
 export DNS_LABEL=playsbc-sip-lab-$RANDOM
 export RTP_DNS_LABEL=playsbc-rtp-lab-$RANDOM
-export PLAYSBC_VERSION=2.2.0
+export PLAYSBC_VERSION=2.2.1
 ```
 
 ## 3. Register Azure Providers
@@ -410,7 +411,7 @@ PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_k8s_regression_job.py
   --job-timeout 3600
 ```
 
-`--aks-load-balancer-wait-timeout 1200` gives Azure up to 20 minutes to allocate SIP/RTP LoadBalancer ingress. The run starts only after the selected Azure LoadBalancer services have real ingress values, and v2.2.0 also checks the public RTP service exposes UDP `30000-30049`.
+`--aks-load-balancer-wait-timeout 1200` gives Azure up to 20 minutes to allocate SIP/RTP LoadBalancer ingress. The run starts only after the selected Azure LoadBalancer services have real ingress values, and v2.2.0 and later also checks the public RTP service exposes UDP `30000-30049`.
 
 AKS profiles currently cover OPTIONS, REGISTER auth, registered inbound routing, RTPengine media, RTPengine transcoding, SIP TCP, SIP TLS, SRTP/RTP interop, and RTCP quality evidence.
 
@@ -489,7 +490,7 @@ The first OBi1022 registration exposed a few practical AKS lab issues:
 - OBi/Zoiper UDP NAT keepalives may be CRLF-only or `keep-alive` packets with no CSeq. PlaySBC logs them as `SIP KEEP-ALIVE` and ignores them without transaction errors.
 - For plain real-device RTP testing, keep hardphones on RTP/UDP. SRTP/DTLS belongs in the TLS/SRTP lab profile and can break this public UDP smoke if the endpoint insists on secure media.
 - Internet phones need both SIP and RTP exposed. Enable the Azure RTP public LoadBalancer and keep its port range aligned with RTPengine `rtpMin`/`rtpMax`.
-- AKS regression v2.2.0 waits for both SIP and RTP public LoadBalancer ingress and validates UDP `30000-30049`; if Azure is still allocating IPs, the run stays in preflight instead of producing misleading runtime errors.
+- AKS regression v2.2.0 and later waits for both SIP and RTP public LoadBalancer ingress and validates UDP `30000-30049`; if Azure is still allocating IPs, the run stays in preflight instead of producing misleading runtime errors.
 
 ## 15. Recover Kube Credentials
 
@@ -500,7 +501,7 @@ export LOCATION=eastus
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
-export PLAYSBC_VERSION=2.2.0
+export PLAYSBC_VERSION=2.2.1
 export ACR_NAME=$(az acr list --resource-group "$AKS_RG" --query "[0].name" -o tsv)
 ```
 

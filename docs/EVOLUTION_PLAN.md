@@ -97,6 +97,7 @@ Azure release track:
 - `v2.0.0`: real-device AKS lab baseline. Include the v1.6.5/v1.6.6 cleanup, reject missing registered routes instead of fallback echo, add configurable B2BUA outbound INVITE timeout, add optional RTPengine G.711-only codec clamp, and add plain RTP/AVP SDP normalization for the first OBi1022/Zoiper media baseline.
 - `v2.1.1`: real-device media hardening. Add RTPengine SIP-source-address NAT learning, explicit `ICE=remove`, forced `RTP/AVP`, and caller-leg in-dialog re-INVITE acceptance for OBi1022 -> Zoiper RTP through AKS.
 - `v2.2.0`: AKS regression/runtime hardening. Make AKS profiles wait for SIP and RTP public LoadBalancer ingress, validate the public RTP UDP `30000-30049` range, and fail early with clear preflight evidence while Azure networking is still pending.
+- `v2.2.1`: AKS regression hotfix. Keep real-device NAT routing, but preserve Contact-port routing when SIPp REGISTER and UAS are on the same pod IP; also align PlaySBC server version reporting with the release.
 
 Production-readiness gates:
 

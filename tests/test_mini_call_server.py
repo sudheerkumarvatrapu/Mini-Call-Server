@@ -1572,6 +1572,27 @@ class RoutingEngineTests(unittest.TestCase):
         self.assertEqual(route.target.address, ("10.244.0.10", 5060))
         self.assertIsNone(route.destination)
 
+    def test_registrar_policy_uses_contact_port_when_private_host_matches_source_host(self):
+        engine = server.RoutingEngine(
+            ({"name": "registered", "match": "*", "target": "registration"},),
+            {},
+        )
+        registrations = {
+            "1002": server.Registration(
+                user="1002",
+                contact_uri="sip:1002@10.244.0.10:5060",
+                source=("10.244.0.10", 5070),
+                expires_at=9999999999,
+            )
+        }
+
+        route = engine.resolve("1002", registrations)
+
+        self.assertIsNotNone(route)
+        assert route is not None
+        self.assertEqual(route.target.address, ("10.244.0.10", 5060))
+        self.assertIsNone(route.destination)
+
     def test_route_policy_can_template_static_target(self):
         engine = server.RoutingEngine(
             ({"name": "lab", "match": "lab-*", "target": "sip:{user}@127.0.0.1:26000"},),
