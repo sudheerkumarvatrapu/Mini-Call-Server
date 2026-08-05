@@ -24,7 +24,21 @@ export RTP_PUBLIC_IP=$(az network public-ip show --resource-group "$NETWORK_RG" 
 
 az acr import --name "$ACR_NAME" --source ghcr.io/sudheerkumarvatrapu/playsbc:$PLAYSBC_VERSION --image playsbc:$PLAYSBC_VERSION --force
 az acr import --name "$ACR_NAME" --source ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:$PLAYSBC_VERSION --image playsbc-rtpengine:$PLAYSBC_VERSION --force
+```
 
+If ACR import returns `MANIFEST_UNKNOWN`, GHCR has not exposed the new image yet. From the repo on the Mac, watch the image build:
+
+```bash
+gh run list --workflow="container-images.yml" --limit 5
+gh workflow run container-images.yml --ref v$PLAYSBC_VERSION
+gh run watch <run-id> --exit-status
+```
+
+Then rerun the failed `az acr import`.
+
+Deploy or upgrade AKS:
+
+```bash
 helm upgrade --install playsbc \
   https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v$PLAYSBC_VERSION/playsbc-$PLAYSBC_VERSION.tgz \
   --namespace playsbc \
@@ -133,11 +147,11 @@ Transport: UDP
 Outbound proxy: blank
 ```
 
-## 4. Monitor Registration And Calls
+## 4. Monitor Registration
 
 ```bash
 kubectl -n playsbc logs deployment/playsbc-playsbc -f --since=10m \
-  | grep -aE "PlaySBC version|SIP INVITE|SIP ACK|SIP BYE|SIP TX response|INVITE ROUTE|RTPENGINE|SDP SUMMARY|PORT ALLOCATION|PACKET VERDICT|CODEC CLAMP|KEEP-ALIVE|1001|1002"
+  | grep -aE "REGISTER|Registered|401|403|1001|1002"
 ```
 
 Expected registration:
@@ -149,6 +163,15 @@ Challenged REGISTER for 1002
 Registered 1002 -> sip:1002@...
 ```
 
+## 5. Monitor Calls And RTP
+
+Use this command while placing calls. It intentionally omits REGISTER noise so signalling and media evidence are readable.
+
+```bash
+kubectl -n playsbc logs deployment/playsbc-playsbc -f --since=10m \
+  | grep -aE "SIP (INVITE|ACK|BYE|CANCEL)|SIP TX response|SIP response|INVITE ROUTE|ROUTE FAILED|B2BUA|SDP SUMMARY|RTPENGINE PORT ALLOCATION|RTPENGINE NAT LEARNING|RTPENGINE NAT PINHOLE|RTPENGINE PACKET VERDICT|RTPengine"
+```
+
 Expected call tests:
 
 ```text
@@ -158,7 +181,17 @@ Zoiper 1002 -> OBi1022 1001
 
 The OBi can register with a private Contact such as `192.168.1.9:5060`. PlaySBC keeps that Contact in SIP, but sends packets to the observed public REGISTER source so AKS can reach the device through NAT.
 
-## 5. Fast Troubleshooting
+Good call evidence:
+
+- `INVITE ROUTE SELECTED` routes to the registered peer.
+- `RTPENGINE MEDIA SECURITY` shows `RTP/AVP`, `ice=remove`, `sip_source_address=true`, `media_handover=true`, `nat_wait=true`, and `pierce_nat=true`.
+- `SDP SUMMARY` shows public RTP media on the Azure RTP LoadBalancer IP and ports inside `30000-30049`.
+- `RTPENGINE PACKET VERDICT` shows `caller_to_callee=observed callee_to_caller=observed` and `total_rtp_packets` greater than zero.
+- `BYE`, `200 OK BYE`, and `RTPENGINE DELETE status=ok` appear at call release.
+
+Small RTPengine `errors=1` counters can appear during NAT learning. Treat them as noise when both packet directions are observed and audio is heard both ways.
+
+## 6. Fast Troubleshooting
 
 ```bash
 kubectl -n playsbc get pods -o wide
@@ -176,7 +209,7 @@ Common symptoms:
 - No or one-way audio: check the Azure RTP public LoadBalancer, `rtpengine.advertisedIP`, RTP ports `30000-30049`, and keep `rtpengine_g711_only=true`, `rtpengine_plain_rtp_sdp=true`, `rtpengine_sip_source_address=true`, `rtpengine_media_handover=true`, `rtpengine_nat_wait=true`, and `rtpengine_pierce_nat=true` for the baseline.
 - Keepalive noise: OBi/Zoiper may send CRLF or `keep-alive` UDP packets with no CSeq. PlaySBC logs them as `SIP KEEP-ALIVE` and ignores them; they should not create stack traces.
 
-## 6. What v2.3.0 Hardens
+## 7. What v2.3.0 Hardens
 
 - Real-device SIP users: `1001` and `1002`.
 - Dynamic AKS SIP/RTP public IPs; no hard-coded public IPs.
@@ -191,3 +224,13 @@ Common symptoms:
 - Explicit SDP/RTP evidence: inbound offer, outbound offer, callee answer, caller answer, allocated RTPengine ports, learned endpoints, and per-direction packet verdicts.
 - OBi-style in-dialog re-INVITE media refreshes get a valid `200 OK` SDP answer instead of `491 Request Pending`.
 - Safe UDP NAT keepalive handling for hardphones and softphones.
+
+## 8. Next Roadmap
+
+- Save real-device SIP/RTP/RTCP PCAP bundles from AKS for Wireshark review.
+- Add real-device RTCP receiver-report, jitter, packet-loss, and MOS-style media-quality evidence.
+- Run longer OBi1022 and Zoiper soak calls with re-registration during active calls.
+- Validate hardphone/softphone SIP over TCP, SIP over TLS, and SRTP where the endpoint supports it.
+- Add multi-device tests: two hardphones plus one softphone, multiple home NAT types, and SIP ALG detection notes.
+- Exercise real-device HA: PlaySBC pod restart, RTPengine pod restart, active-active routing, and shared registrar/dialog restore.
+- Add Azure production hardening: DNS/FQDN, NSG/firewall templates, dashboard panels for real devices, and cleanup/cost guardrails.

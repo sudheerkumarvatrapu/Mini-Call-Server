@@ -474,28 +474,16 @@ Download this path from the Cloud Shell toolbar:
 
 Do not manually create a `.tar` from `$RUN`; if `$RUN` is unset, tar can create a tiny empty file. Use the runner-generated `.tgz` above. If the path is missing after reconnecting to Cloud Shell, the session was ephemeral. Rerun regression and download the `.tgz` immediately.
 
-## 14. Real Device Hurdles We Hit
+## 14. Real Device Notes
 
-The first OBi1022 registration exposed a few practical AKS lab issues:
+Keep this Azure page focused on cluster setup, regression, evidence download, and cleanup. Use [REAL_DEVICE_LAB.md](REAL_DEVICE_LAB.md) for OBi1022/Zoiper setup, release-image watch commands, SIP/RTP monitor commands, audio-verdict checks, troubleshooting, and the real-device roadmap.
+
+AKS-specific reminders:
 
 - Azure `LoadBalancer` can show `<pending>` while `kubectl describe svc` already has a VIP. If events show `AuthorizationFailed` for the network resource group, grant the AKS managed identity `Network Contributor` on `$NETWORK_RG`.
 - Some Cloud Shell sessions returned `InvalidApiVersionParameter` for `az aks get-credentials`; the REST kubeconfig fallback in the next section avoids that CLI/API mismatch.
-- SIPp `OPTIONS` and digest `REGISTER` from a Mac proved AKS UDP 5062 was reachable before the hardphone worked.
-- OBi1022 required `X_DnsSrv=false` for a direct public IP and `X_UseTokenAuth=false` for normal SIP digest auth.
-- OBi1022 registered with Contact `sip:1001@192.168.1.9:5060`; PlaySBC v1.6.1 keeps that Contact in signalling but routes packets to the observed REGISTER source so home-NAT hardphone calls can proceed.
-- OBi1022 can send a proxy-style INVITE where the Request-URI is the AKS public IP and the dialed extension is only in the `To` header. PlaySBC v1.6.4 chooses from Request-URI and `To` candidates and logs the selected route.
-- Some devices send a private Contact in the answered dialog even after registering from a public source. PlaySBC v1.6.4 keeps ACK/BYE packets on the learned destination instead of sending them to a private LAN address from AKS.
-- B2BUA BYE is forwarded from either side of the dialog, so calls released by the callee leg should clear the caller leg too.
-- PlaySBC v2.3.0 and later emits SIP route, response, ACK/BYE forwarding, timeout seconds, codec clamp, NAT-learning, NAT-pinhole flags, four-stage SDP summaries, RTPengine port allocation, and packet verdict evidence to `kubectl logs` when persistent file logs are disabled in AKS.
-- For real OBi/Zoiper calls, set `playsbc.config.b2bua_invite_timeout=60.0` so the outbound hardphone leg can ring long enough to be answered.
-- For the first real OBi/Zoiper media baseline, set `playsbc.config.rtpengine_g711_only=true` so RTPengine advertises only G.711 plus telephone-event instead of broad endpoint codec lists.
-- For OBi/Zoiper public internet RTP, also set `playsbc.config.rtpengine_plain_rtp_sdp=true` to strip ICE, RTCP-mux, fingerprint, setup, bundle, and other WebRTC-style SDP attributes from the RTPengine offer/answer path.
-- For OBi/Zoiper behind home NAT, set `playsbc.config.rtpengine_sip_source_address=true`, `playsbc.config.rtpengine_media_handover=true`, `playsbc.config.rtpengine_nat_wait=true`, and `playsbc.config.rtpengine_pierce_nat=true` so RTPengine uses the observed public SIP source, relearns fragile media tuples, and opens NAT pinholes before far-end media is forwarded.
-- OBi1022 may send in-dialog re-INVITEs after answer. PlaySBC v2.1.1 answers those refreshes with cached caller-leg SDP instead of `491 Request Pending`, then consumes the matching ACK locally.
-- OBi/Zoiper UDP NAT keepalives may be CRLF-only or `keep-alive` packets with no CSeq. PlaySBC logs them as `SIP KEEP-ALIVE` and ignores them without transaction errors.
-- For plain real-device RTP testing, keep hardphones on RTP/UDP. SRTP/DTLS belongs in the TLS/SRTP lab profile and can break this public UDP smoke if the endpoint insists on secure media.
-- Internet phones need both SIP and RTP exposed. Enable the Azure RTP public LoadBalancer and keep its port range aligned with RTPengine `rtpMin`/`rtpMax`.
-- AKS regression v2.2.2 and later waits for both SIP and RTP public LoadBalancer ingress, validates UDP `30000-30049`, and records RTPengine advertised-IP alignment in `aks-validation.json`; if Azure is still allocating IPs, the run stays in preflight instead of producing misleading runtime errors.
+- Internet phones need both SIP and RTP exposed. Enable the Azure RTP public LoadBalancer and keep its public UDP range aligned with RTPengine `rtpMin`/`rtpMax`.
+- AKS regression v2.2.2 and later waits for both SIP and RTP public LoadBalancer ingress, validates UDP `30000-30049`, and records RTPengine advertised-IP alignment in `aks-validation.json`.
 
 ## 15. Recover Kube Credentials
 

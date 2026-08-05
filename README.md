@@ -181,7 +181,7 @@ PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache python3 tools/run_k8s_regressio
   --kind-cluster playsbc
 ```
 
-This remains the required v2.2.x kind safety gate. It builds PlaySBC, RTPengine, SIPp, and the regression runner from the current source tree and loads those images into kind, so it does not depend on published GHCR images.
+This remains the required v2.x kind safety gate. It builds PlaySBC, RTPengine, SIPp, and the regression runner from the current source tree and loads those images into kind, so it does not depend on published GHCR images.
 
 Full cluster creation, Helm install, rollout, and debug steps are in [docs/KUBERNETES_HELM_RUNBOOK.md](docs/KUBERNETES_HELM_RUNBOOK.md).
 
