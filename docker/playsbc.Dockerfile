@@ -9,7 +9,7 @@ RUN apt-get update \
 
 RUN python3 -m pip install --no-cache-dir piper-tts vosk \
     && mkdir -p /opt/playsbc/models/piper /opt/playsbc/models/vosk \
-    && python3 -m piper.download_voices en_US-lessac-low --download-dir /opt/playsbc/models/piper \
+    && python3 -m piper.download_voices en_US-lessac-low --data-dir /opt/playsbc/models/piper \
     && python3 - <<'PY'
 import hashlib
 import ssl

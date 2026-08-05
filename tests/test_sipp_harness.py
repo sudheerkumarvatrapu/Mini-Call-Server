@@ -2562,6 +2562,12 @@ Content-Length: 0
         self.assertIn("--port-min=30000", dockerfile)
         self.assertIn("--port-max=32000", dockerfile)
 
+    def test_playsbc_dockerfile_uses_current_piper_voice_download_cli(self):
+        dockerfile = (ROOT / "docker" / "playsbc.Dockerfile").read_text(encoding="utf-8")
+
+        self.assertIn("python3 -m piper.download_voices en_US-lessac-low --data-dir", dockerfile)
+        self.assertNotIn("--download-dir", dockerfile)
+
     def test_rtpengine_load_observation_uses_query_packet_totals(self):
         with tempfile.TemporaryDirectory() as tmp:
             log_dir = Path(tmp)
