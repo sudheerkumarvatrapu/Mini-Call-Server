@@ -1,63 +1,46 @@
-<svg width="960" height="300" viewBox="0 0 960 300" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+<svg width="900" height="220" viewBox="0 0 900 220" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
   <title id="title">PlaySBC logo</title>
-  <desc id="desc">A colorful PlaySBC logo for a playful Session Border Controller lab with SIP, RTP, RTPengine, Voice AI Gateway, and Rasa regression.</desc>
+  <desc id="desc">A compact corporate PlaySBC logo with a media-flow gateway mark and a two-color wordmark.</desc>
   <defs>
-    <linearGradient id="bg" x1="40" y1="30" x2="920" y2="250" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#12355B"/>
-      <stop offset="0.48" stop-color="#1D4ED8"/>
-      <stop offset="1" stop-color="#0F766E"/>
+    <linearGradient id="mediaTeal" x1="58" y1="58" x2="290" y2="162" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#16C7D4"/>
+      <stop offset="1" stop-color="#0891B2"/>
     </linearGradient>
-    <linearGradient id="accent" x1="128" y1="66" x2="298" y2="226" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#67E8F9"/>
-      <stop offset="0.55" stop-color="#A3E635"/>
-      <stop offset="1" stop-color="#FACC15"/>
+    <linearGradient id="mediaNavy" x1="70" y1="152" x2="292" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0B2A5B"/>
+      <stop offset="1" stop-color="#172033"/>
     </linearGradient>
-    <linearGradient id="pulse" x1="116" y1="153" x2="318" y2="153" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#22D3EE"/>
-      <stop offset="0.5" stop-color="#FACC15"/>
-      <stop offset="1" stop-color="#34D399"/>
-    </linearGradient>
-    <filter id="softShadow" x="0" y="0" width="960" height="300" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#0F172A" flood-opacity="0.22"/>
+    <filter id="softLift" x="40" y="30" width="300" height="160" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="7" stdDeviation="8" flood-color="#0F172A" flood-opacity="0.10"/>
     </filter>
   </defs>
 
-  <rect x="32" y="28" width="896" height="244" rx="34" fill="url(#bg)" filter="url(#softShadow)"/>
-  <path d="M790 62C840 62 880 102 880 152C880 202 840 242 790 242" stroke="#67E8F9" stroke-width="2" stroke-dasharray="8 12" opacity="0.42"/>
-  <path d="M724 38C784 72 822 111 840 158C856 199 854 229 836 250" stroke="#A7F3D0" stroke-width="2" stroke-dasharray="7 13" opacity="0.36"/>
+  <g filter="url(#softLift)" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M91 86C103 58 128 44 158 44C192 44 218 62 228 92C251 92 270 106 278 128" stroke="url(#mediaTeal)" stroke-width="9"/>
+    <path d="M70 88H132C150 88 158 106 170 110C183 114 191 92 210 92H292" stroke="url(#mediaTeal)" stroke-width="9"/>
+    <path d="M71 146C110 147 144 135 169 113C193 135 228 147 286 146" stroke="url(#mediaNavy)" stroke-width="9"/>
 
-  <g transform="translate(94 60)">
-    <circle cx="94" cy="94" r="74" fill="#0F172A" opacity="0.42"/>
-    <circle cx="94" cy="94" r="62" fill="url(#accent)"/>
-    <path d="M57 125V64C57 55 67 50 75 55L128 86C136 91 136 103 128 108L75 139C67 144 57 138 57 125Z" fill="#0F172A"/>
-    <circle cx="37" cy="94" r="12" fill="#22D3EE"/>
-    <circle cx="151" cy="94" r="12" fill="#34D399"/>
-    <circle cx="94" cy="37" r="12" fill="#FACC15"/>
-    <path d="M49 94H28M160 94H139M94 49V27" stroke="#E0F2FE" stroke-width="8" stroke-linecap="round"/>
-    <path d="M114 152C138 143 158 124 166 99" stroke="url(#pulse)" stroke-width="8" stroke-linecap="round"/>
-    <path d="M22 152H52L67 126L85 178L111 102L127 152H170" stroke="#E0F2FE" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M47 110H86" stroke="#16C7D4" stroke-width="8"/>
+    <path d="M295 110H333" stroke="#16C7D4" stroke-width="8"/>
+    <circle cx="39" cy="110" r="8" fill="#16C7D4"/>
+    <circle cx="341" cy="110" r="8" fill="#16C7D4"/>
+
+    <path d="M112 110H120M136 110H144M224 110H232M248 110H256" stroke="#16C7D4" stroke-width="8"/>
+    <path d="M151 123V97M164 130V90M177 121V99" stroke="#16C7D4" stroke-width="8"/>
+    <path d="M202 121V99M215 130V90M228 123V97" stroke="#16C7D4" stroke-width="8"/>
+
+    <path d="M180 92V128" stroke="#76C84F" stroke-width="9"/>
+    <circle cx="180" cy="110" r="4" fill="#76C84F"/>
+
+    <path d="M168 56L180 49L192 56V70L180 77L168 70V56Z" stroke="#16C7D4" stroke-width="4"/>
+    <path d="M180 49V63M168 56L180 63L192 56" stroke="#16C7D4" stroke-width="3"/>
+    <path d="M168 150L180 143L192 150V164L180 171L168 164V150Z" stroke="#16C7D4" stroke-width="4"/>
+    <path d="M180 143V157M168 150L180 157L192 150" stroke="#16C7D4" stroke-width="3"/>
+    <path d="M180 82V88M180 132V138M160 81L153 77M200 81L207 77M160 139L153 143M200 139L207 143" stroke="#16C7D4" stroke-width="5"/>
   </g>
 
-  <g fill="#F8FAFC">
-    <text x="312" y="126" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="68" font-weight="800" letter-spacing="0">PlaySBC</text>
-    <text x="316" y="169" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" font-weight="600" opacity="0.88">Playful Session Border Controller: break SIP here, not prod</text>
-  </g>
-
-  <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="14" font-weight="800" text-anchor="middle">
-    <rect x="316" y="188" width="82" height="32" rx="16" fill="#DBEAFE"/>
-    <text x="357" y="209" fill="#1E40AF">SIPp</text>
-    <rect x="412" y="188" width="92" height="32" rx="16" fill="#DCFCE7"/>
-    <text x="458" y="209" fill="#166534">B2BUA</text>
-    <rect x="518" y="188" width="112" height="32" rx="16" fill="#FEF3C7"/>
-    <text x="574" y="209" fill="#92400E">RTPengine</text>
-    <rect x="644" y="188" width="112" height="32" rx="16" fill="#EDE9FE"/>
-    <text x="700" y="209" fill="#6D28D9">Transcode</text>
-
-    <rect x="316" y="230" width="174" height="32" rx="16" fill="#FCE7F3"/>
-    <text x="403" y="251" fill="#BE185D">Voice AI Gateway</text>
-    <rect x="506" y="230" width="118" height="32" rx="16" fill="#FFE4E6"/>
-    <text x="565" y="251" fill="#BE123C">Rasa REST</text>
-    <rect x="640" y="230" width="128" height="32" rx="16" fill="#CCFBF1"/>
-    <text x="704" y="251" fill="#0F766E">Regression</text>
+  <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="94" font-weight="800" letter-spacing="0">
+    <text x="390" y="142" fill="#0B2A5B">Play</text>
+    <text x="604" y="142" fill="#0891B2">SBC</text>
   </g>
 </svg>
