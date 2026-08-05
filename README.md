@@ -1,8 +1,7 @@
 <p align="center">
+  <br>
   <img src="docs/assets/playsbc-logo-corporate-mediaflow.png?raw=1" alt="PlaySBC logo" width="520">
 </p>
-
-<h1 align="center">PlaySBC</h1>
 
 <p align="center"><strong>A serious SBC lab where SIP, RTP, and AI voice learn to behave before real calls do.</strong></p>
 
