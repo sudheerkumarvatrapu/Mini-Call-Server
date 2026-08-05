@@ -53,7 +53,7 @@ except Exception:  # pragma: no cover - audioop is unavailable in newer Python b
 
 
 CRLF = "\r\n"
-PLAYSBC_VERSION = "2.2.2"
+PLAYSBC_VERSION = "2.3.0"
 PCMU = 0
 PCMA = 8
 SUPPORTED_CODECS = (PCMU, PCMA)
@@ -124,6 +124,8 @@ class ServerConfig:
     rtpengine_plain_rtp_sdp: bool = False
     rtpengine_sip_source_address: bool = False
     rtpengine_media_handover: bool = False
+    rtpengine_nat_wait: bool = False
+    rtpengine_pierce_nat: bool = False
     rtpengine_sdes: Tuple[str, ...] = field(default_factory=tuple)
     rtpengine_dtls: str = ""
     media_quality: Dict[str, Any] = field(default_factory=dict)
@@ -180,6 +182,8 @@ SERVER_CONFIG_KEYS = {
     "rtpengine_plain_rtp_sdp",
     "rtpengine_sip_source_address",
     "rtpengine_media_handover",
+    "rtpengine_nat_wait",
+    "rtpengine_pierce_nat",
     "rtpengine_sdes",
     "rtpengine_dtls",
     "media_quality",
@@ -2132,6 +2136,8 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         rtpengine_plain_rtp_sdp: bool = False,
         rtpengine_sip_source_address: bool = False,
         rtpengine_media_handover: bool = False,
+        rtpengine_nat_wait: bool = False,
+        rtpengine_pierce_nat: bool = False,
         rtpengine_sdes: Tuple[str, ...] = (),
         rtpengine_dtls: str = "",
         ai_voice_gateway: Optional[Dict[str, Any]] = None,
@@ -2188,6 +2194,8 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         self.rtpengine_plain_rtp_sdp = rtpengine_plain_rtp_sdp
         self.rtpengine_sip_source_address = rtpengine_sip_source_address
         self.rtpengine_media_handover = rtpengine_media_handover
+        self.rtpengine_nat_wait = rtpengine_nat_wait
+        self.rtpengine_pierce_nat = rtpengine_pierce_nat
         self.rtpengine_sdes = rtpengine_sdes
         self.rtpengine_dtls = rtpengine_dtls
         self.ai_voice_config = AiVoiceConfig.from_dict(ai_voice_gateway)
@@ -3652,6 +3660,8 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             or self.rtpengine_plain_rtp_sdp
             or self.rtpengine_sip_source_address
             or self.rtpengine_media_handover
+            or self.rtpengine_nat_wait
+            or self.rtpengine_pierce_nat
         ):
             offer_transport = (
                 self.rtpengine_offer_transport_protocol
@@ -3670,7 +3680,9 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                     f"dtls={self.rtpengine_dtls or 'default'} "
                     f"ice={'remove' if self.rtpengine_plain_rtp_sdp else 'default'} "
                     f"sip_source_address={str(self.rtpengine_sip_source_address).lower()} "
-                    f"media_handover={str(self.rtpengine_media_handover).lower()}"
+                    f"media_handover={str(self.rtpengine_media_handover).lower()} "
+                    f"nat_wait={str(self.rtpengine_nat_wait).lower()} "
+                    f"pierce_nat={str(self.rtpengine_pierce_nat).lower()}"
                 ),
             )
 
@@ -3749,6 +3761,15 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                 "stage=offer flag=media_handover symmetric_learning=true",
                 call_id=inbound_call_id,
             )
+        if self.rtpengine_nat_wait or self.rtpengine_pierce_nat:
+            nat_flags = []
+            if self.rtpengine_nat_wait:
+                nat_flags.append("NAT-wait")
+            if self.rtpengine_pierce_nat:
+                nat_flags.append("pierce NAT")
+            detail = f"stage=offer flags={','.join(nat_flags)}"
+            flow_log.write("RTPENGINE NAT PINHOLE", detail)
+            self.logger.media("RTPENGINE NAT PINHOLE", detail, call_id=inbound_call_id)
         try:
             flow_log.sip("B2BUA", "RTPengine", "OFFER")
             self.rtpengine_control_requests_total += 1
@@ -3767,6 +3788,8 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                     sip_source_address=self.rtpengine_sip_source_address,
                     received_from=offer_received_from,
                     media_handover=self.rtpengine_media_handover,
+                    nat_wait=self.rtpengine_nat_wait,
+                    pierce_nat=self.rtpengine_pierce_nat,
                 ),
                 flow_log,
             )
@@ -3906,6 +3929,15 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                     "stage=answer flag=media_handover symmetric_learning=true",
                     call_id=inbound_call_id,
                 )
+            if self.rtpengine_nat_wait or self.rtpengine_pierce_nat:
+                nat_flags = []
+                if self.rtpengine_nat_wait:
+                    nat_flags.append("NAT-wait")
+                if self.rtpengine_pierce_nat:
+                    nat_flags.append("pierce NAT")
+                detail = f"stage=answer flags={','.join(nat_flags)}"
+                flow_log.write("RTPENGINE NAT PINHOLE", detail)
+                self.logger.media("RTPENGINE NAT PINHOLE", detail, call_id=inbound_call_id)
             flow_log.write("SDP SUMMARY", sdp_audio_summary("callee-answer", answer_body, final_response.source[0]))
             answer_response = await retry_rtpengine_control(
                 "ANSWER",
@@ -3922,6 +3954,8 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                     sip_source_address=self.rtpengine_sip_source_address,
                     received_from=answer_received_from,
                     media_handover=self.rtpengine_media_handover,
+                    nat_wait=self.rtpengine_nat_wait,
+                    pierce_nat=self.rtpengine_pierce_nat,
                 ),
                 flow_log,
             )
@@ -6121,6 +6155,8 @@ def coerce_config_value(key: str, value: Any) -> Any:
         "rtpengine_plain_rtp_sdp",
         "rtpengine_sip_source_address",
         "rtpengine_media_handover",
+        "rtpengine_nat_wait",
+        "rtpengine_pierce_nat",
     }:
         if isinstance(value, bool):
             return value
@@ -6620,6 +6656,8 @@ async def main() -> None:
         rtpengine_plain_rtp_sdp=config.rtpengine_plain_rtp_sdp,
         rtpengine_sip_source_address=config.rtpengine_sip_source_address,
         rtpengine_media_handover=config.rtpengine_media_handover,
+        rtpengine_nat_wait=config.rtpengine_nat_wait,
+        rtpengine_pierce_nat=config.rtpengine_pierce_nat,
         rtpengine_sdes=config.rtpengine_sdes,
         rtpengine_dtls=config.rtpengine_dtls,
         ai_voice_gateway=config.ai_voice_gateway,

@@ -47,6 +47,7 @@ Active-active, full media ranges, hardphones, and production-grade state are fut
 | `v2.2.0` | AKS regression/runtime hardening: wait for SIP and RTP public LoadBalancer ingress, require the RTP public service, validate UDP `30000-30049`, and fail early with clear preflight evidence when Azure networking is still pending. |
 | `v2.2.1` | AKS SIPp regression hotfix: keep Contact-port routing when the registered Contact host matches the REGISTER packet source host, and align PlaySBC server version reporting with the release. |
 | `v2.2.2` | Real-device AKS media hardening: lock RTPengine and Azure RTP LoadBalancer to UDP `30000-30049`, require RTPengine advertised IP alignment, add media-handover NAT learning, and write explicit SDP/RTP verdict evidence. |
+| `v2.3.0` | Real-device NAT pinhole hardening: add RTPengine `NAT-wait` and `pierce NAT` flags for OBi1022/Zoiper calls behind home NAT. |
 
 ## Cost Guardrail
 
@@ -87,7 +88,7 @@ export SIP_PIP_NAME=playsbc-sip-pip
 export RTP_PIP_NAME=playsbc-rtp-pip
 export DNS_LABEL=playsbc-sip-lab-$RANDOM
 export RTP_DNS_LABEL=playsbc-rtp-lab-$RANDOM
-export PLAYSBC_VERSION=2.2.2
+export PLAYSBC_VERSION=2.3.0
 ```
 
 ## 3. Register Azure Providers
@@ -288,6 +289,8 @@ playsbc:
     rtpengine_plain_rtp_sdp: true
     rtpengine_sip_source_address: true
     rtpengine_media_handover: true
+    rtpengine_nat_wait: true
+    rtpengine_pierce_nat: true
     sip_advertised_ip: "$SIP_PUBLIC_IP"
     b2bua_advertised_ip: "$SIP_PUBLIC_IP"
 EOF
@@ -483,11 +486,11 @@ The first OBi1022 registration exposed a few practical AKS lab issues:
 - OBi1022 can send a proxy-style INVITE where the Request-URI is the AKS public IP and the dialed extension is only in the `To` header. PlaySBC v1.6.4 chooses from Request-URI and `To` candidates and logs the selected route.
 - Some devices send a private Contact in the answered dialog even after registering from a public source. PlaySBC v1.6.4 keeps ACK/BYE packets on the learned destination instead of sending them to a private LAN address from AKS.
 - B2BUA BYE is forwarded from either side of the dialog, so calls released by the callee leg should clear the caller leg too.
-- PlaySBC v2.2.2 and later emits SIP route, response, ACK/BYE forwarding, timeout seconds, codec clamp, NAT-learning, four-stage SDP summaries, RTPengine port allocation, and packet verdict evidence to `kubectl logs` when persistent file logs are disabled in AKS.
+- PlaySBC v2.3.0 and later emits SIP route, response, ACK/BYE forwarding, timeout seconds, codec clamp, NAT-learning, NAT-pinhole flags, four-stage SDP summaries, RTPengine port allocation, and packet verdict evidence to `kubectl logs` when persistent file logs are disabled in AKS.
 - For real OBi/Zoiper calls, set `playsbc.config.b2bua_invite_timeout=60.0` so the outbound hardphone leg can ring long enough to be answered.
 - For the first real OBi/Zoiper media baseline, set `playsbc.config.rtpengine_g711_only=true` so RTPengine advertises only G.711 plus telephone-event instead of broad endpoint codec lists.
 - For OBi/Zoiper public internet RTP, also set `playsbc.config.rtpengine_plain_rtp_sdp=true` to strip ICE, RTCP-mux, fingerprint, setup, bundle, and other WebRTC-style SDP attributes from the RTPengine offer/answer path.
-- For OBi/Zoiper behind home NAT, set `playsbc.config.rtpengine_sip_source_address=true` and `playsbc.config.rtpengine_media_handover=true` so RTPengine uses the observed public SIP source and can relearn media endpoints when device SDP is private or fragile.
+- For OBi/Zoiper behind home NAT, set `playsbc.config.rtpengine_sip_source_address=true`, `playsbc.config.rtpengine_media_handover=true`, `playsbc.config.rtpengine_nat_wait=true`, and `playsbc.config.rtpengine_pierce_nat=true` so RTPengine uses the observed public SIP source, relearns fragile media tuples, and opens NAT pinholes before far-end media is forwarded.
 - OBi1022 may send in-dialog re-INVITEs after answer. PlaySBC v2.1.1 answers those refreshes with cached caller-leg SDP instead of `491 Request Pending`, then consumes the matching ACK locally.
 - OBi/Zoiper UDP NAT keepalives may be CRLF-only or `keep-alive` packets with no CSeq. PlaySBC logs them as `SIP KEEP-ALIVE` and ignores them without transaction errors.
 - For plain real-device RTP testing, keep hardphones on RTP/UDP. SRTP/DTLS belongs in the TLS/SRTP lab profile and can break this public UDP smoke if the endpoint insists on secure media.
@@ -503,7 +506,7 @@ export LOCATION=eastus
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
-export PLAYSBC_VERSION=2.2.2
+export PLAYSBC_VERSION=2.3.0
 export ACR_NAME=$(az acr list --resource-group "$AKS_RG" --query "[0].name" -o tsv)
 ```
 

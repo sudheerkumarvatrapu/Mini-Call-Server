@@ -109,6 +109,8 @@ class RtpengineClient:
         sip_source_address: bool = False,
         received_from: str = "",
         media_handover: bool = False,
+        nat_wait: bool = False,
+        pierce_nat: bool = False,
     ) -> Dict[str, Any]:
         return await self.request(
             "offer",
@@ -125,6 +127,8 @@ class RtpengineClient:
                 sip_source_address=sip_source_address,
                 received_from=received_from,
                 media_handover=media_handover,
+                nat_wait=nat_wait,
+                pierce_nat=pierce_nat,
             ),
         )
 
@@ -143,6 +147,8 @@ class RtpengineClient:
         sip_source_address: bool = False,
         received_from: str = "",
         media_handover: bool = False,
+        nat_wait: bool = False,
+        pierce_nat: bool = False,
     ) -> Dict[str, Any]:
         fields = self._sdp_fields(
             call_id,
@@ -156,6 +162,8 @@ class RtpengineClient:
             sip_source_address=sip_source_address,
             received_from=received_from,
             media_handover=media_handover,
+            nat_wait=nat_wait,
+            pierce_nat=pierce_nat,
         )
         fields["to-tag"] = to_tag
         return await self.request("answer", fields)
@@ -190,10 +198,16 @@ class RtpengineClient:
         sip_source_address: bool = False,
         received_from: str = "",
         media_handover: bool = False,
+        nat_wait: bool = False,
+        pierce_nat: bool = False,
     ) -> Dict[str, Any]:
         flags = ["SIP source address"] if sip_source_address else ["trust address"]
         if media_handover:
             flags.append("media handover")
+        if nat_wait:
+            flags.append("NAT-wait")
+        if pierce_nat:
+            flags.append("pierce NAT")
         flags.extend(f"SDES-{option}" for option in sdes)
         fields: Dict[str, Any] = {
             "call-id": call_id,

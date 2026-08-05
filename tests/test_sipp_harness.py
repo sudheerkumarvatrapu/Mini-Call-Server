@@ -10,6 +10,7 @@ import time
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import mini_call_server as server
@@ -3054,6 +3055,8 @@ class RealTopologyTests(unittest.TestCase):
         self.assertIn("rtpengine_plain_rtp_sdp", runner.profile_config(rtpengine))
         self.assertIn("rtpengine_sip_source_address", runner.profile_config(rtpengine))
         self.assertIn("rtpengine_media_handover", runner.profile_config(rtpengine))
+        self.assertIn("rtpengine_nat_wait", runner.profile_config(rtpengine))
+        self.assertIn("rtpengine_pierce_nat", runner.profile_config(rtpengine))
         ha = runner.profile_config(rtpengine)["ha"]
         self.assertTrue(ha["enabled"])
         self.assertEqual(ha["node_id"], "$POD_NAME")
@@ -3598,7 +3601,7 @@ class RealTopologyTests(unittest.TestCase):
             participants=("Core SIPp A", "PlaySBC", "Peer SIPp B"),
         )
 
-        runner.add_registration_flow(flow, "Peer SIPp B", "failure")
+        runner.add_registration_flow(flow, SimpleNamespace(name="register-auth-failure"), "Peer SIPp B", "failure")
         ladder = flow.render_ladder_text()
 
         self.assertIn("REGISTER + bad digest", ladder)

@@ -61,7 +61,7 @@ image:
   # For direct deployments after image publishing, use:
   # repository: ghcr.io/sudheerkumarvatrapu/playsbc
   repository: playsbc
-  tag: "2.2.2"
+  tag: "2.3.0"
   pullPolicy: IfNotPresent
 
 service:
@@ -472,6 +472,8 @@ playsbc:
     rtpengine_plain_rtp_sdp: false
     rtpengine_sip_source_address: false
     rtpengine_media_handover: false
+    rtpengine_nat_wait: false
+    rtpengine_pierce_nat: false
     rtpengine_sdes: []
     rtpengine_dtls: ""
     media_quality: {}
