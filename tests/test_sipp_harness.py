@@ -2816,6 +2816,8 @@ class RealTopologyTests(unittest.TestCase):
         self.assertEqual(uac[1], "172.28.0.20:5060")
         self.assertIn("log.ai", run_regression_suite.B2BUA_LOG_FILES)
         self.assertIn("log.ai", run_b2bua_sipp_smoke.LOG_FILES)
+        self.assertIn("sipmsg.log", run_regression_suite.B2BUA_LOG_FILES)
+        self.assertIn("sipmsg.log", run_b2bua_sipp_smoke.LOG_FILES)
         self.assertEqual(run_b2bua_sipp_smoke.rtcp_expected_sender_names(args), ("rtcp-a",))
 
     def test_dual_realm_ai_rtpengine_profile_anchors_media_with_rtpengine(self):
@@ -3162,6 +3164,74 @@ class RealTopologyTests(unittest.TestCase):
         self.assertGreater(merged_bytes, 24)
         self.assertEqual(linktype, 1)
         self.assertEqual([frame for _timestamp, frame in records], [b"earlier", b"later"])
+
+    def test_kubernetes_collect_packet_captures_keeps_only_combined_pcap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp)
+            for role in ("core", "peer"):
+                (bundle / f"k8s-pcap-{role}").mkdir()
+
+            captures = [
+                run_k8s_regression.CaptureProcess(
+                    "core",
+                    "core-pod",
+                    "/tmp/core.pcap",
+                    bundle / "capture-core.pcap",
+                    mock.Mock(),
+                ),
+                run_k8s_regression.CaptureProcess(
+                    "peer",
+                    "peer-pod",
+                    "/tmp/peer.pcap",
+                    bundle / "capture-peer.pcap",
+                    mock.Mock(),
+                ),
+            ]
+            args = run_k8s_regression.parse_args(["--profile", "basic-media"])
+            runner = run_k8s_regression.K8sRegressionRunner(args, "unit-k8s")
+
+            def fake_copy(command, **_kwargs):
+                destination = Path(command[5])
+                timestamp = 20.0 if destination.name == "capture-core.pcap" else 10.0
+                write_test_pcap(destination, timestamp, destination.name.encode("ascii"), linktype=1)
+                return run_k8s_regression.CommandResult(command, 0, 0.1, "", "")
+
+            with mock.patch.object(run_k8s_regression, "run_command", side_effect=fake_copy):
+                self.assertTrue(runner.collect_packet_captures(captures, bundle))
+
+            self.assertTrue((bundle / "capture.pcap").exists())
+            self.assertFalse((bundle / "capture-core.pcap").exists())
+            self.assertFalse((bundle / "capture-peer.pcap").exists())
+            networking_log = (bundle / "log.networking").read_text(encoding="utf-8")
+            self.assertIn("retained_file=capture.pcap", networking_log)
+            self.assertIn("discarded_role_pcaps=capture-core.pcap,capture-peer.pcap", networking_log)
+
+    def test_kubernetes_combined_sipmsg_log_is_written_from_sipp_traces(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp)
+            core = bundle / "core-sipp-a-uac"
+            peer = bundle / "peer-sipp-b-uas"
+            core.mkdir()
+            peer.mkdir()
+            (core / "sipp-traces.log").write_text(
+                "===== /tmp/uac_messages.log =====\nINVITE sip:1002@example.test SIP/2.0\n"
+                "===== /tmp/uac_errors.log =====\nignored error trace\n",
+                encoding="utf-8",
+            )
+            (peer / "sipp-traces.log").write_text(
+                "===== /tmp/uas_messages.log =====\nSIP/2.0 200 OK\n",
+                encoding="utf-8",
+            )
+
+            section_count = run_k8s_regression.write_combined_sipmsg_log(bundle, "basic-media")
+
+            sipmsg = (bundle / "sipmsg.log").read_text(encoding="utf-8")
+            self.assertEqual(section_count, 2)
+            self.assertIn("core-sipp-a-uac / uac_messages.log", sipmsg)
+            self.assertIn("peer-sipp-b-uas / uas_messages.log", sipmsg)
+            self.assertIn("INVITE sip:1002@example.test SIP/2.0", sipmsg)
+            self.assertIn("SIP/2.0 200 OK", sipmsg)
+            self.assertNotIn("ignored error trace", sipmsg)
 
     def test_kubernetes_options_catalog_ladder_is_options_only(self):
         args = run_k8s_regression.parse_args(["--aks-profiles"])

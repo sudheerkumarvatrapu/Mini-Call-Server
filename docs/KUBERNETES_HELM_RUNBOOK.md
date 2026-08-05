@@ -293,7 +293,7 @@ kubectl -n playsbc get pods -o wide
 kubectl -n playsbc logs job/$(kubectl -n playsbc get jobs --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}') -c regression-runner -f
 ```
 
-The runner creates temporary SIPp core and peer pods per profile, applies Helm config, runs the call, collects logs, ladders, PCAP evidence, and restores Helm values.
+The runner creates temporary SIPp core and peer pods per profile, applies Helm config, runs the call, collects logs, ladders, one combined `capture.pcap`, one combined `sipmsg.log`, and restores Helm values.
 
 ## Useful Helm Commands
 
@@ -336,7 +336,7 @@ kubectl -n playsbc run dns-check --rm -it --image=busybox:1.36 --restart=Never -
 ## Notes
 
 - Kubernetes regression runs in the `playsbc` namespace.
-- Load profiles skip PCAP by design; single-call profiles keep SIP/RTP/RTCP evidence.
+- Load profiles skip PCAP by design; single-call profiles keep one merged SIP/RTP/RTCP `capture.pcap` and discard temporary role captures after merge.
 - Kubernetes currently uses logical core/peer pods on one pod network. True multi-interface core and peer realms are future Multus work.
 - Production-grade active-active still needs external load balancing, shared registrar/dialog state, and controlled RTPengine pairing.
 - For UDP SIP/RTP, test from inside the cluster or expose with NodePort/LoadBalancer. `kubectl port-forward` is mainly useful for TCP health, Grafana, and Prometheus.

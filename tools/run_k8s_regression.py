@@ -651,6 +651,81 @@ def merge_pcap_files(paths: list[Path], destination: Path) -> int:
     return destination.stat().st_size
 
 
+def prune_merged_capture_inputs(paths: list[Path], destination: Path) -> list[str]:
+    if not destination.exists() or destination.stat().st_size <= 24:
+        return []
+    removed: list[str] = []
+    for path in paths:
+        if path == destination or path.name == destination.name:
+            continue
+        if path.name.startswith("capture-") and path.suffix == ".pcap" and path.exists():
+            path.unlink()
+            removed.append(path.name)
+    return removed
+
+
+def extract_sipp_message_sections(trace_text: str) -> list[tuple[str, str]]:
+    sections: list[tuple[str, str]] = []
+    current_source = ""
+    current_lines: list[str] = []
+
+    def flush() -> None:
+        nonlocal current_source, current_lines
+        if current_source and current_source.endswith("_messages.log"):
+            body = "\n".join(current_lines).strip()
+            if body:
+                sections.append((Path(current_source).name, body))
+        current_source = ""
+        current_lines = []
+
+    for line in trace_text.splitlines():
+        if line.startswith("===== ") and line.endswith(" ====="):
+            flush()
+            current_source = line.removeprefix("===== ").removesuffix(" =====").strip()
+            continue
+        current_lines.append(line)
+    flush()
+    return sections
+
+
+def write_combined_sipmsg_log(bundle: Path, profile_name: str) -> int:
+    sections: list[tuple[str, str, str]] = []
+    for trace_path in sorted(bundle.glob("*/sipp-traces.log")):
+        trace_text = trace_path.read_text(encoding="utf-8", errors="replace")
+        for source_name, body in extract_sipp_message_sections(trace_text):
+            sections.append((trace_path.parent.name, source_name, body))
+
+    output = bundle / "sipmsg.log"
+    if not sections:
+        reason = "chat_nlu_profile" if profile_name in RASA_NLU_PROFILES else "no_sipp_message_trace_collected"
+        output.write_text(
+            (
+                "PLAY SBC COMBINED SIP MESSAGE TRACE\n"
+                f"profile={profile_name}\n"
+                f"status=not_applicable reason={reason}\n"
+            ),
+            encoding="utf-8",
+        )
+        return 0
+
+    lines = [
+        "PLAY SBC COMBINED SIP MESSAGE TRACE",
+        f"profile={profile_name}",
+        f"sections={len(sections)}",
+        "",
+    ]
+    for step_name, source_name, body in sections:
+        lines.extend(
+            [
+                f"===== {step_name} / {source_name} =====",
+                body,
+                "",
+            ]
+        )
+    output.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return len(sections)
+
+
 def scenario_configmap_manifest(name: str) -> dict[str, object]:
     data = {}
     for path in sorted(SCENARIO_DIR.glob("*.xml")):
@@ -1591,15 +1666,20 @@ class K8sRegressionRunner:
         except Exception as exc:
             ok = False
             merged_bytes = 0
+            removed: list[str] = []
             self.write_log(bundle, "log.networking", "K8S PCAP MERGE FAILED", f"{type(exc).__name__}: {exc}")
+        else:
+            removed = prune_merged_capture_inputs(copied, bundle / "capture.pcap") if merged_bytes > 0 else []
         self.write_log(
             bundle,
             "log.networking",
             "K8S PCAP CAPTURE COLLECTED",
             (
                 f"status={'passed' if ok and merged_bytes > 0 else 'failed'} "
-                f"files={','.join(path.name for path in copied) or 'none'} "
-                f"merged_file=capture.pcap merge=timestamp_sorted merged_bytes={merged_bytes}"
+                f"merged_sources={','.join(path.name for path in copied) or 'none'} "
+                f"retained_file={'capture.pcap' if merged_bytes > 0 else 'none'} "
+                f"discarded_role_pcaps={','.join(removed) or 'none'} "
+                f"merge=timestamp_sorted merged_bytes={merged_bytes}"
             ),
         )
         return ok and merged_bytes > 0
@@ -2292,6 +2372,13 @@ class K8sRegressionRunner:
                 )
             evidence_started = time.monotonic()
             self.collect_k8s_evidence(bundle, profile)
+            sipmsg_sections = write_combined_sipmsg_log(bundle, profile)
+            self.write_log(
+                bundle,
+                "log.sipp",
+                "COMBINED SIPMSG LOG",
+                f"file=sipmsg.log sections={sipmsg_sections}",
+            )
             phases.append(
                 "Evidence Validation",
                 "passed" if status == "passed" else "failed",

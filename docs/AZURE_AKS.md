@@ -436,9 +436,10 @@ Use these files first:
 | `log.media` | RTP/RTCP/media evidence. |
 | `log.transcoding` | Codec conversion evidence when transcoding is expected. |
 | `log.platform` | Helm, AKS, rollout, and profile control evidence. |
+| `sipmsg.log` | Combined SIPp core/peer message trace for quick signalling review. |
 | `capture.pcap` | Combined packet evidence, timestamp-sorted across core and peer capture agents. |
 
-AKS `capture.pcap` is intentionally focused on SIP, RTP/SRTP, and RTCP ports. DNS and unrelated Kubernetes pod traffic are filtered out. For OPTIONS keepalive, the ladder and PCAP should show only `OPTIONS -> 200 OK`; any INVITE/Rasa ladder in that profile is a report bug.
+AKS keeps only the merged `capture.pcap`; temporary `capture-core.pcap` and `capture-peer.pcap` files are discarded after a successful merge. The capture is intentionally focused on SIP, RTP/SRTP, and RTCP ports. DNS and unrelated Kubernetes pod traffic are filtered out. For OPTIONS keepalive, the ladder and PCAP should show only `OPTIONS -> 200 OK`; any INVITE/Rasa ladder in that profile is a report bug.
 
 ## 13. Download Report Evidence
 

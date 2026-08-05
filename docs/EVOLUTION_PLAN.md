@@ -100,7 +100,7 @@ Azure release track:
 - `v2.2.1`: AKS regression hotfix. Keep real-device NAT routing, but preserve Contact-port routing when SIPp REGISTER and UAS are on the same pod IP; also align PlaySBC server version reporting with the release.
 - `v2.2.2`: real-device AKS media topology hardening. Lock RTPengine and Azure RTP LoadBalancer to UDP `30000-30049`, require advertised RTP public IP alignment, add RTPengine media-handover NAT learning, and log four-stage SDP plus per-direction RTP verdict evidence.
 - `v2.3.0`: real-device NAT pinhole hardening. Add RTPengine `NAT-wait` and `pierce NAT` controls for OBi1022/Zoiper calls behind home NAT, keep them enabled in AKS real-device values, and log the exact RTPengine NAT flags used on offer/answer.
-- `v2.3.x`: real-device evidence milestone. Generate a combined core+peer `capture.pcap` for manual OBi1022/Zoiper testing, covering SIP, RTP, and RTCP in one Wireshark-ready timeline.
+- `v2.3.x`: real-device evidence milestone. Generate a combined core+peer `capture.pcap` for manual OBi1022/Zoiper testing, covering SIP, RTP, and RTCP in one Wireshark-ready timeline; keep K8s, AKS, and AI/Rasa bundles lean by discarding split role PCAPs after merge and writing a root `sipmsg.log`.
 
 Production-readiness gates:
 

@@ -81,6 +81,7 @@ LOG_FILES = (
     "log.tls",
     "log.call",
     "log.sipp",
+    "sipmsg.log",
 )
 DEFAULT_LOG_FOLDER = "b2bua-Regression"
 SIP_TRACE_LEG_LABELS = {

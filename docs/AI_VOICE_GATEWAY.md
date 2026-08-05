@@ -36,8 +36,8 @@ K8s regression Job
 
 | Profile | Purpose | E2E Flow | Evidence |
 | --- | --- | --- | --- |
-| `ai-rasa-lab` | Mock Rasa sanity check. | K8s Runner -> profile config -> SIPp A -> PlaySBC AI callee -> scripted STT/media -> Mock Rasa REST -> `log.ai` -> HTML Report. | `log.ai`, `log.sip`, `log.media`, `capture.pcap`, mock ladder. |
-| `ai-rasa-rtpengine` | Mock Rasa with RTPengine media anchor. | K8s Runner -> profile config -> SIPp A -> PlaySBC -> RTPengine -> Mock Rasa REST/action -> RTPengine evidence -> HTML Report. | RTPengine query evidence, `log.ai`, `log.media`, AI ladder. |
+| `ai-rasa-lab` | Mock Rasa sanity check. | K8s Runner -> profile config -> SIPp A -> PlaySBC AI callee -> scripted STT/media -> Mock Rasa REST -> `log.ai` -> HTML Report. | `log.ai`, `log.sip`, `log.media`, `sipmsg.log`, one merged `capture.pcap`, mock ladder. |
+| `ai-rasa-rtpengine` | Mock Rasa with RTPengine media anchor. | K8s Runner -> profile config -> SIPp A -> PlaySBC -> RTPengine -> Mock Rasa REST/action -> RTPengine evidence -> HTML Report. | RTPengine query evidence, `log.ai`, `log.media`, `sipmsg.log`, one merged `capture.pcap`, AI ladder. |
 | `ai-rasa-real-lab` | Real Rasa pod integration. | K8s Runner -> Helm/Rasa config -> Real Rasa Pod train/start -> SIPp A -> PlaySBC/RTPengine -> Rasa webhook -> HTML Report. | Rasa rollout logs, pod evidence, `log.ai`, `log.sip`, `log.media`. |
 | `ai-rasa-rtpengine-speech` | Real speech STT/TTS path. | K8s Runner -> SIPp A speech PCAP -> RTPengine -> PlaySBC WAV decode -> Vosk STT -> Real Rasa -> Piper TTS -> RTP prompt/WAV evidence -> HTML Report. | Input/output WAV players, RTPengine evidence, Vosk/Rasa/Piper ladder. |
 | `ai-rasa-rtpengine-speech-whisper` | Whisper STT speech variant. | K8s Runner -> SIPp A speech PCAP -> RTPengine -> PlaySBC WAV decode -> Whisper STT adapter -> Real Rasa -> Piper TTS -> RTP prompt/WAV evidence -> HTML Report. | `provider=whisper`, WAV/RTP prompt evidence, AI ladder. |

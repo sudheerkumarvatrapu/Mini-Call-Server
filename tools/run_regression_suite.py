@@ -214,6 +214,7 @@ B2BUA_LOG_FILES = (
     "log.tls",
     "log.call",
     "log.sipp",
+    "sipmsg.log",
 )
 ROBOT_PHASE_PREFIX = "ROBOT_PHASE_JSON="
 ROBOT_PHASE_ORDER = (
