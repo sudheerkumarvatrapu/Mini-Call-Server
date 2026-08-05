@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/playsbc-logo.svg?raw=1" alt="PlaySBC logo" width="620">
+  <img src="docs/assets/playsbc-logo-corporate-mediaflow.png?raw=1" alt="PlaySBC logo" width="520">
 </p>
 
 <h1 align="center">PlaySBC</h1>
