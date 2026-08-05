@@ -2187,12 +2187,21 @@ class K8sRegressionRunner:
                 lines.append(detail)
         self.write_log(bundle, "log.platform", "SINGLE WORKLOAD STALE STATEFULSET CLEANUP", "\n".join(lines))
 
+    def apply_profile_auth_secret_values(self, values: dict[str, Any], profile: SimpleNamespace) -> None:
+        """Keep regression REGISTER auth deterministic even when Helm reuses real-device values."""
+        users = getattr(profile, "users", {}) or {}
+        auth_secret = values.setdefault("authSecret", {})
+        auth_secret["enabled"] = bool(users)
+        auth_secret["existingSecret"] = ""
+        auth_secret["users"] = copy.deepcopy(users)
+
     def apply_profile_config(self, profile: SimpleNamespace, bundle: Path, phases: PhaseLog) -> None:
         started = time.monotonic()
         self.capture_original_values()
         values = copy.deepcopy(self.original_values or {})
         advertised_ip = "$POD_IP"
         values.setdefault("playsbc", {})["config"] = self.profile_config(profile)
+        self.apply_profile_auth_secret_values(values, profile)
         values.setdefault("rtpengine", {})["enabled"] = profile_enables_rtpengine_deployment(profile, self.args)
         self.apply_active_active_values(values, profile)
         if profile_uses_tls(profile):

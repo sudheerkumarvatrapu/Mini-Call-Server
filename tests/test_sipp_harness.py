@@ -1,3 +1,4 @@
+import copy
 import io
 import json
 import socket
@@ -1650,11 +1651,11 @@ Content-Length: 0
         self.assertIn("Run AKS Regression", aks_doc)
         self.assertIn("--aks-profiles", aks_doc)
         self.assertIn("v1.5.0", aks_doc)
-        self.assertIn("v2.3.2", aks_doc)
+        self.assertIn("v2.3.3", aks_doc)
 
     def test_current_release_keeps_kind_regression_path(self):
         chart = ROOT / "charts" / "playsbc"
-        current_version = "2.3.2"
+        current_version = "2.3.3"
         version = (ROOT / "VERSION").read_text(encoding="utf-8")
         chart_yaml = (chart / "Chart.yaml").read_text(encoding="utf-8")
         values = (chart / "values.yaml").read_text(encoding="utf-8")
@@ -1670,8 +1671,8 @@ Content-Length: 0
         self.assertIn(f'tag: "{current_version}"', aks_values)
         self.assertIn("v2.x charts must continue to run the same kind regression path", readme)
         self.assertIn("runner-image ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:1.4.2", runbook)
-        self.assertIn("PlaySBC image publish hotfix", release_notes)
-        self.assertIn("v2.3.1 AKS regression safety behavior", release_notes)
+        self.assertIn("AKS regression auth isolation hotfix", release_notes)
+        self.assertIn("authSecret", release_notes)
 
         args = run_k8s_regression_job.parse_args(
             [
@@ -3078,6 +3079,37 @@ class RealTopologyTests(unittest.TestCase):
             "udp://playsbc-playsbc-rtpengine-1.playsbc-playsbc-rtpengine-headless:2223",
         )
         self.assertEqual(ha["failover"]["mid_call_failover"], "dialog-restore-only")
+
+    def test_kubernetes_profile_auth_secret_does_not_leak_from_real_device_values(self):
+        args = run_k8s_regression.parse_args(["--aks-profiles", "--aks-mode"])
+        runner = run_k8s_regression.K8sRegressionRunner(args, "unit-k8s")
+        inherited = {
+            "authSecret": {
+                "enabled": True,
+                "existingSecret": "playsbc-real-device-users",
+                "users": {"1001": "secret-password", "1002": "secret-password"},
+            }
+        }
+
+        open_register = copy.deepcopy(inherited)
+        runner.apply_profile_auth_secret_values(
+            open_register,
+            run_k8s_regression.profile_values("registered-inbound", "unit-k8s"),
+        )
+
+        self.assertFalse(open_register["authSecret"]["enabled"])
+        self.assertEqual(open_register["authSecret"]["existingSecret"], "")
+        self.assertEqual(open_register["authSecret"]["users"], {})
+
+        digest_register = copy.deepcopy(inherited)
+        runner.apply_profile_auth_secret_values(
+            digest_register,
+            run_k8s_regression.profile_values("register-auth-success", "unit-k8s"),
+        )
+
+        self.assertTrue(digest_register["authSecret"]["enabled"])
+        self.assertEqual(digest_register["authSecret"]["existingSecret"], "")
+        self.assertEqual(digest_register["authSecret"]["users"], {"1001": "secret-password"})
 
     def test_kubernetes_active_active_ha_profiles_normalize_legacy_node_aliases(self):
         args = run_k8s_regression.parse_args(["--profile", "ha-node-draining"])

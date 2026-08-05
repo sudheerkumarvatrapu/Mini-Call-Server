@@ -102,6 +102,7 @@ Azure release track:
 - `v2.3.0`: real-device NAT pinhole hardening. Add RTPengine `NAT-wait` and `pierce NAT` controls for OBi1022/Zoiper calls behind home NAT, keep them enabled in AKS real-device values, and log the exact RTPengine NAT flags used on offer/answer.
 - `v2.3.1`: regression safety hotfix. Keep AKS readiness profiles on a single PlaySBC/RTPengine workload by default, explicitly disable stale active-active Helm values when requested, and preserve active-active defaults for local full K8s regression.
 - `v2.3.2`: PlaySBC image publish hotfix. Keep the v2.3.1 regression safety behavior and update the PlaySBC Dockerfile to Piper's current `download_voices --data-dir` CLI so GHCR publishes all four images.
+- `v2.3.3`: AKS regression auth isolation hotfix. Prevent real-device `authSecret` Helm values from leaking into open REGISTER regression profiles while keeping digest-auth profiles and OBi/Zoiper real-device auth deterministic.
 - `v2.3.x`: real-device evidence milestone. Generate a combined core+peer `capture.pcap` for manual OBi1022/Zoiper testing, covering SIP, RTP, and RTCP in one Wireshark-ready timeline; keep K8s, AKS, and AI/Rasa bundles lean by discarding split role PCAPs after merge and writing a root `sipmsg.log`.
 
 Production-readiness gates:
