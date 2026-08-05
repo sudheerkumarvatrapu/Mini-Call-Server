@@ -1136,6 +1136,19 @@ class K8sRegressionRunner:
         def service_name(item: dict[str, Any]) -> str:
             return str(item.get("metadata", {}).get("name", "unknown"))
 
+        def ingress_ips(item: dict[str, Any]) -> list[str]:
+            ingress = item.get("status", {}).get("loadBalancer", {}).get("ingress", [])
+            if not isinstance(ingress, list):
+                return []
+            values: list[str] = []
+            for entry in ingress:
+                if not isinstance(entry, dict):
+                    continue
+                value = str(entry.get("ip") or entry.get("hostname") or "")
+                if value:
+                    values.append(value)
+            return values
+
         def port_tuples(item: dict[str, Any]) -> set[tuple[str, int]]:
             ports = item.get("spec", {}).get("ports", [])
             tuples: set[tuple[str, int]] = set()
@@ -1152,6 +1165,8 @@ class K8sRegressionRunner:
         sip_public = [item for item in items if exposure(item) == "sip-public"]
         sip_private = [item for item in items if exposure(item) == "sip-private"]
         rtp_public = [item for item in items if exposure(item) == "rtp-public"]
+        sip_public_ingress = [value for item in sip_public for value in ingress_ips(item)]
+        rtp_public_ingress = [value for item in rtp_public for value in ingress_ips(item)]
         if getattr(self.args, "aks_require_azure_services", False) and not sip_public:
             issues.append("missing_sip_public_loadbalancer_service")
         if getattr(self.args, "aks_require_public_rtp_ingress", False) and not rtp_public:
@@ -1211,12 +1226,50 @@ class K8sRegressionRunner:
                         f"{name}:missing_rtp_udp_ports_{missing_ports[0]}-{missing_ports[-1]}_count_{len(missing_ports)}"
                     )
 
+        rtpengine_pod_result = self.kubectl(
+            "get",
+            "pod",
+            "-l",
+            "app.kubernetes.io/name=playsbc-rtpengine",
+            "-o",
+            "json",
+            check=False,
+        )
+        (bundle / "aks-rtpengine-pods.json").write_text(
+            rtpengine_pod_result.stdout + rtpengine_pod_result.stderr,
+            encoding="utf-8",
+        )
+        advertised_matches: list[str] = []
+        rtpengine_pods: list[str] = []
+        try:
+            parsed_pods = json.loads(rtpengine_pod_result.stdout or "{}")
+            pod_items = parsed_pods.get("items", []) if isinstance(parsed_pods, dict) else []
+            for pod in pod_items:
+                if not isinstance(pod, dict):
+                    continue
+                pod_name = str(pod.get("metadata", {}).get("name", "unknown"))
+                rtpengine_pods.append(pod_name)
+                container_specs = pod.get("spec", {}).get("containers", [])
+                command_text = json.dumps(container_specs, sort_keys=True)
+                for ingress_ip in rtp_public_ingress:
+                    if f"!{ingress_ip}" in command_text:
+                        advertised_matches.append(f"{pod_name}:{ingress_ip}")
+        except json.JSONDecodeError as exc:
+            issues.append(f"invalid_rtpengine_pod_json={exc}")
+        if getattr(self.args, "aks_require_public_rtp_ingress", False) and rtp_public_ingress and rtpengine_pods:
+            if not advertised_matches:
+                issues.append(f"rtpengine_advertised_ip_mismatch_expected_{rtp_public_ingress[0]}")
+
         summary = {
             "selector": selector,
             "services": [service_name(item) for item in items],
             "sip_public": [service_name(item) for item in sip_public],
             "sip_private": [service_name(item) for item in sip_private],
             "rtp_public": [service_name(item) for item in rtp_public],
+            "sip_public_ingress": sip_public_ingress,
+            "rtp_public_ingress": rtp_public_ingress,
+            "rtpengine_pods": rtpengine_pods,
+            "rtpengine_advertised_ip_matches": advertised_matches,
             "require_azure_services": bool(getattr(self.args, "aks_require_azure_services", False)),
             "require_static_sip": bool(getattr(self.args, "aks_require_static_sip", False)),
             "require_public_sip_ingress": bool(getattr(self.args, "aks_require_public_sip_ingress", False)),
@@ -1232,8 +1285,11 @@ class K8sRegressionRunner:
         detail = (
             f"AKS exposure validation services={','.join(summary['services']) or 'none'} "
             f"sip_public={','.join(summary['sip_public']) or 'none'} "
+            f"sip_public_ingress={','.join(summary['sip_public_ingress']) or 'none'} "
             f"sip_private={','.join(summary['sip_private']) or 'none'} "
             f"rtp_public={','.join(summary['rtp_public']) or 'none'} "
+            f"rtp_public_ingress={','.join(summary['rtp_public_ingress']) or 'none'} "
+            f"rtpengine_advertised_ip_matches={','.join(summary['rtpengine_advertised_ip_matches']) or 'none'} "
             f"issues={','.join(issues) or 'none'}"
         )
         self.write_log(bundle, "log.platform", "AKS AZURE EXPOSURE VALIDATION", detail)
@@ -1955,6 +2011,10 @@ class K8sRegressionRunner:
             "rtpengine_max_sessions": getattr(profile, "rtpengine_max_sessions", -1),
             "rtpengine_offer_transport_protocol": getattr(profile, "rtpengine_offer_transport_protocol", ""),
             "rtpengine_answer_transport_protocol": getattr(profile, "rtpengine_answer_transport_protocol", ""),
+            "rtpengine_g711_only": getattr(profile, "rtpengine_g711_only", False),
+            "rtpengine_plain_rtp_sdp": getattr(profile, "rtpengine_plain_rtp_sdp", False),
+            "rtpengine_sip_source_address": getattr(profile, "rtpengine_sip_source_address", False),
+            "rtpengine_media_handover": getattr(profile, "rtpengine_media_handover", False),
             "rtpengine_sdes": getattr(profile, "rtpengine_sdes", []),
             "rtpengine_dtls": getattr(profile, "rtpengine_dtls", ""),
             "media_quality": getattr(profile, "media_quality", {}),

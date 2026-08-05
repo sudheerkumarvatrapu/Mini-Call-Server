@@ -1159,6 +1159,7 @@ class ConfigTests(unittest.TestCase):
                     '"rtpengine_g711_only": true, '
                     '"rtpengine_plain_rtp_sdp": true, '
                     '"rtpengine_sip_source_address": true, '
+                    '"rtpengine_media_handover": true, '
                     '"rtpengine_timeout": 1.5}'
                 ),
                 encoding="utf-8",
@@ -1188,6 +1189,7 @@ class ConfigTests(unittest.TestCase):
             self.assertTrue(config.rtpengine_g711_only)
             self.assertTrue(config.rtpengine_plain_rtp_sdp)
             self.assertTrue(config.rtpengine_sip_source_address)
+            self.assertTrue(config.rtpengine_media_handover)
             self.assertEqual(config.rtpengine_directions, ("core", "peer"))
             self.assertEqual(config.rtpengine_interfaces, ("core", "peer"))
             self.assertEqual(config.sip_advertised_ip, "172.28.0.20")

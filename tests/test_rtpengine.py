@@ -58,6 +58,23 @@ class RtpengineEncodingTests(unittest.TestCase):
         self.assertIn(b"13:received froml3:IP414:122.171.69.148e", packet)
         self.assertNotIn(b"13:trust address", packet)
 
+    def test_client_builds_media_handover_nat_learning_flag(self):
+        client = RtpengineClient("udp://127.0.0.1:2223")
+
+        fields = client._sdp_fields(
+            "call-1",
+            "tag-a",
+            "v=0\r\n",
+            sip_source_address=True,
+            received_from="122.171.69.148",
+            media_handover=True,
+        )
+        packet = client.build_packet("offer", fields, cookie="cookie1")
+
+        self.assertIn(b"18:SIP source address", packet)
+        self.assertIn(b"14:media handover", packet)
+        self.assertIn(b"13:received froml3:IP414:122.171.69.148e", packet)
+
     def test_client_builds_plain_rtp_ice_remove_policy(self):
         client = RtpengineClient("udp://127.0.0.1:2223")
 

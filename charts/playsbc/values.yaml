@@ -61,7 +61,7 @@ image:
   # For direct deployments after image publishing, use:
   # repository: ghcr.io/sudheerkumarvatrapu/playsbc
   repository: playsbc
-  tag: "2.2.1"
+  tag: "2.2.2"
   pullPolicy: IfNotPresent
 
 service:
@@ -111,7 +111,7 @@ cloud:
           max: 30049
       documentedPortRange:
         min: 30000
-        max: 32000
+        max: 30049
 
 hostNetwork: false
 
@@ -185,7 +185,7 @@ rtpengine:
     pullPolicy: IfNotPresent
   controlPort: 2223
   rtpMin: 30000
-  rtpMax: 32000
+  rtpMax: 30049
   advertisedIP: ""
   replicas: 1
   hostNetwork: true
@@ -471,6 +471,7 @@ playsbc:
     rtpengine_g711_only: false
     rtpengine_plain_rtp_sdp: false
     rtpengine_sip_source_address: false
+    rtpengine_media_handover: false
     rtpengine_sdes: []
     rtpengine_dtls: ""
     media_quality: {}

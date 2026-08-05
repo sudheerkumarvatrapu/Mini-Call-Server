@@ -4,17 +4,17 @@ This folder keeps local release notes and Helm chart packages for PlaySBC.
 
 Current release:
 
-- Version: `2.2.1`
-- Helm chart package: `helm/playsbc-2.2.1.tgz`
+- Version: `2.2.2`
+- Helm chart package: `helm/playsbc-2.2.2.tgz`
 - Project license: MIT
-- Chart version: `2.2.1`
-- Application version: `2.2.1`
+- Chart version: `2.2.2`
+- Application version: `2.2.2`
 
 Rebuild the Helm package with:
 
 ```bash
 helm package charts/playsbc --destination release/helm
-shasum -a 256 release/helm/playsbc-2.2.1.tgz > release/helm/playsbc-2.2.1.tgz.sha256
+shasum -a 256 release/helm/playsbc-2.2.2.tgz > release/helm/playsbc-2.2.2.tgz.sha256
 ```
 
 ## Container Image Deployment
@@ -23,23 +23,23 @@ The `.tgz` chart package contains Kubernetes manifests and config, not image lay
 
 Published GHCR images for this release:
 
-- `ghcr.io/sudheerkumarvatrapu/playsbc:2.2.1`
-- `ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:2.2.1`
-- `ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.2.1`
-- `ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.2.1`
+- `ghcr.io/sudheerkumarvatrapu/playsbc:2.2.2`
+- `ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:2.2.2`
+- `ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.2.2`
+- `ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.2.2`
 
 Deploy the release chart:
 
 ```bash
-helm upgrade --install playsbc helm/playsbc-2.2.1.tgz \
+helm upgrade --install playsbc helm/playsbc-2.2.2.tgz \
   --namespace playsbc \
   --create-namespace \
   -f configs/kubernetes/active-active-values.yaml \
   --set image.repository=ghcr.io/sudheerkumarvatrapu/playsbc \
-  --set-string image.tag=2.2.1 \
+  --set-string image.tag=2.2.2 \
   --set rtpengine.enabled=true \
   --set rtpengine.image.repository=ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine \
-  --set-string rtpengine.image.tag=2.2.1 \
+  --set-string rtpengine.image.tag=2.2.2 \
   --set rtpengine.hostNetwork=false
 ```
 
@@ -59,9 +59,9 @@ Kubernetes regression from published images:
 ```bash
 PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache python3 tools/run_k8s_regression_job.py \
   --all-profiles \
-  --runner-image ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.2.1 \
-  --sipp-image ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.2.1 \
-  --playsbc-image ghcr.io/sudheerkumarvatrapu/playsbc:2.2.1 \
+  --runner-image ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.2.2 \
+  --sipp-image ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.2.2 \
+  --playsbc-image ghcr.io/sudheerkumarvatrapu/playsbc:2.2.2 \
   --set-playsbc-image \
   --no-load-playsbc-image \
   --no-load-sipp-image \
@@ -74,6 +74,6 @@ Azure AKS profile runs write a verified evidence bundle automatically:
 logs/AKS-Regression/latest-aks-regression.tgz
 ```
 
-They also wait for Azure LoadBalancer ingress before the regression Job starts. For AKS profile runs in v2.2.0 and later, the wrapper waits for both SIP and RTP public LoadBalancer ingress and validates UDP media ports `30000-30049`.
+They also wait for Azure LoadBalancer ingress before the regression Job starts. For AKS profile runs in v2.2.2 and later, the wrapper waits for both SIP and RTP public LoadBalancer ingress, validates UDP media ports `30000-30049`, and records RTPengine advertised-IP alignment evidence when RTPengine pods are present.
 
 Historical release notes are kept as `RELEASE_NOTES_<version>.md`.

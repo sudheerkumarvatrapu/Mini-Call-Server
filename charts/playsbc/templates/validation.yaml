@@ -1,0 +1,28 @@
+{{- $cloud := .Values.cloud | default dict -}}
+{{- $azure := get $cloud "azure" | default dict -}}
+{{- $media := get $azure "media" | default dict -}}
+{{- $mediaPublic := get $media "public" | default dict -}}
+{{- $portRange := get $mediaPublic "portRange" | default dict -}}
+{{- if and (get $azure "enabled") (get $mediaPublic "enabled") -}}
+{{- if not (get $portRange "enabled" | default false) -}}
+{{- fail "Azure public RTP media requires cloud.azure.media.public.portRange.enabled=true for the locked PlaySBC real-device baseline." -}}
+{{- end -}}
+{{- $rangeMin := int (get $portRange "min" | default 30000) -}}
+{{- $rangeMax := int (get $portRange "max" | default 30049) -}}
+{{- $rtpMin := int .Values.rtpengine.rtpMin -}}
+{{- $rtpMax := int .Values.rtpengine.rtpMax -}}
+{{- if or (ne $rangeMin 30000) (ne $rangeMax 30049) -}}
+{{- fail (printf "Azure public RTP media must expose exactly UDP 30000-30049; got %d-%d." $rangeMin $rangeMax) -}}
+{{- end -}}
+{{- if or (ne $rtpMin $rangeMin) (ne $rtpMax $rangeMax) -}}
+{{- fail (printf "RTPengine range %d-%d must match Azure public RTP LoadBalancer range %d-%d." $rtpMin $rtpMax $rangeMin $rangeMax) -}}
+{{- end -}}
+{{- $advertisedIP := get .Values.rtpengine "advertisedIP" | default "" -}}
+{{- if eq $advertisedIP "" -}}
+{{- fail "Azure public RTP media requires rtpengine.advertisedIP to equal the allocated RTP public LoadBalancer IP." -}}
+{{- end -}}
+{{- $publicIPv4 := get $mediaPublic "publicIPv4" | default "" -}}
+{{- if and $publicIPv4 (ne $advertisedIP $publicIPv4) -}}
+{{- fail (printf "rtpengine.advertisedIP (%s) must match cloud.azure.media.public.publicIPv4 (%s)." $advertisedIP $publicIPv4) -}}
+{{- end -}}
+{{- end -}}

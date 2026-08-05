@@ -108,6 +108,7 @@ class RtpengineClient:
         ice: str = "",
         sip_source_address: bool = False,
         received_from: str = "",
+        media_handover: bool = False,
     ) -> Dict[str, Any]:
         return await self.request(
             "offer",
@@ -123,6 +124,7 @@ class RtpengineClient:
                 ice=ice,
                 sip_source_address=sip_source_address,
                 received_from=received_from,
+                media_handover=media_handover,
             ),
         )
 
@@ -140,6 +142,7 @@ class RtpengineClient:
         ice: str = "",
         sip_source_address: bool = False,
         received_from: str = "",
+        media_handover: bool = False,
     ) -> Dict[str, Any]:
         fields = self._sdp_fields(
             call_id,
@@ -152,6 +155,7 @@ class RtpengineClient:
             ice=ice,
             sip_source_address=sip_source_address,
             received_from=received_from,
+            media_handover=media_handover,
         )
         fields["to-tag"] = to_tag
         return await self.request("answer", fields)
@@ -185,8 +189,11 @@ class RtpengineClient:
         ice: str = "",
         sip_source_address: bool = False,
         received_from: str = "",
+        media_handover: bool = False,
     ) -> Dict[str, Any]:
         flags = ["SIP source address"] if sip_source_address else ["trust address"]
+        if media_handover:
+            flags.append("media handover")
         flags.extend(f"SDES-{option}" for option in sdes)
         fields: Dict[str, Any] = {
             "call-id": call_id,

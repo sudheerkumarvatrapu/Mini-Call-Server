@@ -53,7 +53,7 @@ except Exception:  # pragma: no cover - audioop is unavailable in newer Python b
 
 
 CRLF = "\r\n"
-PLAYSBC_VERSION = "2.2.1"
+PLAYSBC_VERSION = "2.2.2"
 PCMU = 0
 PCMA = 8
 SUPPORTED_CODECS = (PCMU, PCMA)
@@ -123,6 +123,7 @@ class ServerConfig:
     rtpengine_g711_only: bool = False
     rtpengine_plain_rtp_sdp: bool = False
     rtpengine_sip_source_address: bool = False
+    rtpengine_media_handover: bool = False
     rtpengine_sdes: Tuple[str, ...] = field(default_factory=tuple)
     rtpengine_dtls: str = ""
     media_quality: Dict[str, Any] = field(default_factory=dict)
@@ -178,6 +179,7 @@ SERVER_CONFIG_KEYS = {
     "rtpengine_g711_only",
     "rtpengine_plain_rtp_sdp",
     "rtpengine_sip_source_address",
+    "rtpengine_media_handover",
     "rtpengine_sdes",
     "rtpengine_dtls",
     "media_quality",
@@ -2129,6 +2131,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         rtpengine_g711_only: bool = False,
         rtpengine_plain_rtp_sdp: bool = False,
         rtpengine_sip_source_address: bool = False,
+        rtpengine_media_handover: bool = False,
         rtpengine_sdes: Tuple[str, ...] = (),
         rtpengine_dtls: str = "",
         ai_voice_gateway: Optional[Dict[str, Any]] = None,
@@ -2184,6 +2187,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         self.rtpengine_g711_only = rtpengine_g711_only
         self.rtpengine_plain_rtp_sdp = rtpengine_plain_rtp_sdp
         self.rtpengine_sip_source_address = rtpengine_sip_source_address
+        self.rtpengine_media_handover = rtpengine_media_handover
         self.rtpengine_sdes = rtpengine_sdes
         self.rtpengine_dtls = rtpengine_dtls
         self.ai_voice_config = AiVoiceConfig.from_dict(ai_voice_gateway)
@@ -3647,6 +3651,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             or self.rtpengine_dtls
             or self.rtpengine_plain_rtp_sdp
             or self.rtpengine_sip_source_address
+            or self.rtpengine_media_handover
         ):
             offer_transport = (
                 self.rtpengine_offer_transport_protocol
@@ -3664,7 +3669,8 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                     f"sdes={','.join(self.rtpengine_sdes) or 'default'} "
                     f"dtls={self.rtpengine_dtls or 'default'} "
                     f"ice={'remove' if self.rtpengine_plain_rtp_sdp else 'default'} "
-                    f"sip_source_address={str(self.rtpengine_sip_source_address).lower()}"
+                    f"sip_source_address={str(self.rtpengine_sip_source_address).lower()} "
+                    f"media_handover={str(self.rtpengine_media_handover).lower()}"
                 ),
             )
 
@@ -3717,6 +3723,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                     "stage=offer normalized=true removed=ice,rtcp-mux,webrtc-attrs",
                     call_id=inbound_call_id,
                 )
+        flow_log.write("SDP SUMMARY", sdp_audio_summary("inbound-offer", offer_sdp, message.source[0]))
         rtpengine_offer_transport = self.rtpengine_offer_transport_protocol or (
             "RTP/AVP" if self.rtpengine_plain_rtp_sdp else ""
         )
@@ -3729,7 +3736,17 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             flow_log.write("RTPENGINE NAT LEARNING", f"stage=offer received_from={offer_received_from}")
             self.logger.media(
                 "RTPENGINE NAT LEARNING",
-                f"stage=offer received_from={offer_received_from} flag=sip_source_address",
+                (
+                    f"stage=offer received_from={offer_received_from} "
+                    f"flag=sip_source_address media_handover={str(self.rtpengine_media_handover).lower()}"
+                ),
+                call_id=inbound_call_id,
+            )
+        if self.rtpengine_media_handover:
+            flow_log.write("RTPENGINE NAT LEARNING", "stage=offer flag=media_handover")
+            self.logger.media(
+                "RTPENGINE NAT LEARNING",
+                "stage=offer flag=media_handover symmetric_learning=true",
                 call_id=inbound_call_id,
             )
         try:
@@ -3749,6 +3766,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                     ice=rtpengine_ice_policy,
                     sip_source_address=self.rtpengine_sip_source_address,
                     received_from=offer_received_from,
+                    media_handover=self.rtpengine_media_handover,
                 ),
                 flow_log,
             )
@@ -3760,6 +3778,8 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                 if normalized_outbound_body != outbound_body:
                     outbound_body = normalized_outbound_body
                     flow_log.write("RTPENGINE PLAIN RTP SDP", "stage=outbound-offer normalized=true")
+            flow_log.write("SDP SUMMARY", sdp_audio_summary("outbound-offer", outbound_body, target.host))
+            flow_log.write("RTPENGINE PORT ALLOCATION", rtpengine_port_allocation_summary("outbound-offer", outbound_body))
             flow_log.write(
                 "RTPENGINE OFFER",
                 (
@@ -3873,9 +3893,20 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                 flow_log.write("RTPENGINE NAT LEARNING", f"stage=answer received_from={answer_received_from}")
                 self.logger.media(
                     "RTPENGINE NAT LEARNING",
-                    f"stage=answer received_from={answer_received_from} flag=sip_source_address",
+                    (
+                        f"stage=answer received_from={answer_received_from} "
+                        f"flag=sip_source_address media_handover={str(self.rtpengine_media_handover).lower()}"
+                    ),
                     call_id=inbound_call_id,
                 )
+            if self.rtpengine_media_handover:
+                flow_log.write("RTPENGINE NAT LEARNING", "stage=answer flag=media_handover")
+                self.logger.media(
+                    "RTPENGINE NAT LEARNING",
+                    "stage=answer flag=media_handover symmetric_learning=true",
+                    call_id=inbound_call_id,
+                )
+            flow_log.write("SDP SUMMARY", sdp_audio_summary("callee-answer", answer_body, final_response.source[0]))
             answer_response = await retry_rtpengine_control(
                 "ANSWER",
                 lambda: self.rtpengine_client.answer(
@@ -3890,6 +3921,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                     ice=rtpengine_ice_policy,
                     sip_source_address=self.rtpengine_sip_source_address,
                     received_from=answer_received_from,
+                    media_handover=self.rtpengine_media_handover,
                 ),
                 flow_log,
             )
@@ -3901,6 +3933,8 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                 if normalized_answer_sdp != answer_sdp:
                     answer_sdp = normalized_answer_sdp
                     flow_log.write("RTPENGINE PLAIN RTP SDP", "stage=inbound-answer normalized=true")
+            flow_log.write("SDP SUMMARY", sdp_audio_summary("caller-answer", answer_sdp, message.source[0]))
+            flow_log.write("RTPENGINE PORT ALLOCATION", rtpengine_port_allocation_summary("caller-answer", answer_sdp))
             flow_log.write(
                 "RTPENGINE ANSWER",
                 (
@@ -4752,6 +4786,16 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                     f"query_retry_count={retry_count}"
             )
             b2bua_call.flow_log.write("RTPENGINE QUERY", detail)
+            b2bua_call.flow_log.write(
+                "RTPENGINE PACKET VERDICT",
+                rtpengine_packet_verdict(
+                    query_response,
+                    b2bua_call.rtpengine_from_tag,
+                    b2bua_call.rtpengine_to_tag,
+                    tuple(packet_samples),
+                    retry_count,
+                ),
+            )
         except (asyncio.TimeoutError, OSError, RtpengineError) as exc:
             self.rtpengine_control_failures_total += 1
             error = str(exc) or "no additional detail"
@@ -5345,6 +5389,105 @@ def parse_dtmf_payload_type(sdp: str) -> Optional[int]:
     for match in re.finditer(r"^a=rtpmap:(\d+)\s+telephone-event/8000", sdp, re.IGNORECASE | re.MULTILINE):
         return int(match.group(1))
     return None
+
+
+def sdp_audio_summary(stage: str, sdp: str, fallback_ip: str = "") -> str:
+    rtp_addr = parse_sdp_remote_addr(sdp, fallback_ip)
+    rtcp_addr = parse_sdp_remote_rtcp_addr(sdp, rtp_addr) if rtp_addr else None
+    media_match = re.search(r"^m=audio\s+\d+\s+(\S+)\s+", sdp, re.MULTILINE | re.IGNORECASE)
+    direction_match = re.search(r"^a=(sendrecv|sendonly|recvonly|inactive)$", sdp, re.MULTILINE | re.IGNORECASE)
+    dtmf_payload = parse_dtmf_payload_type(sdp)
+    return (
+        f"stage={stage} "
+        f"rtp={format_addr(rtp_addr)} "
+        f"rtcp={format_addr(rtcp_addr)} "
+        f"transport={media_match.group(1) if media_match else 'none'} "
+        f"payloads={format_payloads(parse_sdp_payloads(sdp))} "
+        f"dtmf={dtmf_payload if dtmf_payload is not None else 'none'} "
+        f"direction={direction_match.group(1).lower() if direction_match else 'sendrecv'}"
+    )
+
+
+def format_addr(addr: Optional[Tuple[str, int]]) -> str:
+    if not addr:
+        return "none"
+    return f"{addr[0]}:{addr[1]}"
+
+
+def rtpengine_port_allocation_summary(stage: str, sdp: str, fallback_ip: str = "") -> str:
+    rtp_addr = parse_sdp_remote_addr(sdp, fallback_ip)
+    rtcp_addr = parse_sdp_remote_rtcp_addr(sdp, rtp_addr) if rtp_addr else None
+    return f"stage={stage} rtp={format_addr(rtp_addr)} rtcp={format_addr(rtcp_addr)}"
+
+
+def _sum_rtpengine_numeric_keys(value: Any, keys: set[str]) -> int:
+    total = 0
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if str(key).lower() in keys and isinstance(item, (int, float)):
+                total += int(item)
+            else:
+                total += _sum_rtpengine_numeric_keys(item, keys)
+    elif isinstance(value, list):
+        for item in value:
+            total += _sum_rtpengine_numeric_keys(item, keys)
+    return total
+
+
+def _rtpengine_endpoint_strings(value: Any, limit: int = 12) -> List[str]:
+    endpoints: List[str] = []
+
+    def collect(item: Any) -> None:
+        if len(endpoints) >= limit:
+            return
+        if isinstance(item, dict):
+            address = item.get("address") or item.get("host") or item.get("ip")
+            port = item.get("port")
+            if address and port:
+                endpoints.append(f"{address}:{port}")
+            for nested in item.values():
+                collect(nested)
+        elif isinstance(item, list):
+            for nested in item:
+                collect(nested)
+
+    collect(value)
+    unique: List[str] = []
+    for endpoint in endpoints:
+        if endpoint not in unique:
+            unique.append(endpoint)
+    return unique[:limit]
+
+
+def rtpengine_packet_verdict(
+    response: Dict[str, Any],
+    from_tag: str,
+    to_tag: str,
+    packet_samples: Tuple[int, ...] = (),
+    retry_count: int = 0,
+) -> str:
+    tags = response.get("tags", {})
+    tag_packets: Dict[str, int] = {}
+    if isinstance(tags, dict):
+        for tag, tag_value in tags.items():
+            tag_packets[str(tag)] = _sum_rtpengine_numeric_keys(tag_value, {"packets"})
+    rtp_totals = response.get("totals", {}).get("RTP", {}) if isinstance(response.get("totals"), dict) else {}
+    total_packets = int(rtp_totals.get("packets", 0) or 0) if isinstance(rtp_totals, dict) else 0
+    from_packets = tag_packets.get(from_tag, 0)
+    to_packets = tag_packets.get(to_tag, 0)
+    caller_to_callee = "observed" if from_packets > 0 else ("unknown_query_shape" if total_packets > 0 else "not_observed")
+    callee_to_caller = "observed" if to_packets > 0 else ("unknown_query_shape" if total_packets > 0 else "not_observed")
+    endpoints = _rtpengine_endpoint_strings(tags)
+    return (
+        f"caller_to_callee={caller_to_callee} "
+        f"callee_to_caller={callee_to_caller} "
+        f"from_tag_packets={from_packets} "
+        f"to_tag_packets={to_packets} "
+        f"total_rtp_packets={total_packets} "
+        f"learned_endpoints={','.join(endpoints) or 'none'} "
+        f"query_packet_samples={','.join(str(value) for value in packet_samples) or 'none'} "
+        f"query_retry_count={retry_count}"
+    )
 
 
 def choose_payload(remote_payloads: Tuple[int, ...], default_payload: int = PCMU) -> int:
@@ -5977,6 +6120,7 @@ def coerce_config_value(key: str, value: Any) -> Any:
         "rtpengine_g711_only",
         "rtpengine_plain_rtp_sdp",
         "rtpengine_sip_source_address",
+        "rtpengine_media_handover",
     }:
         if isinstance(value, bool):
             return value
@@ -6475,6 +6619,7 @@ async def main() -> None:
         rtpengine_g711_only=config.rtpengine_g711_only,
         rtpengine_plain_rtp_sdp=config.rtpengine_plain_rtp_sdp,
         rtpengine_sip_source_address=config.rtpengine_sip_source_address,
+        rtpengine_media_handover=config.rtpengine_media_handover,
         rtpengine_sdes=config.rtpengine_sdes,
         rtpengine_dtls=config.rtpengine_dtls,
         ai_voice_gateway=config.ai_voice_gateway,

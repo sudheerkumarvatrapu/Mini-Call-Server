@@ -3050,6 +3050,10 @@ class RealTopologyTests(unittest.TestCase):
         self.assertEqual(runner.profile_config(rtpengine)["sip_advertised_ip"], "$POD_IP")
         self.assertEqual(runner.profile_config(internal)["log_dir"], "/tmp/playsbc-logs")
         self.assertEqual(runner.profile_config(rtpengine)["log_dir"], "/tmp/playsbc-logs")
+        self.assertIn("rtpengine_g711_only", runner.profile_config(rtpengine))
+        self.assertIn("rtpengine_plain_rtp_sdp", runner.profile_config(rtpengine))
+        self.assertIn("rtpengine_sip_source_address", runner.profile_config(rtpengine))
+        self.assertIn("rtpengine_media_handover", runner.profile_config(rtpengine))
         ha = runner.profile_config(rtpengine)["ha"]
         self.assertTrue(ha["enabled"])
         self.assertEqual(ha["node_id"], "$POD_NAME")
