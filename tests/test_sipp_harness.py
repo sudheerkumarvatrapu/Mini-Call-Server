@@ -1644,15 +1644,17 @@ Content-Length: 0
         self.assertIn("$sipPublicAllowedRanges", azure)
         self.assertIn("$sipPrivateAllowedRanges", azure)
         self.assertIn("$mediaPublicAllowedRanges", azure)
-        self.assertIn("Kubernetes Services do not support", aks_values)
-        self.assertIn("Azure-first deployment track", aks_doc)
-        self.assertIn("Run AKS Readiness Regression", aks_doc)
+        self.assertIn("documentedPortRange", aks_values)
+        self.assertIn("portRange:", aks_values)
+        self.assertIn("PlaySBC On Azure AKS", aks_doc)
+        self.assertIn("Run AKS Regression", aks_doc)
         self.assertIn("--aks-profiles", aks_doc)
         self.assertIn("v1.5.0", aks_doc)
+        self.assertIn("v2.3.1", aks_doc)
 
     def test_current_release_keeps_kind_regression_path(self):
         chart = ROOT / "charts" / "playsbc"
-        current_version = "1.5.5"
+        current_version = "2.3.1"
         version = (ROOT / "VERSION").read_text(encoding="utf-8")
         chart_yaml = (chart / "Chart.yaml").read_text(encoding="utf-8")
         values = (chart / "values.yaml").read_text(encoding="utf-8")
@@ -1666,9 +1668,9 @@ Content-Length: 0
         self.assertIn(f'appVersion: "{current_version}"', chart_yaml)
         self.assertIn(f'tag: "{current_version}"', values)
         self.assertIn(f'tag: "{current_version}"', aks_values)
-        self.assertIn(f"v{current_version} chart must continue to run", readme)
+        self.assertIn("v2.x charts must continue to run the same kind regression path", readme)
         self.assertIn("runner-image ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:1.4.2", runbook)
-        self.assertIn("Unit test for verified AKS archive generation", release_notes)
+        self.assertIn("AKS regression safety hotfix", release_notes)
 
         args = run_k8s_regression_job.parse_args(
             [
@@ -3121,8 +3123,20 @@ class RealTopologyTests(unittest.TestCase):
         args = run_k8s_regression.parse_args(["--all-profiles", "--no-active-active-topology"])
         runner = run_k8s_regression.K8sRegressionRunner(args, "unit-k8s")
         profile = run_k8s_regression.profile_values("basic-media", "unit-k8s")
+        values = {
+            "replicaCount": 2,
+            "topology": {"activeActive": {"enabled": True, "useStatefulSet": True}},
+            "rtpengine": {"replicas": 2, "hostNetwork": True},
+        }
 
         self.assertEqual(runner.profile_config(profile)["ha"], {})
+        runner.apply_active_active_values(values, profile)
+        self.assertEqual(values["topology"]["model"], "core-peer-single-workload")
+        self.assertFalse(values["topology"]["activeActive"]["enabled"])
+        self.assertFalse(values["topology"]["activeActive"]["useStatefulSet"])
+        self.assertEqual(values["replicaCount"], 1)
+        self.assertEqual(values["rtpengine"]["replicas"], 1)
+        self.assertFalse(values["rtpengine"]["hostNetwork"])
 
     def test_kubernetes_pcap_capture_roles_follow_expected_traffic(self):
         cases = {
@@ -3473,6 +3487,7 @@ class RealTopologyTests(unittest.TestCase):
         self.assertTrue(args.aks_require_rtp_port_range)
         self.assertEqual(args.aks_rtp_port_min, 30000)
         self.assertEqual(args.aks_rtp_port_max, 30049)
+        self.assertFalse(args.active_active_topology)
         self.assertIn("tls-transport-policy", run_k8s_regression.AKS_PROFILES)
         self.assertIn("rtpengine-transcoding", run_k8s_regression.AKS_PROFILES)
 
@@ -3488,8 +3503,11 @@ class RealTopologyTests(unittest.TestCase):
         self.assertTrue(job_args.aks_require_public_sip_ingress)
         self.assertTrue(job_args.aks_require_public_rtp_ingress)
         self.assertTrue(job_args.aks_require_rtp_port_range)
+        self.assertFalse(job_args.active_active_topology)
         self.assertIn("--aks-profiles", command)
         self.assertIn("--aks-mode", command)
+        self.assertIn("--no-active-active-topology", command)
+        self.assertNotIn("--active-active-topology", command)
         self.assertIn("--aks-require-azure-services", command)
         self.assertIn("--aks-require-static-sip", command)
         self.assertIn("--aks-require-public-sip-ingress", command)
@@ -3503,6 +3521,16 @@ class RealTopologyTests(unittest.TestCase):
         self.assertIn("/workspace/logs/AKS-Regression", command)
         self.assertIn("/workspace/logs/AKS-reports", command)
         self.assertTrue(run_k8s_regression_job.should_cleanup_local_logs(job_args))
+
+    def test_kubernetes_aks_profile_shortcut_can_explicitly_use_active_active(self):
+        args = run_k8s_regression.parse_args(["--aks-profiles", "--active-active-topology"])
+        job_args = run_k8s_regression_job.parse_args(["--aks-profiles", "--active-active-topology"])
+        command = run_k8s_regression_job.runner_command_args(job_args)
+
+        self.assertTrue(args.active_active_topology)
+        self.assertTrue(job_args.active_active_topology)
+        self.assertIn("--active-active-topology", command)
+        self.assertNotIn("--no-active-active-topology", command)
 
     def test_aks_evidence_archive_is_verified(self):
         with tempfile.TemporaryDirectory() as tmp:

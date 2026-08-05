@@ -201,7 +201,7 @@ The dashboard shows current active calls separately from range totals, SIP reque
 
 ## Active-Active And Multus
 
-All Kubernetes regression profiles now default to active-active topology:
+Local full Kubernetes regression profiles default to active-active topology:
 
 - PlaySBC runs as `statefulset/playsbc-playsbc` with stable pods `playsbc-playsbc-0` and `playsbc-playsbc-1`.
 - RTPengine runs as `statefulset/playsbc-playsbc-rtpengine` with stable pods `playsbc-playsbc-rtpengine-0` and `playsbc-playsbc-rtpengine-1`.
@@ -210,6 +210,8 @@ All Kubernetes regression profiles now default to active-active topology:
 - Grafana shows active calls by node, shared state, drain status, RTPengine failures, requests, responses, codecs, and transcoding.
 
 The default shared-state PVC uses `ReadWriteOnce`, which is fine for a single-node kind lab. For true multi-node Kubernetes, use RWX storage or move HA state to Redis/PostgreSQL in a later hardening phase.
+
+Azure AKS readiness profiles are the exception: `--aks-profiles` defaults to a single PlaySBC/RTPengine workload so cloud exposure checks do not depend on HA shared state. Pass `--active-active-topology` only for AKS HA experiments.
 
 Optional Multus annotations:
 

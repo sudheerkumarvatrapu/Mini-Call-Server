@@ -814,15 +814,23 @@ class K8sRegressionRunner:
         self.tls_secret_prepared = False
 
     def active_active_enabled(self) -> bool:
-        return bool(getattr(self.args, "active_active_topology", True))
+        value = getattr(self.args, "active_active_topology", True)
+        return True if value is None else bool(value)
+
+    @staticmethod
+    def values_active_active_enabled(values: dict[str, Any] | None) -> bool:
+        topology = (values or {}).get("topology") or {}
+        active_active = topology.get("activeActive") or {}
+        return bool(active_active.get("enabled", False))
+
+    def workload_ref_for_active_state(self, active_active: bool, workload_name: str) -> str:
+        return f"{'statefulset' if active_active else 'deployment'}/{workload_name}"
 
     def playsbc_workload_ref(self) -> str:
-        kind = "statefulset" if self.active_active_enabled() else "deployment"
-        return f"{kind}/{self.args.deployment}"
+        return self.workload_ref_for_active_state(self.active_active_enabled(), self.args.deployment)
 
     def rtpengine_workload_ref(self) -> str:
-        kind = "statefulset" if self.active_active_enabled() else "deployment"
-        return f"{kind}/{self.args.rtpengine_deployment}"
+        return self.workload_ref_for_active_state(self.active_active_enabled(), self.args.rtpengine_deployment)
 
     def helm_upgrade_values(self, values_path: Path, log_path: Path, *, check: bool = True) -> CommandResult:
         command = [
@@ -1095,7 +1103,11 @@ class K8sRegressionRunner:
         )
         if result.returncode != 0:
             return f"Helm restore failed: {command_failure_detail(result)}"
-        rollout = self.rollout_status(self.playsbc_workload_ref(), check=False)
+        restored_ref = self.workload_ref_for_active_state(
+            self.values_active_active_enabled(self.original_values),
+            self.args.deployment,
+        )
+        rollout = self.rollout_status(restored_ref, check=False)
         (report_dir / f"{self.run_id}-helm-restore-rollout.log").write_text(
             rollout.stdout + rollout.stderr,
             encoding="utf-8",
@@ -2107,11 +2119,20 @@ class K8sRegressionRunner:
         }
 
     def apply_active_active_values(self, values: dict[str, Any], profile: SimpleNamespace | None = None) -> None:
-        if not self.active_active_enabled():
-            return
         topology = values.setdefault("topology", {})
-        topology["model"] = "core-peer-active-active"
         active_active = topology.setdefault("activeActive", {})
+        rtpengine_values = values.setdefault("rtpengine", {})
+        if not self.active_active_enabled():
+            topology["model"] = "core-peer-single-workload"
+            active_active["enabled"] = False
+            active_active["useStatefulSet"] = False
+            values["replicaCount"] = 1
+            rtpengine_values["replicas"] = 1
+            rtpengine_values["hostNetwork"] = False
+            service_affinity = str(getattr(profile, "k8s_service_session_affinity", "") or "ClientIP")
+            values.setdefault("service", {})["sessionAffinity"] = service_affinity
+            return
+        topology["model"] = "core-peer-active-active"
         active_active["enabled"] = True
         active_active["useStatefulSet"] = True
         active_active["playsbcReplicas"] = max(1, int(getattr(self.args, "playsbc_replicas", 2)))
@@ -2142,11 +2163,29 @@ class K8sRegressionRunner:
         multus["enforce"] = bool(getattr(self.args, "require_multus", False))
         if getattr(self.args, "multus_enabled", False):
             multus.setdefault("createNetworkAttachmentDefinitions", False)
-        rtpengine_values = values.setdefault("rtpengine", {})
         rtpengine_values["replicas"] = max(1, int(getattr(self.args, "rtpengine_replicas", 2)))
         rtpengine_values["hostNetwork"] = False
         service_affinity = str(getattr(profile, "k8s_service_session_affinity", "") or "ClientIP")
         values.setdefault("service", {})["sessionAffinity"] = service_affinity
+
+    def cleanup_stale_active_active_workloads(self, bundle: Path) -> None:
+        if self.active_active_enabled():
+            return
+        lines: list[str] = []
+        for name in (self.args.deployment, self.args.rtpengine_deployment):
+            result = self.kubectl(
+                "delete",
+                "statefulset",
+                name,
+                "--ignore-not-found=true",
+                check=False,
+                timeout=60,
+            )
+            lines.append(f"statefulset/{name} returncode={result.returncode}")
+            detail = (result.stdout + result.stderr).strip()
+            if detail:
+                lines.append(detail)
+        self.write_log(bundle, "log.platform", "SINGLE WORKLOAD STALE STATEFULSET CLEANUP", "\n".join(lines))
 
     def apply_profile_config(self, profile: SimpleNamespace, bundle: Path, phases: PhaseLog) -> None:
         started = time.monotonic()
@@ -2179,6 +2218,7 @@ class K8sRegressionRunner:
         )
         helm_seconds = time.monotonic() - helm_started
         self.write_log(bundle, "log.platform", "HELM PROFILE UPGRADE", result.stdout + result.stderr)
+        self.cleanup_stale_active_active_workloads(bundle)
         restart = self.rollout_restart(self.playsbc_workload_ref())
         self.write_log(bundle, "log.platform", "PLAYSBC ROLLOUT RESTART", restart.stdout + restart.stderr)
         rollout_started = time.monotonic()
@@ -3209,7 +3249,12 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--aks-rtp-port-max", type=int, default=30049)
     parser.add_argument("--list-profiles", action="store_true")
     parser.add_argument("--rtpengine-enabled", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--active-active-topology", action=argparse.BooleanOptionalAction, default=True, help="Run Kubernetes profiles with active-active PlaySBC/RTPengine topology")
+    parser.add_argument(
+        "--active-active-topology",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Run Kubernetes profiles with active-active PlaySBC/RTPengine topology; defaults on for local K8s and off for --aks-profiles",
+    )
     parser.add_argument("--playsbc-replicas", type=int, default=2)
     parser.add_argument("--rtpengine-replicas", type=int, default=2)
     parser.add_argument("--ha-cluster-id", default="playsbc-aa-lab")
@@ -3261,6 +3306,8 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
             args.output_root = AKS_OUTPUT_ROOT
         if args.report_dir == DEFAULT_REPORT_DIR:
             args.report_dir = AKS_REPORT_DIR
+    if args.active_active_topology is None:
+        args.active_active_topology = False if args.aks_profiles else True
     if args.aks_rtp_port_min > args.aks_rtp_port_max:
         raise SystemExit("--aks-rtp-port-min must be less than or equal to --aks-rtp-port-max")
     if args.playsbc_replicas < 1:

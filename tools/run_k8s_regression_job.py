@@ -466,7 +466,39 @@ def prepare_playsbc_image_values(args: argparse.Namespace) -> None:
                 f"topology.multus.enabled={'true' if args.multus_enabled else 'false'}",
             ]
         )
+    else:
+        command.extend(
+            [
+                "--set",
+                "topology.activeActive.enabled=false",
+                "--set",
+                "topology.activeActive.useStatefulSet=false",
+                "--set",
+                "replicaCount=1",
+                "--set",
+                "rtpengine.replicas=1",
+                "--set",
+                "rtpengine.hostNetwork=false",
+                "--set",
+                f"topology.multus.enabled={'true' if args.multus_enabled else 'false'}",
+            ]
+        )
     run_command(command, timeout=args.kubectl_timeout, check=True)
+    if not args.active_active_topology:
+        run_command(
+            [
+                args.kubectl_bin,
+                "-n",
+                args.namespace,
+                "delete",
+                "statefulset",
+                args.deployment,
+                args.rtpengine_deployment,
+                "--ignore-not-found=true",
+            ],
+            timeout=args.kubectl_timeout,
+            check=False,
+        )
     workload_ref = f"statefulset/{args.deployment}" if args.active_active_topology else f"deployment/{args.deployment}"
     run_command(
         [
@@ -837,7 +869,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--aks-load-balancer-wait-timeout", type=int, default=1200)
     parser.add_argument("--aks-load-balancer-poll-interval", type=float, default=10.0)
     parser.add_argument("--rtpengine-enabled", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--active-active-topology", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--active-active-topology", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--playsbc-replicas", type=int, default=2)
     parser.add_argument("--rtpengine-replicas", type=int, default=2)
     parser.add_argument("--ha-cluster-id", default="playsbc-aa-lab")
@@ -905,6 +937,8 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
             args.remote_output_root_name = AKS_REMOTE_OUTPUT_ROOT
         if args.remote_report_dir_name == DEFAULT_REMOTE_REPORT_DIR:
             args.remote_report_dir_name = AKS_REMOTE_REPORT_DIR
+    if args.active_active_topology is None:
+        args.active_active_topology = False if args.aks_profiles else True
     if args.playsbc_replicas < 1:
         raise SystemExit("--playsbc-replicas must be at least 1")
     if args.rtpengine_replicas < 1:

@@ -48,6 +48,7 @@ Active-active, full media ranges, hardphones, and production-grade state are fut
 | `v2.2.1` | AKS SIPp regression hotfix: keep Contact-port routing when the registered Contact host matches the REGISTER packet source host, and align PlaySBC server version reporting with the release. |
 | `v2.2.2` | Real-device AKS media hardening: lock RTPengine and Azure RTP LoadBalancer to UDP `30000-30049`, require RTPengine advertised IP alignment, add media-handover NAT learning, and write explicit SDP/RTP verdict evidence. |
 | `v2.3.0` | Real-device NAT pinhole hardening: add RTPengine `NAT-wait` and `pierce NAT` flags for OBi1022/Zoiper calls behind home NAT. |
+| `v2.3.1` | AKS regression safety: AKS readiness profiles default to one PlaySBC and one RTPengine unless active-active is explicitly requested. |
 
 ## Cost Guardrail
 
@@ -88,7 +89,7 @@ export SIP_PIP_NAME=playsbc-sip-pip
 export RTP_PIP_NAME=playsbc-rtp-pip
 export DNS_LABEL=playsbc-sip-lab-$RANDOM
 export RTP_DNS_LABEL=playsbc-rtp-lab-$RANDOM
-export PLAYSBC_VERSION=2.3.0
+export PLAYSBC_VERSION=2.3.1
 ```
 
 ## 3. Register Azure Providers
@@ -416,7 +417,7 @@ PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_k8s_regression_job.py
   --job-timeout 3600
 ```
 
-`--aks-load-balancer-wait-timeout 1200` gives Azure up to 20 minutes to allocate SIP/RTP LoadBalancer ingress. The run starts only after the selected Azure LoadBalancer services have real ingress values. v2.2.2 also checks the public RTP service exposes UDP `30000-30049` and, when RTPengine pods are running, that the pod command advertises the same RTP public IP.
+`--aks-load-balancer-wait-timeout 1200` gives Azure up to 20 minutes to allocate SIP/RTP LoadBalancer ingress. The run starts only after the selected Azure LoadBalancer services have real ingress values. v2.3.1 keeps AKS readiness on a single PlaySBC/RTPengine workload by default so public-cloud smoke profiles do not depend on active-active shared registrar state. Pass `--active-active-topology` only for HA-specific experiments.
 
 AKS profiles currently cover OPTIONS, REGISTER auth, registered inbound routing, RTPengine media, RTPengine transcoding, SIP TCP, SIP TLS, SRTP/RTP interop, and RTCP quality evidence.
 
@@ -495,7 +496,7 @@ export LOCATION=eastus
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
-export PLAYSBC_VERSION=2.3.0
+export PLAYSBC_VERSION=2.3.1
 export ACR_NAME=$(az acr list --resource-group "$AKS_RG" --query "[0].name" -o tsv)
 ```
 
