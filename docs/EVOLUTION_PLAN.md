@@ -103,11 +103,23 @@ Azure release track:
 - `v2.3.1`: regression safety hotfix. Keep AKS readiness profiles on a single PlaySBC/RTPengine workload by default, explicitly disable stale active-active Helm values when requested, and preserve active-active defaults for local full K8s regression.
 - `v2.3.2`: PlaySBC image publish hotfix. Keep the v2.3.1 regression safety behavior and update the PlaySBC Dockerfile to Piper's current `download_voices --data-dir` CLI so GHCR publishes all four images.
 - `v2.3.3`: AKS regression auth isolation hotfix. Prevent real-device `authSecret` Helm values from leaking into open REGISTER regression profiles while keeping digest-auth profiles and OBi/Zoiper real-device auth deterministic.
-- `v2.3.x`: real-device evidence milestone. Generate a combined core+peer `capture.pcap` for manual OBi1022/Zoiper testing, covering SIP, RTP, and RTCP in one Wireshark-ready timeline; keep K8s, AKS, and AI/Rasa bundles lean by discarding split role PCAPs after merge and writing a root `sipmsg.log`.
+- `v2.4.0`: regression and real-device evidence milestone. Fix all open v2.3.x caveats, keep AKS regression and real-device Helm values isolated, add combined SIP/RTP/RTCP PCAP generation for manual OBi1022/Zoiper calls, and make regression evidence strict enough that media/SRTP caveats cannot pass silently.
+
+v2.4.0 caveats to close:
+
+- AKS regression must stay green after real-device lab upgrades. Real-device auth, RTP, NAT, timeout, and HA values must not leak into AKS readiness profiles unless the profile explicitly asks for them.
+- Local kind/minikube regression, AKS regression, Docker dual-realm regression, local SIPp testing, AI/Rasa profiles, and real-device lab testing must all remain compatible with the same release line.
+- `tls-srtp-to-udp-rtp` needs strict SRTP compliance proof. A profile must not pass if RTPengine reports SRTP crypto negotiation errors or if one RTP direction is only inferred.
+- Real-device OBi1022/Zoiper calls now show two-way RTP, but RTPengine still reports a small `errors=1` counter in sample calls. Classify and reduce this if possible; otherwise document it as early NAT/media-handover noise with clear packet-count proof.
+- Simultaneous BYE teardown can produce harmless `481 Call/Transaction Does Not Exist` responses after both call legs are already closing. Keep the SIP behavior RFC-safe, but suppress duplicate cleanup noise where possible.
+- Manual real-device testing needs one Wireshark-ready combined `capture.pcap` covering SIP, RTP, and RTCP for both call directions, plus matching `sipmsg.log` and RTPengine packet verdict logs.
+- AKS evidence must remain lean: one merged `capture.pcap` per profile, one root `sipmsg.log`, focused SIP/RTP/RTCP capture filters, and no stale core/peer split PCAPs in final bundles.
+- OPTIONS keepalive evidence must remain OPTIONS-only in ladder, `sipmsg.log`, and `capture.pcap`; INVITE, Rasa, or unrelated profile traffic in that bundle is a report/capture bug.
+- Release validation for v2.4.0 must include AKS regression profiles and at least one real-device OBi1022 <-> Zoiper call in each direction with RTPengine `caller_to_callee=observed` and `callee_to_caller=observed`.
 
 Production-readiness gates:
 
-- No critical SIP/RTP/HA caveats open for the target release line.
+- No critical SIP/RTP/HA/regression caveats open for the target release line.
 - Full Kubernetes regression passes on the cloud reference architecture.
 - Load and soak profiles pass with packet, SIP, media, RTCP, CDR, and observability evidence.
 - Security scans, dependency review, container scan, config scan, fuzz tests, and negative SIP tests pass.
