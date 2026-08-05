@@ -1650,11 +1650,11 @@ Content-Length: 0
         self.assertIn("Run AKS Regression", aks_doc)
         self.assertIn("--aks-profiles", aks_doc)
         self.assertIn("v1.5.0", aks_doc)
-        self.assertIn("v2.3.1", aks_doc)
+        self.assertIn("v2.3.2", aks_doc)
 
     def test_current_release_keeps_kind_regression_path(self):
         chart = ROOT / "charts" / "playsbc"
-        current_version = "2.3.1"
+        current_version = "2.3.2"
         version = (ROOT / "VERSION").read_text(encoding="utf-8")
         chart_yaml = (chart / "Chart.yaml").read_text(encoding="utf-8")
         values = (chart / "values.yaml").read_text(encoding="utf-8")
@@ -1670,7 +1670,8 @@ Content-Length: 0
         self.assertIn(f'tag: "{current_version}"', aks_values)
         self.assertIn("v2.x charts must continue to run the same kind regression path", readme)
         self.assertIn("runner-image ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:1.4.2", runbook)
-        self.assertIn("AKS regression safety hotfix", release_notes)
+        self.assertIn("PlaySBC image publish hotfix", release_notes)
+        self.assertIn("v2.3.1 AKS regression safety behavior", release_notes)
 
         args = run_k8s_regression_job.parse_args(
             [
