@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="docs/assets/playsbc-logo.svg?raw=1" alt="PlaySBC logo" width="620">
+  <img src="docs/assets/playsbc-logo-corporate-mediaflow.png?raw=1" alt="PlaySBC logo" width="620">
 </p>
 
 <h1 align="center">PlaySBC</h1>
 
-<p align="center"><strong>Playful Session Border Controller: break SIP here, not in production.</strong></p>
+<p align="center"><strong>A serious SBC lab where SIP, RTP, and AI voice learn to behave before real calls do.</strong></p>
 
 <p align="center">
   <img alt="Python 3.x" src="https://img.shields.io/badge/-Python%203.x-3776AB?style=flat-square&logo=python&logoColor=white">
