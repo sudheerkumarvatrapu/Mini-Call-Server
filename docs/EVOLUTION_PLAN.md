@@ -99,6 +99,7 @@ Azure release track:
 - `v2.2.0`: AKS regression/runtime hardening. Make AKS profiles wait for SIP and RTP public LoadBalancer ingress, validate the public RTP UDP `30000-30049` range, and fail early with clear preflight evidence while Azure networking is still pending.
 - `v2.2.1`: AKS regression hotfix. Keep real-device NAT routing, but preserve Contact-port routing when SIPp REGISTER and UAS are on the same pod IP; also align PlaySBC server version reporting with the release.
 - `v2.2.2`: real-device AKS media topology hardening. Lock RTPengine and Azure RTP LoadBalancer to UDP `30000-30049`, require advertised RTP public IP alignment, add RTPengine media-handover NAT learning, and log four-stage SDP plus per-direction RTP verdict evidence.
+- `v2.3.0`: real-device NAT pinhole hardening. Add RTPengine `NAT-wait` and `pierce NAT` controls for OBi1022/Zoiper calls behind home NAT, keep them enabled in AKS real-device values, and log the exact RTPengine NAT flags used on offer/answer.
 
 Production-readiness gates:
 

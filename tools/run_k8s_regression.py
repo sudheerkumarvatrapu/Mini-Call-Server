@@ -2015,6 +2015,8 @@ class K8sRegressionRunner:
             "rtpengine_plain_rtp_sdp": getattr(profile, "rtpengine_plain_rtp_sdp", False),
             "rtpengine_sip_source_address": getattr(profile, "rtpengine_sip_source_address", False),
             "rtpengine_media_handover": getattr(profile, "rtpengine_media_handover", False),
+            "rtpengine_nat_wait": getattr(profile, "rtpengine_nat_wait", False),
+            "rtpengine_pierce_nat": getattr(profile, "rtpengine_pierce_nat", False),
             "rtpengine_sdes": getattr(profile, "rtpengine_sdes", []),
             "rtpengine_dtls": getattr(profile, "rtpengine_dtls", ""),
             "media_quality": getattr(profile, "media_quality", {}),

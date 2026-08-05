@@ -75,6 +75,26 @@ class RtpengineEncodingTests(unittest.TestCase):
         self.assertIn(b"14:media handover", packet)
         self.assertIn(b"13:received froml3:IP414:122.171.69.148e", packet)
 
+    def test_client_builds_nat_pinhole_flags(self):
+        client = RtpengineClient("udp://127.0.0.1:2223")
+
+        fields = client._sdp_fields(
+            "call-1",
+            "tag-a",
+            "v=0\r\n",
+            sip_source_address=True,
+            received_from="122.171.69.148",
+            media_handover=True,
+            nat_wait=True,
+            pierce_nat=True,
+        )
+        packet = client.build_packet("offer", fields, cookie="cookie1")
+
+        self.assertIn(b"18:SIP source address", packet)
+        self.assertIn(b"14:media handover", packet)
+        self.assertIn(b"8:NAT-wait", packet)
+        self.assertIn(b"10:pierce NAT", packet)
+
     def test_client_builds_plain_rtp_ice_remove_policy(self):
         client = RtpengineClient("udp://127.0.0.1:2223")
 
@@ -193,7 +213,11 @@ class RtpengineEncodingTests(unittest.TestCase):
 
     def test_client_accepts_udp_service_reply_from_different_source(self):
         request_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        request_socket.bind(("127.0.0.1", 0))
+        try:
+            request_socket.bind(("127.0.0.1", 0))
+        except PermissionError as exc:
+            request_socket.close()
+            self.skipTest(f"local UDP bind is not permitted in this environment: {exc}")
         request_socket.settimeout(2)
         port = request_socket.getsockname()[1]
 
