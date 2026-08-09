@@ -107,6 +107,8 @@ Azure release track:
 - `v2.4.1`: real-device capture hotfix. Move manual AKS packet capture out of slim PlaySBC/RTPengine containers into one temporary host-network capture pod and keep exactly one combined `capture.pcap` in the evidence bundle.
 - `v2.4.2`: real-device registrar NAT hotfix. For public Internet registrations where the Contact host matches the observed source IP but NAT remaps the source port, route new inbound calls to the observed REGISTER source endpoint so Zoiper -> OBi1022 calls can reach the phone.
 - `v2.4.3`: real-device evidence cleanup hotfix. Finalize the manual capture bundle cleanly on Ctrl-C, keep one combined `capture.pcap`, and disable aggressive RTPengine `pierce NAT` by default so pre-answer pinhole packets do not look like voice RTP after `180 Ringing`.
+- `v2.4.4`: real-device RTCP/evidence archive hotfix. Add explicit `a=rtcp:<RTP+1>` SDP advertisement for RTPengine-backed real-device calls and generate a downloadable `.tgz` evidence archive beside the real-device capture folder.
+- `v2.5.0`: clean real-device SIP/RTP/RTCP evidence milestone. Keep the working two-way OBi1022/Zoiper audio path, then make reports and logs show one clean SIP call flow, classify duplicate UDP retransmissions separately, distinguish tiny NAT/probe packets from real G.711 media, and prove RTP plus RTCP directionality without confusing packet noise.
 
 v2.4.0 closure work:
 
@@ -117,6 +119,16 @@ v2.4.0 closure work:
 - Real-device capture: manual OBi1022/Zoiper tests use one temporary host-network capture pod and create one Wireshark-ready SIP/RTP/RTCP/networking `capture.pcap`, `sipmsg.log`, PlaySBC logs, RTPengine logs, and packet verdict lines. No PlaySBC/RTPengine capture subfolders are kept.
 - Duplicate teardown tolerance: duplicate B2BUA BYE after a recently finalized call receives `200 OK` instead of noisy harmless `481`, while truly unknown dialogs still fail normally.
 - NAT/media noise handling: small RTPengine error counters are acceptable only when both RTP directions are observed and the packet verdict proves media flow; pre-answer `pierce NAT` pinhole probes stay opt-in for difficult NATs.
+
+v2.5.0 real-device cleanup caveats:
+
+- Clean SIP evidence: collapse expected UDP retransmissions into an annotations section so the main ladder shows one canonical call flow only: `INVITE`, `100 Trying`, `180 Ringing`, `200 OK`, `ACK`, `BYE`, and final `200 OK`.
+- Duplicate `200 OK` after `ACK`: treat callee retransmissions as expected SIP-over-UDP behavior when the ACK and dialog teardown are otherwise valid; do not make them look like separate call events.
+- Pre-answer/around-answer RTP: classify tiny 13-byte RTP/probe packets and any early endpoint/NAT-learning media separately from real G.711 speech RTP. The clean evidence view must identify real PCMU/PCMA voice packets by payload type and packet size.
+- Bidirectional RTP: keep the current green requirement that RTPengine verdict proves `caller_to_callee=observed` and `callee_to_caller=observed`, and show the matching PCAP flow counts.
+- Bidirectional RTCP: v2.4.4 advertises explicit RTCP targets correctly, but current OBi1022/Zoiper captures show RTCP receiver reports only from the Zoiper side. v2.5.0 should either enable/validate OBi RTCP if supported or report endpoint-limited RTCP clearly instead of marking the whole call dirty.
+- Log-window overlap: avoid pulling previous-call SIP/RTP verdict lines into a later real-device capture bundle, or clearly mark them as pre-capture context. Each manual capture should summarize only the calls made during that capture window.
+- Final quality gate: the manual real-device bundle should contain one combined `capture.pcap`, one `sipmsg.log`, clean PlaySBC/RTPengine logs, a downloadable archive, canonical SIP flow, both-side RTP proof, and RTCP proof or a precise endpoint-limitation note.
 
 v2.4.0 release validation gates:
 
