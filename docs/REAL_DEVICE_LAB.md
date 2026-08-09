@@ -150,6 +150,46 @@ Transport: UDP
 Outbound proxy: blank
 ```
 
+## 3A. TCP/TLS Hardphone Registration Track
+
+Target this in `v2.5.0` after the clean UDP SIP/RTP/RTCP evidence work. Keep the first TCP/TLS scope to registration only; do not change the working UDP/RTP media baseline until each transport proves stable.
+
+AKS exposure already supports the required listener shape:
+
+```text
+SIP UDP: 5062
+SIP TCP: 5062
+SIP TLS: 5061
+RTP/RTCP UDP: 30000-30049
+```
+
+Validation order:
+
+1. Keep OBi1022 and Zoiper UDP registered as the known-good baseline.
+2. Register one hardphone over TCP to `<SIP_PUBLIC_IP>:5062`.
+3. Register one hardphone over TLS to `<SIP_PUBLIC_IP>:5061`.
+4. Keep calls on the current UDP/RTP baseline until TCP and TLS REGISTER evidence is clean.
+5. After REGISTER works, try TCP/TLS signalling with plain RTP, then SRTP only where the device supports it cleanly.
+
+Device priority:
+
+- OBi1022 can be tried if the transport settings are available, but customized firmware may limit TCP/TLS behavior.
+- Poly VVX600 and Yealink SIP-T33G are better primary TCP/TLS candidates for the next hardphone lab.
+- Zoiper can remain UDP during this phase so failures stay isolated to the hardphone transport under test.
+
+TLS requirements:
+
+- PlaySBC must have a Kubernetes TLS Secret mounted for SIP TLS.
+- The device must either trust the certificate chain or allow the lab certificate for testing.
+- Capture evidence should include TLS handshake success, SIP REGISTER over TLS, and the selected certificate/SNI behavior where visible.
+
+Monitor TCP/TLS registration:
+
+```bash
+kubectl -n playsbc logs deployment/playsbc-playsbc -f --since=10m \
+  | grep -aE "REGISTER|Registered|401|403|transport=tcp|transport=tls|TLS|TCP|5061|5062|1001|1002"
+```
+
 ## 4. Monitor Registration
 
 ```bash
@@ -301,7 +341,7 @@ Common symptoms:
 - Add the real-device capture bundle into the HTML report path instead of keeping it as a manual lab artifact.
 - Add real-device RTCP receiver-report, jitter, packet-loss, and MOS-style media-quality evidence.
 - Run longer OBi1022 and Zoiper soak calls with re-registration during active calls.
-- Validate hardphone/softphone SIP over TCP, SIP over TLS, and SRTP where the endpoint supports it.
+- Validate hardphone SIP over TCP and SIP over TLS as registration-first tests, then add TCP/TLS signalling calls and SRTP only where the endpoint supports it.
 - Add multi-device tests: two hardphones plus one softphone, multiple home NAT types, and SIP ALG detection notes.
 - Exercise real-device HA: PlaySBC pod restart, RTPengine pod restart, active-active routing, and shared registrar/dialog restore.
 - Add Azure production hardening: DNS/FQDN, NSG/firewall templates, dashboard panels for real devices, and cleanup/cost guardrails.

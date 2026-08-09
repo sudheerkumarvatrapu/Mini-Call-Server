@@ -108,7 +108,7 @@ Azure release track:
 - `v2.4.2`: real-device registrar NAT hotfix. For public Internet registrations where the Contact host matches the observed source IP but NAT remaps the source port, route new inbound calls to the observed REGISTER source endpoint so Zoiper -> OBi1022 calls can reach the phone.
 - `v2.4.3`: real-device evidence cleanup hotfix. Finalize the manual capture bundle cleanly on Ctrl-C, keep one combined `capture.pcap`, and disable aggressive RTPengine `pierce NAT` by default so pre-answer pinhole packets do not look like voice RTP after `180 Ringing`.
 - `v2.4.4`: real-device RTCP/evidence archive hotfix. Add explicit `a=rtcp:<RTP+1>` SDP advertisement for RTPengine-backed real-device calls and generate a downloadable `.tgz` evidence archive beside the real-device capture folder.
-- `v2.5.0`: clean real-device SIP/RTP/RTCP evidence milestone. Keep the working two-way OBi1022/Zoiper audio path, then make reports and logs show one clean SIP call flow, classify duplicate UDP retransmissions separately, distinguish tiny NAT/probe packets from real G.711 media, and prove RTP plus RTCP directionality without confusing packet noise.
+- `v2.5.0`: clean real-device SIP/RTP/RTCP evidence milestone plus TCP/TLS registration foundation. Keep the working two-way OBi1022/Zoiper audio path, then make reports and logs show one clean SIP call flow, classify duplicate UDP retransmissions separately, distinguish tiny NAT/probe packets from real G.711 media, prove RTP plus RTCP directionality without confusing packet noise, and start hardphone TCP/TLS REGISTER validation without disturbing the UDP/RTP baseline.
 
 v2.4.0 closure work:
 
@@ -128,6 +128,7 @@ v2.5.0 real-device cleanup caveats:
 - Bidirectional RTP: keep the current green requirement that RTPengine verdict proves `caller_to_callee=observed` and `callee_to_caller=observed`, and show the matching PCAP flow counts.
 - Bidirectional RTCP: v2.4.4 advertises explicit RTCP targets correctly, but current OBi1022/Zoiper captures show RTCP receiver reports only from the Zoiper side. v2.5.0 should either enable/validate OBi RTCP if supported or report endpoint-limited RTCP clearly instead of marking the whole call dirty.
 - Log-window overlap: avoid pulling previous-call SIP/RTP verdict lines into a later real-device capture bundle, or clearly mark them as pre-capture context. Each manual capture should summarize only the calls made during that capture window.
+- TCP/TLS hardphone registration: validate SIP REGISTER over TCP `5062` and TLS `5061` as registration-only checks first. Keep Zoiper/OBi UDP media as the known-good baseline, then add TCP/TLS signalling calls and SRTP only after registration evidence is clean. Poly VVX600 and Yealink SIP-T33G are the preferred next devices for this lane; OBi1022 can be tested if its firmware exposes stable transport settings.
 - Final quality gate: the manual real-device bundle should contain one combined `capture.pcap`, one `sipmsg.log`, clean PlaySBC/RTPengine logs, a downloadable archive, canonical SIP flow, both-side RTP proof, and RTCP proof or a precise endpoint-limitation note.
 
 v2.4.0 release validation gates:
