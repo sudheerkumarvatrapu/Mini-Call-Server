@@ -29,9 +29,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def write_test_pcap(path: Path, timestamp: float, payload: bytes, linktype: int = 1):
+    path.write_bytes(write_test_pcap_bytes(timestamp, payload, linktype=linktype))
+
+
+def write_test_pcap_bytes(timestamp: float, payload: bytes, linktype: int = 1) -> bytes:
     seconds = int(timestamp)
     microseconds = int((timestamp - seconds) * 1_000_000)
-    path.write_bytes(
+    return (
         struct.pack("<IHHIIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, linktype)
         + struct.pack("<IIII", seconds, microseconds, len(payload), len(payload))
         + payload
@@ -1656,7 +1660,7 @@ Content-Length: 0
 
     def test_current_release_keeps_kind_regression_path(self):
         chart = ROOT / "charts" / "playsbc"
-        current_version = "2.4.0"
+        current_version = "2.4.3"
         version = (ROOT / "VERSION").read_text(encoding="utf-8")
         chart_yaml = (chart / "Chart.yaml").read_text(encoding="utf-8")
         values = (chart / "values.yaml").read_text(encoding="utf-8")
@@ -1672,8 +1676,8 @@ Content-Length: 0
         self.assertIn(f'tag: "{current_version}"', aks_values)
         self.assertIn("v2.x charts must continue to run the same kind regression path", readme)
         self.assertIn("runner-image ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:1.4.2", runbook)
-        self.assertIn("regression and real-device evidence hardening milestone", release_notes)
-        self.assertIn("strict Kubernetes evidence validation", release_notes)
+        self.assertIn("real-device evidence cleanup hotfix", release_notes)
+        self.assertIn("Ctrl-C", release_notes)
 
         args = run_k8s_regression_job.parse_args(
             [
@@ -3373,6 +3377,35 @@ class RealTopologyTests(unittest.TestCase):
         self.assertEqual(container["image"], "example.test/netshoot:lab")
         self.assertTrue(container["securityContext"]["privileged"])
         self.assertIn("NET_RAW", container["securityContext"]["capabilities"]["add"])
+
+    def test_real_device_capture_copy_uses_binary_fallback(self):
+        args = run_real_device_capture.parse_args(["--duration", "1"])
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp)
+            capture = run_real_device_capture.Capture(
+                pod="capture-pod",
+                container="capture",
+                remote_path="/tmp/capture.pcap",
+                local_path=bundle / "capture.pcap",
+                process=mock.Mock(),
+            )
+            failed_cp = subprocess.CompletedProcess(["kubectl", "cp"], 1, "", "tar failed")
+            fallback_cp = subprocess.CompletedProcess(
+                ["kubectl", "exec"],
+                0,
+                write_test_pcap_bytes(1.0, b"\x00\xffbinary"),
+                b"",
+            )
+
+            with (
+                mock.patch.object(run_real_device_capture, "run_command", return_value=failed_cp),
+                mock.patch.object(run_real_device_capture, "run_binary_command", return_value=fallback_cp),
+            ):
+                copied = run_real_device_capture.copy_capture(args, capture, bundle)
+
+            self.assertTrue(copied)
+            self.assertTrue((bundle / "capture.pcap").exists())
+            self.assertIn(b"\x00\xffbinary", (bundle / "capture.pcap").read_bytes())
 
     def test_kubernetes_real_rasa_profile_is_selectable_and_rewrites_webhook(self):
         self.assertIn("ai-rasa-real-lab", run_k8s_regression.SELECTABLE_PROFILES)

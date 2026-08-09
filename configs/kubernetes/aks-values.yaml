@@ -37,7 +37,7 @@ replicaCount: 2
 
 image:
   repository: ghcr.io/sudheerkumarvatrapu/playsbc
-  tag: "2.4.0"
+  tag: "2.4.3"
   pullPolicy: Always
 
 service:
@@ -91,7 +91,7 @@ rtpengine:
   enabled: true
   image:
     repository: ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine
-    tag: "2.4.0"
+    tag: "2.4.3"
     pullPolicy: Always
   replicas: 2
   hostNetwork: false
@@ -117,7 +117,7 @@ playsbc:
     rtpengine_sip_source_address: true
     rtpengine_media_handover: true
     rtpengine_nat_wait: true
-    rtpengine_pierce_nat: true
+    rtpengine_pierce_nat: false
 
 observability:
   enabled: true

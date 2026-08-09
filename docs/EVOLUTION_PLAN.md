@@ -106,6 +106,7 @@ Azure release track:
 - `v2.4.0`: regression and real-device evidence milestone. Fix all open v2.3.x caveats, keep AKS regression and real-device Helm values isolated, add combined SIP/RTP/RTCP PCAP generation for manual OBi1022/Zoiper calls, and make regression evidence strict enough that media/SRTP caveats cannot pass silently.
 - `v2.4.1`: real-device capture hotfix. Move manual AKS packet capture out of slim PlaySBC/RTPengine containers into one temporary host-network capture pod and keep exactly one combined `capture.pcap` in the evidence bundle.
 - `v2.4.2`: real-device registrar NAT hotfix. For public Internet registrations where the Contact host matches the observed source IP but NAT remaps the source port, route new inbound calls to the observed REGISTER source endpoint so Zoiper -> OBi1022 calls can reach the phone.
+- `v2.4.3`: real-device evidence cleanup hotfix. Finalize the manual capture bundle cleanly on Ctrl-C, keep one combined `capture.pcap`, and disable aggressive RTPengine `pierce NAT` by default so pre-answer pinhole packets do not look like voice RTP after `180 Ringing`.
 
 v2.4.0 closure work:
 
@@ -115,7 +116,7 @@ v2.4.0 closure work:
 - OPTIONS isolation: OPTIONS keepalive evidence must remain OPTIONS-only in ladder, `sipmsg.log`, and capture artifacts.
 - Real-device capture: manual OBi1022/Zoiper tests use one temporary host-network capture pod and create one Wireshark-ready SIP/RTP/RTCP/networking `capture.pcap`, `sipmsg.log`, PlaySBC logs, RTPengine logs, and packet verdict lines. No PlaySBC/RTPengine capture subfolders are kept.
 - Duplicate teardown tolerance: duplicate B2BUA BYE after a recently finalized call receives `200 OK` instead of noisy harmless `481`, while truly unknown dialogs still fail normally.
-- NAT/media noise handling: small early RTPengine error counters are acceptable only when both RTP directions are observed and the packet verdict proves media flow.
+- NAT/media noise handling: small RTPengine error counters are acceptable only when both RTP directions are observed and the packet verdict proves media flow; pre-answer `pierce NAT` pinhole probes stay opt-in for difficult NATs.
 
 v2.4.0 release validation gates:
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import signal
 import shlex
 import subprocess
 import sys
@@ -56,6 +57,22 @@ def run_command_with_input(
     if check and result.returncode != 0:
         raise RuntimeError(
             f"Command failed ({result.returncode}): {command_text(command)}\n{result.stdout}{result.stderr}"
+        )
+    return result
+
+
+def run_binary_command(
+    command: list[str],
+    *,
+    timeout: int = 60,
+    check: bool = True,
+) -> subprocess.CompletedProcess[bytes]:
+    result = subprocess.run(command, cwd=ROOT, capture_output=True, timeout=timeout)
+    if check and result.returncode != 0:
+        stdout = result.stdout.decode("utf-8", "replace")
+        stderr = result.stderr.decode("utf-8", "replace")
+        raise RuntimeError(
+            f"Command failed ({result.returncode}): {command_text(command)}\n{stdout}{stderr}"
         )
     return result
 
@@ -259,7 +276,31 @@ def copy_capture(args: argparse.Namespace, capture: Capture, bundle: Path) -> bo
         check=False,
     )
     (bundle / "capture-copy.log").write_text(result.stdout + result.stderr, encoding="utf-8")
-    return result.returncode == 0 and capture.local_path.exists() and capture.local_path.stat().st_size > 24
+    if result.returncode == 0 and capture.local_path.exists() and capture.local_path.stat().st_size > 24:
+        return True
+
+    fallback = run_binary_command(
+        [
+            args.kubectl_bin,
+            "-n",
+            args.namespace,
+            "exec",
+            capture.pod,
+            "-c",
+            capture.container,
+            "--",
+            "cat",
+            capture.remote_path,
+        ],
+        check=False,
+    )
+    (bundle / "capture-copy-fallback.log").write_text(
+        fallback.stderr.decode("utf-8", "replace"),
+        encoding="utf-8",
+    )
+    if fallback.returncode == 0 and fallback.stdout:
+        capture.local_path.write_bytes(fallback.stdout)
+    return capture.local_path.exists() and capture.local_path.stat().st_size > 24
 
 
 def collect_logs(args: argparse.Namespace, bundle: Path) -> None:
@@ -347,23 +388,53 @@ def main(argv: list[str] | None = None) -> int:
     copied = False
     capture_bytes = 0
     error = ""
+    interrupted = False
+    cleanup_interrupt_count = 0
     try:
         collect_cluster_snapshot(args, bundle, "before")
         create_capture_pod(args, capture_pod, bundle)
         capture = start_capture(args, bundle, capture_pod)
         print(f"Capturing for {args.duration}s using pod/{capture_pod}. Run the real device call now.")
-        time.sleep(args.duration)
+        deadline = time.monotonic() + args.duration
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                time.sleep(min(1.0, remaining))
+            except KeyboardInterrupt:
+                interrupted = True
+                print("Capture interrupted; finalizing evidence bundle now.", file=sys.stderr)
+                break
+    except KeyboardInterrupt:
+        interrupted = True
+        print("Capture interrupted; finalizing evidence bundle now.", file=sys.stderr)
     except Exception as exc:  # pragma: no cover - exercised against live AKS
         error = f"{type(exc).__name__}: {exc}"
         print(error, file=sys.stderr)
     finally:
-        if capture is not None:
-            stop_capture(args, capture)
-            copied = copy_capture(args, capture, bundle)
-            capture_bytes = capture.local_path.stat().st_size if copied else 0
-        collect_cluster_snapshot(args, bundle, "after")
-        collect_logs(args, bundle)
-        delete_capture_pod(args, capture_pod, bundle)
+        previous_sigint = signal.getsignal(signal.SIGINT)
+
+        def defer_cleanup_interrupt(signum, frame):  # type: ignore[no-untyped-def]
+            nonlocal cleanup_interrupt_count
+            cleanup_interrupt_count += 1
+            print("Cleanup is already saving evidence; please wait for the bundle path.", file=sys.stderr)
+
+        signal.signal(signal.SIGINT, defer_cleanup_interrupt)
+        try:
+            if capture is not None:
+                stop_capture(args, capture)
+                copied = copy_capture(args, capture, bundle)
+                capture_bytes = capture.local_path.stat().st_size if copied else 0
+            collect_cluster_snapshot(args, bundle, "after")
+            collect_logs(args, bundle)
+            delete_capture_pod(args, capture_pod, bundle)
+        except Exception as exc:  # pragma: no cover - exercised against live AKS
+            if not error:
+                error = f"{type(exc).__name__}: {exc}"
+            print(error, file=sys.stderr)
+        finally:
+            signal.signal(signal.SIGINT, previous_sigint)
         (bundle / "summary.log").write_text(
             (
                 f"bundle={bundle}\n"
@@ -373,6 +444,8 @@ def main(argv: list[str] | None = None) -> int:
                 f"capture_image={args.capture_image}\n"
                 f"capture_bytes={capture_bytes}\n"
                 f"single_combined_pcap={str(copied and capture_bytes > 24).lower()}\n"
+                f"interrupted={str(interrupted).lower()}\n"
+                f"cleanup_interrupt_count={cleanup_interrupt_count}\n"
                 f"error={error or 'none'}\n"
             ),
             encoding="utf-8",

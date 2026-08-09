@@ -54,6 +54,7 @@ Active-active, full media ranges, hardphones, and production-grade state are fut
 | `v2.4.0` | Evidence hardening: strict SRTP/RTPengine proof, OPTIONS-only evidence isolation, lean merged PCAPs, and real-device capture bundles. |
 | `v2.4.1` | Real-device capture hotfix: replace in-container tcpdump with one temporary host-network capture pod and keep one flat combined `capture.pcap` bundle. |
 | `v2.4.2` | Real-device registrar NAT hotfix: route public Internet phones to the observed REGISTER source port when NAT remaps the Contact port. |
+| `v2.4.3` | Real-device evidence cleanup: graceful Ctrl-C capture finalization and clean RTPengine NAT defaults with pre-answer `pierce NAT` disabled unless explicitly needed. |
 
 ## Cost Guardrail
 
@@ -94,7 +95,7 @@ export SIP_PIP_NAME=playsbc-sip-pip
 export RTP_PIP_NAME=playsbc-rtp-pip
 export DNS_LABEL=playsbc-sip-lab-$RANDOM
 export RTP_DNS_LABEL=playsbc-rtp-lab-$RANDOM
-export PLAYSBC_VERSION=2.4.2
+export PLAYSBC_VERSION=2.4.3
 ```
 
 ## 3. Register Azure Providers
@@ -322,7 +323,7 @@ playsbc:
     rtpengine_sip_source_address: true
     rtpengine_media_handover: true
     rtpengine_nat_wait: true
-    rtpengine_pierce_nat: true
+    rtpengine_pierce_nat: false
     rtp_min: 30000
     rtp_max: 30049
     sip_advertised_ip: "$SIP_PUBLIC_IP"
@@ -630,7 +631,7 @@ export LOCATION=eastus
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
-export PLAYSBC_VERSION=2.4.2
+export PLAYSBC_VERSION=2.4.3
 export ACR_NAME=$(az acr list --resource-group "$AKS_RG" --query "[0].name" -o tsv)
 ```
 

@@ -8,10 +8,10 @@ OBi1022 1001 -> Internet/NAT -> Azure LB UDP 5062 -> PlaySBC -> RTPengine -> Zoi
 
 ## 1. Upgrade AKS For Real Devices
 
-Run in Azure Cloud Shell after the `v2.4.2` release/images are published.
+Run in Azure Cloud Shell after the `v2.4.3` release/images are published.
 
 ```bash
-export PLAYSBC_VERSION=2.4.2
+export PLAYSBC_VERSION=2.4.3
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
@@ -76,7 +76,7 @@ helm upgrade --install playsbc \
   --set playsbc.config.rtpengine_sip_source_address=true \
   --set playsbc.config.rtpengine_media_handover=true \
   --set playsbc.config.rtpengine_nat_wait=true \
-  --set playsbc.config.rtpengine_pierce_nat=true \
+  --set playsbc.config.rtpengine_pierce_nat=false \
   --set-string playsbc.config.sip_advertised_ip="$SIP_PUBLIC_IP" \
   --set-string playsbc.config.b2bua_advertised_ip="$SIP_PUBLIC_IP" \
   --set authSecret.enabled=true \
@@ -186,7 +186,7 @@ The OBi can register with a private Contact such as `192.168.1.9:5060`. PlaySBC 
 Good call evidence:
 
 - `INVITE ROUTE SELECTED` routes to the registered peer.
-- `RTPENGINE MEDIA SECURITY` shows `RTP/AVP`, `ice=remove`, `sip_source_address=true`, `media_handover=true`, `nat_wait=true`, and `pierce_nat=true`.
+- `RTPENGINE MEDIA SECURITY` shows `RTP/AVP`, `ice=remove`, `sip_source_address=true`, `media_handover=true`, `nat_wait=true`, and normally `pierce_nat=false`.
 - `SDP SUMMARY` shows public RTP media on the Azure RTP LoadBalancer IP and ports inside `30000-30049`.
 - `RTPENGINE PACKET VERDICT` shows `caller_to_callee=observed callee_to_caller=observed` and `total_rtp_packets` greater than zero.
 - `BYE`, `200 OK BYE`, and `RTPENGINE DELETE status=ok` appear at call release.
@@ -240,6 +240,8 @@ logs/Real-Device-Lab/real-device-capture-<timestamp>/
 
 Open `capture.pcap` in Wireshark. It is the only PCAP produced for the manual real-device test and covers SIP signalling, RTP/RTCP media, RTPengine control, and AKS LoadBalancer/NodePort packet paths. No `capture-playsbc` or `capture-rtpengine` folders are created.
 
+Press `Ctrl-C` once if the calls finish before the requested duration. The tool stops tcpdump, copies the merged `capture.pcap`, collects logs, deletes the temporary capture pod, and writes `summary.log` with `interrupted=true`. Avoid repeated `Ctrl-C`; if it happens, cleanup is deferred until evidence is saved.
+
 If Zoiper cannot dial `1001`, keep the capture running for one failed attempt and then check:
 
 ```bash
@@ -262,7 +264,8 @@ Common symptoms:
 - OBi address-incomplete: check `INVITE ROUTE SELECTED`; PlaySBC should route using the `To` user when Request-URI is only the AKS public IP.
 - Zoiper `Unparsable SDP`: route fallback/echo leaked into a real-device call. Keep `reject_unknown_routes=true` and re-register both endpoints after a pod restart.
 - `480 Temporarily Unavailable`: hardphone was not answered before `b2bua_invite_timeout`. Use `60.0`.
-- No or one-way audio: check the Azure RTP public LoadBalancer, `rtpengine.advertisedIP`, RTP ports `30000-30049`, and keep `rtpengine_g711_only=true`, `rtpengine_plain_rtp_sdp=true`, `rtpengine_sip_source_address=true`, `rtpengine_media_handover=true`, `rtpengine_nat_wait=true`, and `rtpengine_pierce_nat=true` for the baseline.
+- No or one-way audio: check the Azure RTP public LoadBalancer, `rtpengine.advertisedIP`, RTP ports `30000-30049`, and keep `rtpengine_g711_only=true`, `rtpengine_plain_rtp_sdp=true`, `rtpengine_sip_source_address=true`, `rtpengine_media_handover=true`, and `rtpengine_nat_wait=true` for the baseline.
+- RTP packets visible immediately after `180 Ringing`: check whether `rtpengine_pierce_nat=true` is still inherited by Helm `--reuse-values`. Those packets are RTPengine pinhole probes, not voice. The clean v2.4.3 baseline sets `rtpengine_pierce_nat=false`; enable it only if a specific NAT still needs pre-answer pinhole traffic.
 - Keepalive noise: OBi/Zoiper may send CRLF or `keep-alive` UDP packets with no CSeq. PlaySBC logs them as `SIP KEEP-ALIVE` and ignores them; they should not create stack traces.
 
 ## 8. What v2.4.x Hardens
@@ -275,7 +278,7 @@ Common symptoms:
 - Plain RTP/AVP SDP normalization for real devices that do not like ICE, RTCP-mux, fingerprint, or WebRTC-style SDP attributes.
 - RTPengine SIP-source-address NAT learning so OBi/Zoiper media uses the observed public SIP source instead of private/fragile endpoint SDP.
 - RTPengine media-handover learning for real OBi/Zoiper NAT flows where the endpoint media tuple may differ from initial SDP.
-- RTPengine `NAT-wait` and `pierce NAT` flags for home-NAT devices that need endpoint pinholes opened before they accept far-end media.
+- RTPengine `NAT-wait` plus media-handover learning for home-NAT devices, with `pierce NAT` left as an opt-in fallback for difficult NATs.
 - Locked Azure RTP media range: RTPengine and the public RTP LoadBalancer both use UDP `30000-30049`; Helm fails if they drift.
 - Explicit SDP/RTP evidence: inbound offer, outbound offer, callee answer, caller answer, allocated RTPengine ports, learned endpoints, and per-direction packet verdicts.
 - OBi-style in-dialog re-INVITE media refreshes get a valid `200 OK` SDP answer instead of `491 Request Pending`.
