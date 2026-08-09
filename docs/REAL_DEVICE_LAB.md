@@ -8,10 +8,10 @@ OBi1022 1001 -> Internet/NAT -> Azure LB UDP 5062 -> PlaySBC -> RTPengine -> Zoi
 
 ## 1. Upgrade AKS For Real Devices
 
-Run in Azure Cloud Shell after the `v2.3.3` release/images are published.
+Run in Azure Cloud Shell after the `v2.4.0` release/images are published.
 
 ```bash
-export PLAYSBC_VERSION=2.3.3
+export PLAYSBC_VERSION=2.4.0
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
@@ -191,7 +191,31 @@ Good call evidence:
 
 Small RTPengine `errors=1` counters can appear during NAT learning. Treat them as noise when both packet directions are observed and audio is heard both ways.
 
-## 6. Fast Troubleshooting
+## 6. Capture A Wireshark Bundle
+
+Run this from the checked-out PlaySBC source in Cloud Shell, then place and clear both manual calls while the capture is active.
+
+```bash
+PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_real_device_capture.py \
+  --namespace playsbc \
+  --duration 120
+```
+
+The output is one compact bundle:
+
+```text
+logs/Real-Device-Lab/real-device-capture-<timestamp>/
+  capture.pcap
+  sipmsg.log
+  playsbc.log
+  rtpengine.log
+  rtpengine-verdict.log
+  summary.log
+```
+
+Open `capture.pcap` in Wireshark. It is timestamp-sorted and merged from PlaySBC and RTPengine capture points, so you do not need separate core/peer PCAPs for manual real-device review.
+
+## 7. Fast Troubleshooting
 
 ```bash
 kubectl -n playsbc get pods -o wide
@@ -209,7 +233,7 @@ Common symptoms:
 - No or one-way audio: check the Azure RTP public LoadBalancer, `rtpengine.advertisedIP`, RTP ports `30000-30049`, and keep `rtpengine_g711_only=true`, `rtpengine_plain_rtp_sdp=true`, `rtpengine_sip_source_address=true`, `rtpengine_media_handover=true`, `rtpengine_nat_wait=true`, and `rtpengine_pierce_nat=true` for the baseline.
 - Keepalive noise: OBi/Zoiper may send CRLF or `keep-alive` UDP packets with no CSeq. PlaySBC logs them as `SIP KEEP-ALIVE` and ignores them; they should not create stack traces.
 
-## 7. What v2.3.x Hardens
+## 8. What v2.4.x Hardens
 
 - Real-device SIP users: `1001` and `1002`.
 - Dynamic AKS SIP/RTP public IPs; no hard-coded public IPs.
@@ -224,10 +248,12 @@ Common symptoms:
 - Explicit SDP/RTP evidence: inbound offer, outbound offer, callee answer, caller answer, allocated RTPengine ports, learned endpoints, and per-direction packet verdicts.
 - OBi-style in-dialog re-INVITE media refreshes get a valid `200 OK` SDP answer instead of `491 Request Pending`.
 - Safe UDP NAT keepalive handling for hardphones and softphones.
+- Duplicate B2BUA BYE after teardown is answered with `200 OK` when the call ID was just finalized, avoiding noisy harmless `481` responses.
+- Manual OBi1022/Zoiper tests can generate one combined SIP/RTP/RTCP `capture.pcap`, `sipmsg.log`, and RTPengine packet verdict evidence bundle.
 
-## 8. Next Roadmap
+## 9. Next Roadmap
 
-- Save real-device SIP/RTP/RTCP PCAP bundles from AKS for Wireshark review.
+- Add the real-device capture bundle into the HTML report path instead of keeping it as a manual lab artifact.
 - Add real-device RTCP receiver-report, jitter, packet-loss, and MOS-style media-quality evidence.
 - Run longer OBi1022 and Zoiper soak calls with re-registration during active calls.
 - Validate hardphone/softphone SIP over TCP, SIP over TLS, and SRTP where the endpoint supports it.

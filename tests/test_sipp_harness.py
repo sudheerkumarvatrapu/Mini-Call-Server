@@ -22,6 +22,7 @@ from tools import run_real_topology
 from tools import run_dual_realm_profile
 from tools import run_k8s_regression
 from tools import run_k8s_regression_job
+from tools import run_real_device_capture
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1651,11 +1652,11 @@ Content-Length: 0
         self.assertIn("Run AKS Regression", aks_doc)
         self.assertIn("--aks-profiles", aks_doc)
         self.assertIn("v1.5.0", aks_doc)
-        self.assertIn("v2.3.3", aks_doc)
+        self.assertIn("v2.4.0", aks_doc)
 
     def test_current_release_keeps_kind_regression_path(self):
         chart = ROOT / "charts" / "playsbc"
-        current_version = "2.3.3"
+        current_version = "2.4.0"
         version = (ROOT / "VERSION").read_text(encoding="utf-8")
         chart_yaml = (chart / "Chart.yaml").read_text(encoding="utf-8")
         values = (chart / "values.yaml").read_text(encoding="utf-8")
@@ -1671,8 +1672,8 @@ Content-Length: 0
         self.assertIn(f'tag: "{current_version}"', aks_values)
         self.assertIn("v2.x charts must continue to run the same kind regression path", readme)
         self.assertIn("runner-image ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:1.4.2", runbook)
-        self.assertIn("AKS regression auth isolation hotfix", release_notes)
-        self.assertIn("authSecret", release_notes)
+        self.assertIn("regression and real-device evidence hardening milestone", release_notes)
+        self.assertIn("strict Kubernetes evidence validation", release_notes)
 
         args = run_k8s_regression_job.parse_args(
             [
@@ -3297,6 +3298,66 @@ class RealTopologyTests(unittest.TestCase):
         self.assertIn("200 OK", ladder)
         self.assertNotIn("INVITE", ladder)
         self.assertNotIn("BYE", ladder)
+
+    def test_kubernetes_evidence_validation_requires_srtp_two_way_verdict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp)
+            write_test_pcap(bundle / "capture.pcap", 1.0, b"packet", linktype=1)
+            (bundle / "sipmsg.log").write_text("INVITE sip:1002@example.test SIP/2.0\n", encoding="utf-8")
+            (bundle / "log.media").write_text(
+                (
+                    "RTPENGINE MEDIA SECURITY\n"
+                    "offer_transport=RTP/AVP answer_transport=RTP/SAVP\n"
+                    "RTPENGINE PACKET VERDICT\n"
+                    "caller_to_callee=observed callee_to_caller=observed total_rtp_packets=20\n"
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                run_k8s_regression.validate_k8s_profile_evidence("tls-srtp-to-udp-rtp", bundle),
+                [],
+            )
+
+            (bundle / "log.media").write_text(
+                (
+                    "RTPENGINE MEDIA SECURITY\n"
+                    "crypto negotiation failed\n"
+                    "RTPENGINE PACKET VERDICT\n"
+                    "caller_to_callee=observed callee_to_caller=not_observed total_rtp_packets=7\n"
+                ),
+                encoding="utf-8",
+            )
+
+            failures = run_k8s_regression.validate_k8s_profile_evidence("tls-srtp-to-udp-rtp", bundle)
+
+            self.assertTrue(any("crypto" in failure for failure in failures))
+            self.assertTrue(any("both RTP directions" in failure for failure in failures))
+
+    def test_kubernetes_evidence_validation_rejects_options_noise_and_split_pcaps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp)
+            write_test_pcap(bundle / "capture.pcap", 1.0, b"options", linktype=1)
+            write_test_pcap(bundle / "capture-core.pcap", 2.0, b"stale", linktype=1)
+            (bundle / "sipmsg.log").write_text(
+                "OPTIONS sip:playsbc@example.test SIP/2.0\nINVITE sip:1002@example.test SIP/2.0\n",
+                encoding="utf-8",
+            )
+
+            failures = run_k8s_regression.validate_k8s_profile_evidence("esbc-options-keepalive", bundle)
+
+            self.assertTrue(any("non-OPTIONS" in failure for failure in failures))
+            self.assertTrue(any("stale split capture" in failure for failure in failures))
+
+    def test_real_device_capture_filter_is_sip_and_media_only(self):
+        args = run_real_device_capture.parse_args(["--duration", "1"])
+
+        capture_filter = run_real_device_capture.capture_filter(args)
+
+        self.assertIn("port 5062", capture_filter)
+        self.assertIn("port 5061", capture_filter)
+        self.assertIn("portrange 30000-30049", capture_filter)
+        self.assertNotIn("port 53", capture_filter)
 
     def test_kubernetes_real_rasa_profile_is_selectable_and_rewrites_webhook(self):
         self.assertIn("ai-rasa-real-lab", run_k8s_regression.SELECTABLE_PROFILES)
