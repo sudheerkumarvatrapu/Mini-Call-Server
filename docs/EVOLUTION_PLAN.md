@@ -105,6 +105,7 @@ Azure release track:
 - `v2.3.3`: AKS regression auth isolation hotfix. Prevent real-device `authSecret` Helm values from leaking into open REGISTER regression profiles while keeping digest-auth profiles and OBi/Zoiper real-device auth deterministic.
 - `v2.4.0`: regression and real-device evidence milestone. Fix all open v2.3.x caveats, keep AKS regression and real-device Helm values isolated, add combined SIP/RTP/RTCP PCAP generation for manual OBi1022/Zoiper calls, and make regression evidence strict enough that media/SRTP caveats cannot pass silently.
 - `v2.4.1`: real-device capture hotfix. Move manual AKS packet capture out of slim PlaySBC/RTPengine containers into one temporary host-network capture pod and keep exactly one combined `capture.pcap` in the evidence bundle.
+- `v2.4.2`: real-device registrar NAT hotfix. For public Internet registrations where the Contact host matches the observed source IP but NAT remaps the source port, route new inbound calls to the observed REGISTER source endpoint so Zoiper -> OBi1022 calls can reach the phone.
 
 v2.4.0 closure work:
 

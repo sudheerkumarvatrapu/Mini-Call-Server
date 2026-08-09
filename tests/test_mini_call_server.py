@@ -1655,6 +1655,27 @@ class RoutingEngineTests(unittest.TestCase):
         self.assertEqual(route.target.address, ("10.244.0.10", 5060))
         self.assertIsNone(route.destination)
 
+    def test_registrar_policy_uses_received_source_for_public_nat_port_remap(self):
+        engine = server.RoutingEngine(
+            ({"name": "registered", "match": "*", "target": "registration"},),
+            {},
+        )
+        registrations = {
+            "1001": server.Registration(
+                user="1001",
+                contact_uri="sip:1001@136.185.225.80:5060",
+                source=("136.185.225.80", 13040),
+                expires_at=9999999999,
+            )
+        }
+
+        route = engine.resolve("1001", registrations)
+
+        self.assertIsNotNone(route)
+        assert route is not None
+        self.assertEqual(route.target.address, ("136.185.225.80", 5060))
+        self.assertEqual(route.destination, ("136.185.225.80", 13040))
+
     def test_route_policy_can_template_static_target(self):
         engine = server.RoutingEngine(
             ({"name": "lab", "match": "lab-*", "target": "sip:{user}@127.0.0.1:26000"},),

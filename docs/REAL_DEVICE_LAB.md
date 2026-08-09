@@ -8,10 +8,10 @@ OBi1022 1001 -> Internet/NAT -> Azure LB UDP 5062 -> PlaySBC -> RTPengine -> Zoi
 
 ## 1. Upgrade AKS For Real Devices
 
-Run in Azure Cloud Shell after the `v2.4.1` release/images are published.
+Run in Azure Cloud Shell after the `v2.4.2` release/images are published.
 
 ```bash
-export PLAYSBC_VERSION=2.4.1
+export PLAYSBC_VERSION=2.4.2
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks

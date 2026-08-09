@@ -53,7 +53,7 @@ except Exception:  # pragma: no cover - audioop is unavailable in newer Python b
 
 
 CRLF = "\r\n"
-PLAYSBC_VERSION = "2.4.1"
+PLAYSBC_VERSION = "2.4.2"
 PCMU = 0
 PCMA = 8
 SUPPORTED_CODECS = (PCMU, PCMA)
@@ -320,6 +320,8 @@ def registration_received_destination(registration: Registration) -> Optional[Tu
     if target.address == registration.source:
         return None
     if target.host == registration.source[0]:
+        if not sip_host_needs_received_route(target.host) and target.port != registration.source[1]:
+            return registration.source
         return None
     if sip_host_needs_received_route(target.host):
         return registration.source
