@@ -53,7 +53,7 @@ except Exception:  # pragma: no cover - audioop is unavailable in newer Python b
 
 
 CRLF = "\r\n"
-PLAYSBC_VERSION = "2.3.3"
+PLAYSBC_VERSION = "2.4.0"
 PCMU = 0
 PCMA = 8
 SUPPORTED_CODECS = (PCMU, PCMA)
@@ -2183,6 +2183,8 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         self.pending_options_probes: Dict[str, asyncio.Future] = {}
         self.b2bua_calls_by_inbound: Dict[str, B2BUACall] = {}
         self.b2bua_calls_by_outbound: Dict[str, B2BUACall] = {}
+        self.recently_finalized_b2bua_call_ids: Dict[str, float] = {}
+        self.recently_finalized_b2bua_ttl = 30.0
         self.stream_connections: Dict[Tuple[str, str, int], SipTcpConnectionProtocol] = {}
         self.stream_connects = 0
         self.stream_reuses = 0
@@ -3085,6 +3087,15 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                     )
                     session.log("SIP RESPONSE", "200 OK for BYE")
                 self.media.close_session(call_id)
+                return
+            if self.is_recently_finalized_b2bua_call(call_id):
+                self.send_response(message, 200, "OK")
+                self.logger.sip(
+                    "B2BUA DUPLICATE BYE TOLERATED",
+                    f"source={message.source[0]}:{message.source[1]} cseq={message.header('cseq')}",
+                    call_id=call_id,
+                )
+                logging.info("Tolerated duplicate BYE for finalized B2BUA call_id=%s", call_id)
                 return
             try:
                 dialog = self.terminate_dialog(
@@ -4735,6 +4746,27 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         await asyncio.sleep(delay)
         self.finalize_b2bua_call(b2bua_call, "timer")
 
+    def prune_recently_finalized_b2bua_calls(self, now: Optional[float] = None) -> None:
+        now = time.time() if now is None else now
+        expired = [
+            call_id
+            for call_id, expires_at in self.recently_finalized_b2bua_call_ids.items()
+            if expires_at <= now
+        ]
+        for call_id in expired:
+            self.recently_finalized_b2bua_call_ids.pop(call_id, None)
+
+    def remember_finalized_b2bua_call(self, b2bua_call: B2BUACall) -> None:
+        expires_at = time.time() + self.recently_finalized_b2bua_ttl
+        for call_id in (b2bua_call.inbound_call_id, b2bua_call.outbound_call_id):
+            if call_id:
+                self.recently_finalized_b2bua_call_ids[call_id] = expires_at
+        self.prune_recently_finalized_b2bua_calls()
+
+    def is_recently_finalized_b2bua_call(self, call_id: str) -> bool:
+        self.prune_recently_finalized_b2bua_calls()
+        return bool(call_id and call_id in self.recently_finalized_b2bua_call_ids)
+
     def finalize_b2bua_call(self, b2bua_call: B2BUACall, reason: str) -> None:
         if b2bua_call.finalized:
             return
@@ -4753,6 +4785,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         b2bua_call.flow_log.render_ladder()
         self.schedule_rtpengine_delete(b2bua_call)
         self.delete_b2bua_call_state(b2bua_call.inbound_call_id)
+        self.remember_finalized_b2bua_call(b2bua_call)
         self.b2bua_calls_by_inbound.pop(b2bua_call.inbound_call_id, None)
         self.b2bua_calls_by_outbound.pop(b2bua_call.outbound_call_id, None)
         self.pending_outbound_responses.pop(b2bua_call.outbound_call_id, None)

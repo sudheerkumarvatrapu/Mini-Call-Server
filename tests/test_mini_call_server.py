@@ -858,6 +858,62 @@ class ResponseTests(unittest.TestCase):
         self.assertTrue(any(packet.startswith(b"SIP/2.0 200 OK") for packet in packets))
         self.assertTrue(any(packet.startswith(b"BYE sip:1001@122.171.69.148:5060") for packet in packets))
 
+    def test_duplicate_b2bua_bye_after_finalizer_gets_200_not_481(self):
+        logger = server.SbcLogger(None)
+        media = server.MediaServer("127.0.0.1", 12000, 12010, None, logger)
+        protocol = server.SipServerProtocol(
+            "127.0.0.1",
+            25062,
+            media,
+            logger,
+            server.PCMU,
+            "playsbc",
+            {},
+            (),
+            {},
+            (),
+            False,
+        )
+        transport = self.DummyTransport()
+        protocol.transport = transport
+        route = server.RouteResult(
+            server.parse_sip_uri("sip:1001@122.171.69.148:5060"),
+            "registered",
+            "registrar",
+            destination=("122.171.69.148", 5060),
+        )
+        call = server.B2BUACall(
+            inbound_call_id="real-inbound-closed",
+            outbound_call_id="real-outbound-closed",
+            outbound_target=route.target,
+            outbound_from_header="<sip:b2bua@127.0.0.1>;tag=local",
+            outbound_to_header="<sip:1001@122.171.69.148>;tag=remote",
+            target_user="1001",
+            route_policy="registered",
+            route_source="registrar",
+            flow_log=server.B2BUAFlowLog(None, "real-inbound-closed", "1001", route, enabled=False, logger=logger),
+            route_result=route,
+        )
+        protocol.remember_finalized_b2bua_call(call)
+        message = server.SipMessage(
+            "BYE sip:1001@127.0.0.1 SIP/2.0",
+            {
+                "via": "SIP/2.0/UDP 122.171.69.148:61995;branch=z9hG4bK-dup-bye;rport",
+                "call-id": "real-inbound-closed",
+                "cseq": "3 BYE",
+                "from": "<sip:1002@home>;tag=a",
+                "to": "<sip:1001@sbc>;tag=b",
+            },
+            "",
+            ("122.171.69.148", 61995),
+        )
+
+        asyncio.run(protocol.handle_message(message))
+
+        packets = [packet for packet, _destination in transport.sent]
+        self.assertTrue(any(packet.startswith(b"SIP/2.0 200 OK") for packet in packets))
+        self.assertFalse(any(packet.startswith(b"SIP/2.0 481") for packet in packets))
+
 
 class PrometheusMetricTests(unittest.TestCase):
     def test_prometheus_renderer_adds_metadata_and_escapes_labels(self):

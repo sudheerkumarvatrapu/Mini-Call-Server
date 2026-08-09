@@ -51,6 +51,7 @@ Active-active, full media ranges, hardphones, and production-grade state are fut
 | `v2.3.1` | AKS regression safety: AKS readiness profiles default to one PlaySBC and one RTPengine unless active-active is explicitly requested. |
 | `v2.3.2` | PlaySBC image publish hotfix: use Piper's current voice download CLI so the `playsbc` GHCR image builds cleanly. |
 | `v2.3.3` | AKS regression auth isolation: profile Helm values no longer inherit real-device `authSecret` settings into open REGISTER regression cases. |
+| `v2.4.0` | Evidence hardening: strict SRTP/RTPengine proof, OPTIONS-only evidence isolation, lean merged PCAPs, and real-device capture bundles. |
 
 ## Cost Guardrail
 
@@ -91,7 +92,7 @@ export SIP_PIP_NAME=playsbc-sip-pip
 export RTP_PIP_NAME=playsbc-rtp-pip
 export DNS_LABEL=playsbc-sip-lab-$RANDOM
 export RTP_DNS_LABEL=playsbc-rtp-lab-$RANDOM
-export PLAYSBC_VERSION=2.3.3
+export PLAYSBC_VERSION=2.4.0
 ```
 
 ## 3. Register Azure Providers
@@ -419,7 +420,7 @@ PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_k8s_regression_job.py
   --job-timeout 3600
 ```
 
-`--aks-load-balancer-wait-timeout 1200` gives Azure up to 20 minutes to allocate SIP/RTP LoadBalancer ingress. The run starts only after the selected Azure LoadBalancer services have real ingress values. v2.3.3 keeps AKS readiness on a single PlaySBC/RTPengine workload by default and isolates regression REGISTER auth from real-device lab Helm values, so public-cloud smoke profiles do not depend on active-active shared registrar state or hardphone credentials. Pass `--active-active-topology` only for HA-specific experiments.
+`--aks-load-balancer-wait-timeout 1200` gives Azure up to 20 minutes to allocate SIP/RTP LoadBalancer ingress. The run starts only after the selected Azure LoadBalancer services have real ingress values. v2.4.0 keeps AKS readiness on a single PlaySBC/RTPengine workload by default, isolates regression REGISTER auth from real-device lab Helm values, and fails the profile if strict evidence is missing or stale. Pass `--active-active-topology` only for HA-specific experiments.
 
 AKS profiles currently cover OPTIONS, REGISTER auth, registered inbound routing, RTPengine media, RTPengine transcoding, SIP TCP, SIP TLS, SRTP/RTP interop, and RTCP quality evidence.
 
@@ -442,7 +443,7 @@ Use these files first:
 | `sipmsg.log` | Combined SIPp core/peer message trace for quick signalling review. |
 | `capture.pcap` | Combined packet evidence, timestamp-sorted across core and peer capture agents. |
 
-AKS keeps only the merged `capture.pcap`; temporary `capture-core.pcap` and `capture-peer.pcap` files are discarded after a successful merge. The capture is intentionally focused on SIP, RTP/SRTP, and RTCP ports. DNS and unrelated Kubernetes pod traffic are filtered out. For OPTIONS keepalive, the ladder and PCAP should show only `OPTIONS -> 200 OK`; any INVITE/Rasa ladder in that profile is a report bug.
+AKS keeps only the merged `capture.pcap`; temporary `capture-core.pcap` and `capture-peer.pcap` files are discarded after a successful merge. The capture is intentionally focused on SIP, RTP/SRTP, and RTCP ports. DNS and unrelated Kubernetes pod traffic are filtered out. For OPTIONS keepalive, the ladder, `sipmsg.log`, and packet evidence should show only `OPTIONS -> 200 OK`; any INVITE/Rasa ladder in that profile is now a strict evidence failure. SRTP profiles must include RTPengine media-security evidence and a packet verdict proving both RTP directions.
 
 ## 13. Download Report Evidence
 
@@ -498,7 +499,7 @@ export LOCATION=eastus
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
-export PLAYSBC_VERSION=2.3.3
+export PLAYSBC_VERSION=2.4.0
 export ACR_NAME=$(az acr list --resource-group "$AKS_RG" --query "[0].name" -o tsv)
 ```
 

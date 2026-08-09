@@ -68,6 +68,17 @@ AKS_PROFILES = (
     "udp-rtp-to-tls-srtp",
     "rtcp-receiver-quality",
 )
+STRICT_SRTP_PROFILES = (
+    "tls-srtp-to-udp-rtp",
+    "tls-srtp-to-tcp-rtp",
+    "udp-rtp-to-tls-srtp",
+)
+SRTP_ERROR_PATTERN = re.compile(
+    r"\b(?:SRTP|SDES|crypto)\b.*\b(?:error|failed|failure|mismatch|unsupported|invalid|no crypto)\b"
+    r"|\b(?:error|failed|failure)\b.*\b(?:SRTP|SDES|crypto)\b",
+    re.IGNORECASE,
+)
+OPTIONS_EVIDENCE_NOISE_PATTERN = re.compile(r"\b(?:INVITE|BYE|CANCEL|Rasa|AI Voice)\b", re.IGNORECASE)
 SELECTABLE_PROFILES = (*SMOKE_PROFILES, *ALL_PROFILES)
 LAB_TLS_SECRET_NAME = "playsbc-regression-tls"
 DEFAULT_OUTPUT_ROOT = str(ROOT / "logs" / "k8s-Regression")
@@ -724,6 +735,87 @@ def write_combined_sipmsg_log(bundle: Path, profile_name: str) -> int:
         )
     output.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     return len(sections)
+
+
+def read_bundle_evidence_text(bundle: Path, filenames: Iterable[str]) -> str:
+    chunks: list[str] = []
+    for filename in filenames:
+        path = bundle / filename
+        if path.exists():
+            chunks.append(path.read_text(encoding="utf-8", errors="replace"))
+    return "\n".join(chunks)
+
+
+def parse_key_value_line(line: str) -> dict[str, str]:
+    return {
+        match.group(1): match.group(2)
+        for match in re.finditer(r"([A-Za-z0-9_./-]+)=([^\s]+)", line)
+    }
+
+
+def rtpengine_packet_verdicts(bundle: Path) -> list[dict[str, str]]:
+    verdicts: list[dict[str, str]] = []
+    evidence = read_bundle_evidence_text(bundle, ("log.media", "playsbc.log", "rtpengine.log"))
+    previous_title = ""
+    for line in evidence.splitlines():
+        if "RTPENGINE PACKET VERDICT" in line:
+            previous_title = "RTPENGINE PACKET VERDICT"
+            parsed = parse_key_value_line(line)
+            if parsed:
+                verdicts.append(parsed)
+            continue
+        if previous_title and ("caller_to_callee=" in line or "callee_to_caller=" in line):
+            verdicts.append(parse_key_value_line(line))
+        previous_title = ""
+    return verdicts
+
+
+def rtpengine_two_way_verdict_observed(bundle: Path) -> bool:
+    for verdict in rtpengine_packet_verdicts(bundle):
+        try:
+            total_rtp_packets = int(verdict.get("total_rtp_packets", "0") or "0")
+        except ValueError:
+            total_rtp_packets = 0
+        if (
+            verdict.get("caller_to_callee") == "observed"
+            and verdict.get("callee_to_caller") == "observed"
+            and total_rtp_packets > 0
+        ):
+            return True
+    return False
+
+
+def validate_k8s_profile_evidence(profile_name: str, bundle: Path) -> list[str]:
+    failures: list[str] = []
+    profile = profile_values(profile_name, "evidence") if profile_name in CATALOG_PROFILES else None
+
+    sipmsg = bundle / "sipmsg.log"
+    if profile_name not in RASA_NLU_PROFILES and not sipmsg.exists():
+        failures.append("missing root sipmsg.log")
+
+    if profile and k8s_pcap_capture_roles(profile):
+        capture = bundle / "capture.pcap"
+        if not capture.exists() or capture.stat().st_size <= 24:
+            failures.append("missing merged capture.pcap")
+        split_captures = sorted(path.name for path in bundle.glob("capture-*.pcap") if path.name != "capture.pcap")
+        if split_captures:
+            failures.append(f"stale split capture files present: {','.join(split_captures)}")
+
+    if "options" in profile_name and sipmsg.exists():
+        options_text = sipmsg.read_text(encoding="utf-8", errors="replace")
+        if OPTIONS_EVIDENCE_NOISE_PATTERN.search(options_text):
+            failures.append("OPTIONS evidence contains non-OPTIONS SIP/Rasa traffic")
+
+    if profile_name in STRICT_SRTP_PROFILES:
+        media_text = read_bundle_evidence_text(bundle, ("log.media", "log.sip", "sipmsg.log", "playsbc.log", "rtpengine.log"))
+        if "RTPENGINE MEDIA SECURITY" not in media_text:
+            failures.append("missing RTPENGINE MEDIA SECURITY evidence")
+        if SRTP_ERROR_PATTERN.search(media_text):
+            failures.append("SRTP/RTPengine crypto negotiation error evidence present")
+        if not rtpengine_two_way_verdict_observed(bundle):
+            failures.append("RTPengine packet verdict did not prove both RTP directions observed")
+
+    return failures
 
 
 def scenario_configmap_manifest(name: str) -> dict[str, object]:
@@ -2428,6 +2520,30 @@ class K8sRegressionRunner:
                 "COMBINED SIPMSG LOG",
                 f"file=sipmsg.log sections={sipmsg_sections}",
             )
+            evidence_failures = validate_k8s_profile_evidence(profile, bundle)
+            if evidence_failures:
+                status = "failed"
+                if not any(code != 0 for code in returncodes):
+                    returncodes.append(1)
+                detail = (
+                    (detail.rstrip() + " " if detail else "")
+                    + "Evidence validation failed: "
+                    + "; ".join(evidence_failures)
+                    + "."
+                )
+                self.write_log(
+                    bundle,
+                    "log.platform",
+                    "K8S STRICT EVIDENCE VALIDATION FAILED",
+                    "; ".join(evidence_failures),
+                )
+            else:
+                self.write_log(
+                    bundle,
+                    "log.platform",
+                    "K8S STRICT EVIDENCE VALIDATION PASSED",
+                    f"profile={profile}",
+                )
             phases.append(
                 "Evidence Validation",
                 "passed" if status == "passed" else "failed",

@@ -105,17 +105,21 @@ Azure release track:
 - `v2.3.3`: AKS regression auth isolation hotfix. Prevent real-device `authSecret` Helm values from leaking into open REGISTER regression profiles while keeping digest-auth profiles and OBi/Zoiper real-device auth deterministic.
 - `v2.4.0`: regression and real-device evidence milestone. Fix all open v2.3.x caveats, keep AKS regression and real-device Helm values isolated, add combined SIP/RTP/RTCP PCAP generation for manual OBi1022/Zoiper calls, and make regression evidence strict enough that media/SRTP caveats cannot pass silently.
 
-v2.4.0 caveats to close:
+v2.4.0 closure work:
 
-- AKS regression must stay green after real-device lab upgrades. Real-device auth, RTP, NAT, timeout, and HA values must not leak into AKS readiness profiles unless the profile explicitly asks for them.
-- Local kind/minikube regression, AKS regression, Docker dual-realm regression, local SIPp testing, AI/Rasa profiles, and real-device lab testing must all remain compatible with the same release line.
-- `tls-srtp-to-udp-rtp` needs strict SRTP compliance proof. A profile must not pass if RTPengine reports SRTP crypto negotiation errors or if one RTP direction is only inferred.
-- Real-device OBi1022/Zoiper calls now show two-way RTP, but RTPengine still reports a small `errors=1` counter in sample calls. Classify and reduce this if possible; otherwise document it as early NAT/media-handover noise with clear packet-count proof.
-- Simultaneous BYE teardown can produce harmless `481 Call/Transaction Does Not Exist` responses after both call legs are already closing. Keep the SIP behavior RFC-safe, but suppress duplicate cleanup noise where possible.
-- Manual real-device testing needs one Wireshark-ready combined `capture.pcap` covering SIP, RTP, and RTCP for both call directions, plus matching `sipmsg.log` and RTPengine packet verdict logs.
-- AKS evidence must remain lean: one merged `capture.pcap` per profile, one root `sipmsg.log`, focused SIP/RTP/RTCP capture filters, and no stale core/peer split PCAPs in final bundles.
-- OPTIONS keepalive evidence must remain OPTIONS-only in ladder, `sipmsg.log`, and `capture.pcap`; INVITE, Rasa, or unrelated profile traffic in that bundle is a report/capture bug.
-- Release validation for v2.4.0 must include AKS regression profiles and at least one real-device OBi1022 <-> Zoiper call in each direction with RTPengine `caller_to_callee=observed` and `callee_to_caller=observed`.
+- Regression isolation: AKS readiness profiles stay single-workload by default and real-device auth/RTP/NAT/timeout/HA values remain opt-in per profile.
+- Strict evidence validation: SRTP profiles fail if RTPengine media-security proof is missing, crypto negotiation errors appear, or RTPengine packet verdicts do not prove both RTP directions.
+- Lean evidence bundles: local K8s, AKS K8s, Docker dual-realm, and AI/Rasa regression keep one merged `capture.pcap`, one root `sipmsg.log`, and no stale core/peer split PCAPs after a successful merge.
+- OPTIONS isolation: OPTIONS keepalive evidence must remain OPTIONS-only in ladder, `sipmsg.log`, and capture artifacts.
+- Real-device capture: manual OBi1022/Zoiper tests can create one Wireshark-ready bundle with merged SIP/RTP/RTCP `capture.pcap`, `sipmsg.log`, PlaySBC logs, RTPengine logs, and packet verdict lines.
+- Duplicate teardown tolerance: duplicate B2BUA BYE after a recently finalized call receives `200 OK` instead of noisy harmless `481`, while truly unknown dialogs still fail normally.
+- NAT/media noise handling: small early RTPengine error counters are acceptable only when both RTP directions are observed and the packet verdict proves media flow.
+
+v2.4.0 release validation gates:
+
+- Run AKS regression profiles with current release images and confirm all profiles pass strict evidence validation.
+- Run local kind/minikube regression and confirm no real-device settings leak into default profile Helm values.
+- Run OBi1022 `1001` to Zoiper `1002` and Zoiper `1002` to OBi1022 `1001`, then verify `caller_to_callee=observed`, `callee_to_caller=observed`, audible two-way RTP, and a single real-device `capture.pcap`.
 
 Production-readiness gates:
 
