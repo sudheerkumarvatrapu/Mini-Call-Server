@@ -154,6 +154,29 @@ class SipParsingTests(unittest.TestCase):
         self.assertNotIn("a=rtcp-mux", normalized)
         self.assertNotIn("a=group:BUNDLE", normalized)
 
+    def test_ensure_explicit_rtcp_sdp_adds_rtp_plus_one(self):
+        sdp = (
+            "v=0\r\n"
+            "c=IN IP4 168.62.53.49\r\n"
+            "m=audio 30020 RTP/AVP 0 101\r\n"
+            "a=rtpmap:0 PCMU/8000\r\n"
+        )
+
+        updated = server.ensure_explicit_rtcp_sdp(sdp)
+
+        self.assertIn("m=audio 30020 RTP/AVP 0 101\r\na=rtcp:30021\r\n", updated)
+
+    def test_ensure_explicit_rtcp_sdp_keeps_existing_target(self):
+        sdp = (
+            "v=0\r\n"
+            "c=IN IP4 168.62.53.49\r\n"
+            "m=audio 30020 RTP/AVP 0 101\r\n"
+            "a=rtcp:30101 IN IP4 198.51.100.20\r\n"
+            "a=rtpmap:0 PCMU/8000\r\n"
+        )
+
+        self.assertEqual(server.ensure_explicit_rtcp_sdp(sdp), sdp)
+
     def test_parse_sip_uri_with_default_and_explicit_ports(self):
         explicit = server.parse_sip_uri("<sip:1002@127.0.0.1:25082>")
         self.assertEqual(explicit.user, "1002")
@@ -1214,6 +1237,7 @@ class ConfigTests(unittest.TestCase):
                     '"b2bua_invite_timeout": 60, '
                     '"rtpengine_g711_only": true, '
                     '"rtpengine_plain_rtp_sdp": true, '
+                    '"rtpengine_explicit_rtcp": true, '
                     '"rtpengine_sip_source_address": true, '
                     '"rtpengine_media_handover": true, '
                     '"rtpengine_nat_wait": true, '
@@ -1246,6 +1270,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.b2bua_invite_timeout, 60.0)
             self.assertTrue(config.rtpengine_g711_only)
             self.assertTrue(config.rtpengine_plain_rtp_sdp)
+            self.assertTrue(config.rtpengine_explicit_rtcp)
             self.assertTrue(config.rtpengine_sip_source_address)
             self.assertTrue(config.rtpengine_media_handover)
             self.assertTrue(config.rtpengine_nat_wait)

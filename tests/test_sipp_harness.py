@@ -1660,7 +1660,7 @@ Content-Length: 0
 
     def test_current_release_keeps_kind_regression_path(self):
         chart = ROOT / "charts" / "playsbc"
-        current_version = "2.4.3"
+        current_version = "2.4.4"
         version = (ROOT / "VERSION").read_text(encoding="utf-8")
         chart_yaml = (chart / "Chart.yaml").read_text(encoding="utf-8")
         values = (chart / "values.yaml").read_text(encoding="utf-8")
@@ -1676,8 +1676,8 @@ Content-Length: 0
         self.assertIn(f'tag: "{current_version}"', aks_values)
         self.assertIn("v2.x charts must continue to run the same kind regression path", readme)
         self.assertIn("runner-image ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:1.4.2", runbook)
-        self.assertIn("real-device evidence cleanup hotfix", release_notes)
-        self.assertIn("Ctrl-C", release_notes)
+        self.assertIn("RTCP evidence archive hotfix", release_notes)
+        self.assertIn("rtpengine_explicit_rtcp", release_notes)
 
         args = run_k8s_regression_job.parse_args(
             [
@@ -3406,6 +3406,23 @@ class RealTopologyTests(unittest.TestCase):
             self.assertTrue(copied)
             self.assertTrue((bundle / "capture.pcap").exists())
             self.assertIn(b"\x00\xffbinary", (bundle / "capture.pcap").read_bytes())
+
+    def test_real_device_capture_creates_tgz_archive(self):
+        args = run_real_device_capture.parse_args(["--duration", "1"])
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "real-device-capture-unit"
+            bundle.mkdir()
+            (bundle / "capture.pcap").write_bytes(write_test_pcap_bytes(1.0, b"rtp"))
+            (bundle / "sipmsg.log").write_text("INVITE sip:1001@example.test SIP/2.0\n", encoding="utf-8")
+
+            archive_path = run_real_device_capture.create_evidence_archive(args, bundle)
+
+            self.assertEqual(archive_path, bundle.with_suffix(".tgz"))
+            self.assertTrue(archive_path.exists())
+            with tarfile.open(archive_path, "r:gz") as archive:
+                names = set(archive.getnames())
+            self.assertIn("real-device-capture-unit/capture.pcap", names)
+            self.assertIn("real-device-capture-unit/sipmsg.log", names)
 
     def test_kubernetes_real_rasa_profile_is_selectable_and_rewrites_webhook(self):
         self.assertIn("ai-rasa-real-lab", run_k8s_regression.SELECTABLE_PROFILES)

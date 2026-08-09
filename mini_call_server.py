@@ -53,7 +53,7 @@ except Exception:  # pragma: no cover - audioop is unavailable in newer Python b
 
 
 CRLF = "\r\n"
-PLAYSBC_VERSION = "2.4.3"
+PLAYSBC_VERSION = "2.4.4"
 PCMU = 0
 PCMA = 8
 SUPPORTED_CODECS = (PCMU, PCMA)
@@ -122,6 +122,7 @@ class ServerConfig:
     rtpengine_answer_transport_protocol: str = ""
     rtpengine_g711_only: bool = False
     rtpengine_plain_rtp_sdp: bool = False
+    rtpengine_explicit_rtcp: bool = False
     rtpengine_sip_source_address: bool = False
     rtpengine_media_handover: bool = False
     rtpengine_nat_wait: bool = False
@@ -180,6 +181,7 @@ SERVER_CONFIG_KEYS = {
     "rtpengine_answer_transport_protocol",
     "rtpengine_g711_only",
     "rtpengine_plain_rtp_sdp",
+    "rtpengine_explicit_rtcp",
     "rtpengine_sip_source_address",
     "rtpengine_media_handover",
     "rtpengine_nat_wait",
@@ -2136,6 +2138,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         rtpengine_answer_transport_protocol: str = "",
         rtpengine_g711_only: bool = False,
         rtpengine_plain_rtp_sdp: bool = False,
+        rtpengine_explicit_rtcp: bool = False,
         rtpengine_sip_source_address: bool = False,
         rtpengine_media_handover: bool = False,
         rtpengine_nat_wait: bool = False,
@@ -2196,6 +2199,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         self.rtpengine_answer_transport_protocol = rtpengine_answer_transport_protocol
         self.rtpengine_g711_only = rtpengine_g711_only
         self.rtpengine_plain_rtp_sdp = rtpengine_plain_rtp_sdp
+        self.rtpengine_explicit_rtcp = rtpengine_explicit_rtcp
         self.rtpengine_sip_source_address = rtpengine_sip_source_address
         self.rtpengine_media_handover = rtpengine_media_handover
         self.rtpengine_nat_wait = rtpengine_nat_wait
@@ -3622,6 +3626,24 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             f"inbound_call_id={inbound_call_id} outbound_payload={CODEC_NAMES.get(outbound_rtp.preferred_payload, outbound_rtp.preferred_payload)}",
         )
 
+    def maybe_add_explicit_rtcp_sdp(
+        self,
+        sdp: str,
+        *,
+        stage: str,
+        flow_log: B2BUAFlowLog,
+        call_id: str,
+    ) -> str:
+        if not self.rtpengine_explicit_rtcp:
+            return sdp
+
+        updated_sdp = ensure_explicit_rtcp_sdp(sdp)
+        if updated_sdp != sdp:
+            detail = f"stage={stage} policy=rtp_plus_one"
+            flow_log.write("RTPENGINE EXPLICIT RTCP SDP", detail)
+            self.logger.media("RTPENGINE EXPLICIT RTCP SDP", detail, call_id=call_id)
+        return updated_sdp
+
     async def handle_b2bua_invite_rtpengine(
         self,
         message: SipMessage,
@@ -3671,6 +3693,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
             or self.rtpengine_sdes
             or self.rtpengine_dtls
             or self.rtpengine_plain_rtp_sdp
+            or self.rtpengine_explicit_rtcp
             or self.rtpengine_sip_source_address
             or self.rtpengine_media_handover
             or self.rtpengine_nat_wait
@@ -3692,6 +3715,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                     f"sdes={','.join(self.rtpengine_sdes) or 'default'} "
                     f"dtls={self.rtpengine_dtls or 'default'} "
                     f"ice={'remove' if self.rtpengine_plain_rtp_sdp else 'default'} "
+                    f"explicit_rtcp={str(self.rtpengine_explicit_rtcp).lower()} "
                     f"sip_source_address={str(self.rtpengine_sip_source_address).lower()} "
                     f"media_handover={str(self.rtpengine_media_handover).lower()} "
                     f"nat_wait={str(self.rtpengine_nat_wait).lower()} "
@@ -3748,6 +3772,12 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                     "stage=offer normalized=true removed=ice,rtcp-mux,webrtc-attrs",
                     call_id=inbound_call_id,
                 )
+        offer_sdp = self.maybe_add_explicit_rtcp_sdp(
+            offer_sdp,
+            stage="offer",
+            flow_log=flow_log,
+            call_id=inbound_call_id,
+        )
         flow_log.write("SDP SUMMARY", sdp_audio_summary("inbound-offer", offer_sdp, message.source[0]))
         rtpengine_offer_transport = self.rtpengine_offer_transport_protocol or (
             "RTP/AVP" if self.rtpengine_plain_rtp_sdp else ""
@@ -3814,6 +3844,12 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                 if normalized_outbound_body != outbound_body:
                     outbound_body = normalized_outbound_body
                     flow_log.write("RTPENGINE PLAIN RTP SDP", "stage=outbound-offer normalized=true")
+            outbound_body = self.maybe_add_explicit_rtcp_sdp(
+                outbound_body,
+                stage="outbound-offer",
+                flow_log=flow_log,
+                call_id=inbound_call_id,
+            )
             flow_log.write("SDP SUMMARY", sdp_audio_summary("outbound-offer", outbound_body, target.host))
             flow_log.write("RTPENGINE PORT ALLOCATION", rtpengine_port_allocation_summary("outbound-offer", outbound_body))
             flow_log.write(
@@ -3924,6 +3960,12 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                         "stage=answer normalized=true removed=ice,rtcp-mux,webrtc-attrs",
                         call_id=inbound_call_id,
                     )
+            answer_body = self.maybe_add_explicit_rtcp_sdp(
+                answer_body,
+                stage="answer",
+                flow_log=flow_log,
+                call_id=inbound_call_id,
+            )
             answer_received_from = final_response.source[0] if self.rtpengine_sip_source_address else ""
             if self.rtpengine_sip_source_address:
                 flow_log.write("RTPENGINE NAT LEARNING", f"stage=answer received_from={answer_received_from}")
@@ -3980,6 +4022,12 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                 if normalized_answer_sdp != answer_sdp:
                     answer_sdp = normalized_answer_sdp
                     flow_log.write("RTPENGINE PLAIN RTP SDP", "stage=inbound-answer normalized=true")
+            answer_sdp = self.maybe_add_explicit_rtcp_sdp(
+                answer_sdp,
+                stage="inbound-answer",
+                flow_log=flow_log,
+                call_id=inbound_call_id,
+            )
             flow_log.write("SDP SUMMARY", sdp_audio_summary("caller-answer", answer_sdp, message.source[0]))
             flow_log.write("RTPENGINE PORT ALLOCATION", rtpengine_port_allocation_summary("caller-answer", answer_sdp))
             flow_log.write(
@@ -5687,6 +5735,25 @@ def normalize_plain_rtp_sdp(sdp: str, allowed_payloads: Tuple[int, ...] = ()) ->
     return CRLF.join(normalized_lines) + CRLF
 
 
+def ensure_explicit_rtcp_sdp(sdp: str) -> str:
+    """Advertise default RTCP on RTP+1 when legacy endpoint SDP omits a=rtcp."""
+    if not sdp or re.search(r"(?im)^a=rtcp:", sdp):
+        return sdp
+
+    lines = [raw_line.rstrip("\r") for raw_line in sdp.splitlines()]
+    for index, line in enumerate(lines):
+        media_match = re.match(r"^m=audio\s+(\d+)\s+", line, re.IGNORECASE)
+        if not media_match:
+            continue
+        rtp_port = int(media_match.group(1))
+        if rtp_port <= 0 or rtp_port >= 65535:
+            return sdp
+        lines.insert(index + 1, f"a=rtcp:{rtp_port + 1}")
+        return CRLF.join(lines) + CRLF
+
+    return sdp
+
+
 def rtpengine_codec_policy(remote_payloads: Tuple[int, ...], target_payload: int) -> Dict[str, List[str]]:
     target_codec = CODEC_NAMES.get(target_payload)
     if not target_codec:
@@ -6188,6 +6255,7 @@ def coerce_config_value(key: str, value: Any) -> Any:
         "tls_verify_peer",
         "rtpengine_g711_only",
         "rtpengine_plain_rtp_sdp",
+        "rtpengine_explicit_rtcp",
         "rtpengine_sip_source_address",
         "rtpengine_media_handover",
         "rtpengine_nat_wait",
@@ -6689,6 +6757,7 @@ async def main() -> None:
         rtpengine_answer_transport_protocol=config.rtpengine_answer_transport_protocol,
         rtpengine_g711_only=config.rtpengine_g711_only,
         rtpengine_plain_rtp_sdp=config.rtpengine_plain_rtp_sdp,
+        rtpengine_explicit_rtcp=config.rtpengine_explicit_rtcp,
         rtpengine_sip_source_address=config.rtpengine_sip_source_address,
         rtpengine_media_handover=config.rtpengine_media_handover,
         rtpengine_nat_wait=config.rtpengine_nat_wait,

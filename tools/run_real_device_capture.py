@@ -10,7 +10,9 @@ import signal
 import shlex
 import subprocess
 import sys
+import tarfile
 import time
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -339,12 +341,39 @@ def collect_logs(args: argparse.Namespace, bundle: Path) -> None:
     (bundle / "rtpengine.log").write_text(rtpengine.stdout + rtpengine.stderr, encoding="utf-8")
 
 
+def evidence_archive_path(args: argparse.Namespace, bundle: Path) -> Path | None:
+    if args.archive_format == "none":
+        return None
+    suffix = ".zip" if args.archive_format == "zip" else ".tgz"
+    return bundle.with_suffix(suffix)
+
+
+def create_evidence_archive(args: argparse.Namespace, bundle: Path) -> Path | None:
+    archive_path = evidence_archive_path(args, bundle)
+    if archive_path is None:
+        return None
+    if archive_path.exists():
+        archive_path.unlink()
+
+    if args.archive_format == "zip":
+        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(bundle.rglob("*")):
+                if path.is_file():
+                    archive.write(path, Path(bundle.name) / path.relative_to(bundle))
+        return archive_path
+
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.add(bundle, arcname=bundle.name)
+    return archive_path
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--namespace", default="playsbc")
     parser.add_argument("--kubectl-bin", default="kubectl")
     parser.add_argument("--duration", type=int, default=90)
     parser.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
+    parser.add_argument("--archive-format", choices=("tgz", "zip", "none"), default="tgz")
     parser.add_argument("--capture-image", default="nicolaka/netshoot:latest")
     parser.add_argument("--capture-image-pull-policy", default="IfNotPresent")
     parser.add_argument("--capture-pod-ready-timeout", type=int, default=120)
@@ -390,6 +419,9 @@ def main(argv: list[str] | None = None) -> int:
     error = ""
     interrupted = False
     cleanup_interrupt_count = 0
+    archive_path: Path | None = evidence_archive_path(args, bundle)
+    archive_created = False
+    archive_error = ""
     try:
         collect_cluster_snapshot(args, bundle, "before")
         create_capture_pod(args, capture_pod, bundle)
@@ -435,9 +467,24 @@ def main(argv: list[str] | None = None) -> int:
             print(error, file=sys.stderr)
         finally:
             signal.signal(signal.SIGINT, previous_sigint)
+
+        if archive_path is not None:
+            try:
+                created_archive = create_evidence_archive(args, bundle)
+                archive_created = bool(created_archive and created_archive.exists())
+            except Exception as exc:  # pragma: no cover - exercised against live AKS
+                archive_error = f"{type(exc).__name__}: {exc}"
+                if not error:
+                    error = archive_error
+                print(archive_error, file=sys.stderr)
+
         (bundle / "summary.log").write_text(
             (
                 f"bundle={bundle}\n"
+                f"archive={archive_path or 'none'}\n"
+                f"archive_format={args.archive_format}\n"
+                f"archive_created={str(archive_created).lower()}\n"
+                f"archive_error={archive_error or 'none'}\n"
                 f"capture_pcap={bundle / 'capture.pcap'}\n"
                 f"capture_source=single_host_network_capture_pod\n"
                 f"capture_pod={capture_pod}\n"
@@ -450,7 +497,14 @@ def main(argv: list[str] | None = None) -> int:
             ),
             encoding="utf-8",
         )
+        if archive_created and archive_path is not None:
+            try:
+                create_evidence_archive(args, bundle)
+            except Exception as exc:  # pragma: no cover - exercised against live AKS
+                print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
     print(f"Real-device evidence bundle: {bundle}")
+    if archive_created and archive_path is not None:
+        print(f"Real-device evidence archive: {archive_path}")
     return 0 if not error and copied and capture_bytes > 24 else 1
 
 

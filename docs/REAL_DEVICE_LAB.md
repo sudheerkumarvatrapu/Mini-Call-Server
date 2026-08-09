@@ -8,10 +8,10 @@ OBi1022 1001 -> Internet/NAT -> Azure LB UDP 5062 -> PlaySBC -> RTPengine -> Zoi
 
 ## 1. Upgrade AKS For Real Devices
 
-Run in Azure Cloud Shell after the `v2.4.3` release/images are published.
+Run in Azure Cloud Shell after the `v2.4.4` release/images are published.
 
 ```bash
-export PLAYSBC_VERSION=2.4.3
+export PLAYSBC_VERSION=2.4.4
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
@@ -73,6 +73,7 @@ helm upgrade --install playsbc \
   --set playsbc.config.b2bua_invite_timeout=60.0 \
   --set playsbc.config.rtpengine_g711_only=true \
   --set playsbc.config.rtpengine_plain_rtp_sdp=true \
+  --set playsbc.config.rtpengine_explicit_rtcp=true \
   --set playsbc.config.rtpengine_sip_source_address=true \
   --set playsbc.config.rtpengine_media_handover=true \
   --set playsbc.config.rtpengine_nat_wait=true \
@@ -227,7 +228,7 @@ PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_real_device_capture.p
   --capture-image "$ACR_NAME.azurecr.io/netshoot:latest"
 ```
 
-The output is one flat compact bundle:
+The output is one flat compact bundle plus a downloadable archive next to it:
 
 ```text
 logs/Real-Device-Lab/real-device-capture-<timestamp>/
@@ -243,9 +244,10 @@ logs/Real-Device-Lab/real-device-capture-<timestamp>/
   tcpdump-command.txt
   tcpdump.stderr.log
   summary.log
+logs/Real-Device-Lab/real-device-capture-<timestamp>.tgz
 ```
 
-Open `capture.pcap` in Wireshark. It is the only PCAP produced for the manual real-device test and covers SIP signalling, RTP/RTCP media, RTPengine control, and AKS LoadBalancer/NodePort packet paths. No `capture-playsbc` or `capture-rtpengine` folders are created.
+Open `capture.pcap` in Wireshark. It is the only PCAP produced for the manual real-device test and covers SIP signalling, RTP/RTCP media, RTPengine control, and AKS LoadBalancer/NodePort packet paths. Download the `.tgz` when you want to move the full logs and capture together. No `capture-playsbc` or `capture-rtpengine` folders are created.
 
 Press `Ctrl-C` once if the calls finish before the requested duration. The tool stops tcpdump, copies the merged `capture.pcap`, collects logs, deletes the temporary capture pod, and writes `summary.log` with `interrupted=true`. Avoid repeated `Ctrl-C`; if it happens, cleanup is deferred until evidence is saved.
 
@@ -271,8 +273,8 @@ Common symptoms:
 - OBi address-incomplete: check `INVITE ROUTE SELECTED`; PlaySBC should route using the `To` user when Request-URI is only the AKS public IP.
 - Zoiper `Unparsable SDP`: route fallback/echo leaked into a real-device call. Keep `reject_unknown_routes=true` and re-register both endpoints after a pod restart.
 - `480 Temporarily Unavailable`: hardphone was not answered before `b2bua_invite_timeout`. Use `60.0`.
-- No or one-way audio: check the Azure RTP public LoadBalancer, `rtpengine.advertisedIP`, RTP ports `30000-30049`, and keep `rtpengine_g711_only=true`, `rtpengine_plain_rtp_sdp=true`, `rtpengine_sip_source_address=true`, `rtpengine_media_handover=true`, and `rtpengine_nat_wait=true` for the baseline.
-- RTP packets visible immediately after `180 Ringing`: check whether `rtpengine_pierce_nat=true` is still inherited by Helm `--reuse-values`. Those packets are RTPengine pinhole probes, not voice. The clean v2.4.3 baseline sets `rtpengine_pierce_nat=false`; enable it only if a specific NAT still needs pre-answer pinhole traffic.
+- No or one-way audio: check the Azure RTP public LoadBalancer, `rtpengine.advertisedIP`, RTP ports `30000-30049`, and keep `rtpengine_g711_only=true`, `rtpengine_plain_rtp_sdp=true`, `rtpengine_explicit_rtcp=true`, `rtpengine_sip_source_address=true`, `rtpengine_media_handover=true`, and `rtpengine_nat_wait=true` for the baseline.
+- RTP packets visible immediately after `180 Ringing`: check whether `rtpengine_pierce_nat=true` is still inherited by Helm `--reuse-values`. Those packets are RTPengine pinhole probes, not voice. The clean v2.4.4 baseline sets `rtpengine_pierce_nat=false`; enable it only if a specific NAT still needs pre-answer pinhole traffic.
 - Keepalive noise: OBi/Zoiper may send CRLF or `keep-alive` UDP packets with no CSeq. PlaySBC logs them as `SIP KEEP-ALIVE` and ignores them; they should not create stack traces.
 
 ## 8. What v2.4.x Hardens
@@ -283,6 +285,7 @@ Common symptoms:
 - 60 second outbound answer window for human hardphone pickup.
 - G.711-only RTPengine baseline for OBi/Zoiper media before wider codec experiments.
 - Plain RTP/AVP SDP normalization for real devices that do not like ICE, RTCP-mux, fingerprint, or WebRTC-style SDP attributes.
+- Explicit `a=rtcp:<RTP+1>` SDP advertisement for RTPengine calls so endpoints have clear bidirectional RTCP targets after `rtcp-mux` is stripped.
 - RTPengine SIP-source-address NAT learning so OBi/Zoiper media uses the observed public SIP source instead of private/fragile endpoint SDP.
 - RTPengine media-handover learning for real OBi/Zoiper NAT flows where the endpoint media tuple may differ from initial SDP.
 - RTPengine `NAT-wait` plus media-handover learning for home-NAT devices, with `pierce NAT` left as an opt-in fallback for difficult NATs.
@@ -291,7 +294,7 @@ Common symptoms:
 - OBi-style in-dialog re-INVITE media refreshes get a valid `200 OK` SDP answer instead of `491 Request Pending`.
 - Safe UDP NAT keepalive handling for hardphones and softphones.
 - Duplicate B2BUA BYE after teardown is answered with `200 OK` when the call ID was just finalized, avoiding noisy harmless `481` responses.
-- Manual OBi1022/Zoiper tests can generate one combined SIP/RTP/RTCP `capture.pcap`, `sipmsg.log`, and RTPengine packet verdict evidence bundle.
+- Manual OBi1022/Zoiper tests can generate one combined SIP/RTP/RTCP `capture.pcap`, `sipmsg.log`, RTPengine packet verdict evidence, and a downloadable `.tgz` bundle.
 
 ## 9. Next Roadmap
 
