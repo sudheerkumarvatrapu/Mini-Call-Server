@@ -204,10 +204,10 @@ az network public-ip create \
   --dns-name "$RTP_DNS_LABEL"
 ```
 
-Grant AKS permission to attach them:
+Grant AKS permission to attach them. This is required when the public IPs live in `$NETWORK_RG` instead of the AKS node resource group. Without this, the services stay at `EXTERNAL-IP <pending>` and `kubectl describe svc` shows `AuthorizationFailed` for `Microsoft.Network/publicIPAddresses/read`.
 
 ```bash
-AKS_PRINCIPAL_ID=$(az aks show \
+AKS_OBJECT_ID=$(az aks show \
   --resource-group "$AKS_RG" \
   --name "$AKS_NAME" \
   --query identity.principalId \
@@ -219,9 +219,35 @@ NETWORK_RG_ID=$(az group show \
   -o tsv)
 
 az role assignment create \
-  --assignee "$AKS_PRINCIPAL_ID" \
+  --assignee-object-id "$AKS_OBJECT_ID" \
+  --assignee-principal-type ServicePrincipal \
   --role "Network Contributor" \
-  --scope "$NETWORK_RG_ID"
+  --scope "$NETWORK_RG_ID" || true
+
+az role assignment list \
+  --assignee "$AKS_OBJECT_ID" \
+  --scope "$NETWORK_RG_ID" \
+  --query "[].{role:roleDefinitionName,scope:scope}" \
+  -o table
+```
+
+If Azure still reports `AuthorizationFailed`, grant the same role to both identities AKS can use during networking operations:
+
+```bash
+CLUSTER_ID=$(az aks show -g "$AKS_RG" -n "$AKS_NAME" --query identity.principalId -o tsv)
+KUBELET_ID=$(az aks show -g "$AKS_RG" -n "$AKS_NAME" --query identityProfile.kubeletidentity.objectId -o tsv)
+
+az role assignment create \
+  --assignee-object-id "$CLUSTER_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "Network Contributor" \
+  --scope "$NETWORK_RG_ID" || true
+
+az role assignment create \
+  --assignee-object-id "$KUBELET_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "Network Contributor" \
+  --scope "$NETWORK_RG_ID" || true
 ```
 
 ## 8. Deploy PlaySBC And RTPengine
@@ -334,9 +360,107 @@ playsbc-playsbc-azure-sip-public   LoadBalancer EXTERNAL-IP
 playsbc-playsbc-azure-rtp-public   LoadBalancer EXTERNAL-IP
 ```
 
-If either Azure service shows `EXTERNAL-IP <pending>`, wait before manual SIPp checks. In v2.2.2 and later, the AKS regression wrapper waits for both SIP and RTP public LoadBalancer ingress before it starts the runner pod and records RTPengine advertised-IP evidence.
+If either Azure service shows `EXTERNAL-IP <pending>`, do not start manual SIPp, hardphone, or regression checks yet. In v2.2.2 and later, the AKS regression wrapper waits for both SIP and RTP public LoadBalancer ingress before it starts the runner pod and records RTPengine advertised-IP evidence.
 
-## 9. Health Check
+## 9. Troubleshoot Pending Azure LoadBalancers
+
+Use this when either service remains pending:
+
+```bash
+kubectl -n playsbc get svc playsbc-playsbc-azure-sip-public playsbc-playsbc-azure-rtp-public -o wide
+kubectl -n playsbc describe svc playsbc-playsbc-azure-sip-public | sed -n '/Events:/,$p'
+kubectl -n playsbc describe svc playsbc-playsbc-azure-rtp-public | sed -n '/Events:/,$p'
+```
+
+If events show only `EnsuringLoadBalancer`, Azure is still allocating. Wait a few minutes.
+
+If events show this shape, it is an AKS identity RBAC problem:
+
+```text
+RESPONSE 403: 403 Forbidden
+ERROR CODE: AuthorizationFailed
+Microsoft.Network/publicIPAddresses/read
+resourceGroups/playsbc-network-rg
+```
+
+What went wrong: the static SIP/RTP public IPs live in `$NETWORK_RG`, but the AKS managed identity does not have permission to read/attach public IP resources in that resource group. Kubernetes creates the `LoadBalancer` Services correctly, but Azure cloud-controller cannot bind the static public IPs, so `EXTERNAL-IP` remains `<pending>`.
+
+Permanent fix:
+
+```bash
+export AKS_RG=playsbc-aks-rg
+export AKS_NAME=playsbc-aks
+export NETWORK_RG=playsbc-network-rg
+
+NETWORK_RG_ID=$(az group show --name "$NETWORK_RG" --query id -o tsv)
+
+CLUSTER_ID=$(az aks show -g "$AKS_RG" -n "$AKS_NAME" --query identity.principalId -o tsv)
+KUBELET_ID=$(az aks show -g "$AKS_RG" -n "$AKS_NAME" --query identityProfile.kubeletidentity.objectId -o tsv)
+
+az role assignment create \
+  --assignee-object-id "$CLUSTER_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "Network Contributor" \
+  --scope "$NETWORK_RG_ID" || true
+
+az role assignment create \
+  --assignee-object-id "$KUBELET_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "Network Contributor" \
+  --scope "$NETWORK_RG_ID" || true
+
+az role assignment list \
+  --scope "$NETWORK_RG_ID" \
+  --query "[?roleDefinitionName=='Network Contributor'].{principalId:principalId,role:roleDefinitionName,scope:scope}" \
+  -o table
+```
+
+Azure RBAC can take a few minutes to propagate. Wait, then recreate the services so the cloud-controller reconciles cleanly:
+
+```bash
+sleep 300
+
+kubectl -n playsbc delete svc playsbc-playsbc-azure-sip-public playsbc-playsbc-azure-rtp-public
+
+helm upgrade --install playsbc \
+  https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v$PLAYSBC_VERSION/playsbc-$PLAYSBC_VERSION.tgz \
+  --namespace playsbc \
+  --reuse-values
+
+watch -n 5 'kubectl -n playsbc get svc playsbc-playsbc-azure-sip-public playsbc-playsbc-azure-rtp-public -o wide'
+```
+
+After both external IPs appear, align the advertised SIP/RTP values:
+
+```bash
+SIP_LB_IP=$(kubectl -n playsbc get svc playsbc-playsbc-azure-sip-public \
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+RTP_LB_IP=$(kubectl -n playsbc get svc playsbc-playsbc-azure-rtp-public \
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+echo "SIP_LB_IP=$SIP_LB_IP"
+echo "RTP_LB_IP=$RTP_LB_IP"
+
+helm upgrade --install playsbc \
+  https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v$PLAYSBC_VERSION/playsbc-$PLAYSBC_VERSION.tgz \
+  --namespace playsbc \
+  --reuse-values \
+  --set-string playsbc.config.sip_advertised_ip="$SIP_LB_IP" \
+  --set-string playsbc.config.b2bua_advertised_ip="$SIP_LB_IP" \
+  --set-string rtpengine.advertisedIP="$RTP_LB_IP" \
+  --set rtpengine.rtpMin=30000 \
+  --set rtpengine.rtpMax=30049
+
+kubectl -n playsbc rollout restart deployment/playsbc-playsbc deployment/playsbc-playsbc-rtpengine
+kubectl -n playsbc rollout status deployment/playsbc-playsbc --timeout=180s
+kubectl -n playsbc rollout status deployment/playsbc-playsbc-rtpengine --timeout=180s
+
+kubectl -n playsbc logs deployment/playsbc-playsbc --tail=40 | grep -E "SERVER CONFIG|PlaySBC version"
+kubectl -n playsbc get deployment playsbc-playsbc-rtpengine -o yaml | grep -E "interface|30000|30049|20\\.|13\\.|168\\."
+```
+
+## 10. Health Check
 
 Cloud Shell may reserve local port `8080`, so check from inside the pod:
 
@@ -355,7 +479,7 @@ ready
 playsbc_active_calls 0
 ```
 
-## 10. Optional External SIPp Check
+## 11. Optional External SIPp Check
 
 From your Mac:
 
@@ -382,7 +506,7 @@ Expected:
 SIP OPTIONS from <your-public-ip>:5065
 ```
 
-## 11. Run AKS Regression
+## 12. Run AKS Regression
 
 Clone the matching release source:
 
@@ -424,7 +548,7 @@ PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_k8s_regression_job.py
 
 AKS profiles currently cover OPTIONS, REGISTER auth, registered inbound routing, RTPengine media, RTPengine transcoding, SIP TCP, SIP TLS, SRTP/RTP interop, and RTCP quality evidence.
 
-## 12. Review Evidence
+## 13. Review Evidence
 
 Each AKS profile writes one bundle under:
 
@@ -445,7 +569,7 @@ Use these files first:
 
 AKS keeps only the merged `capture.pcap`; temporary `capture-core.pcap` and `capture-peer.pcap` files are discarded after a successful merge. The capture is intentionally focused on SIP, RTP/SRTP, and RTCP ports. DNS and unrelated Kubernetes pod traffic are filtered out. For OPTIONS keepalive, the ladder, `sipmsg.log`, and packet evidence should show only `OPTIONS -> 200 OK`; any INVITE/Rasa ladder in that profile is now a strict evidence failure. SRTP profiles must include RTPengine media-security evidence and a packet verdict proving both RTP directions.
 
-## 13. Download Report Evidence
+## 14. Download Report Evidence
 
 Find the latest run:
 
@@ -479,7 +603,7 @@ Download this path from the Cloud Shell toolbar:
 
 Do not manually create a `.tar` from `$RUN`; if `$RUN` is unset, tar can create a tiny empty file. Use the runner-generated `.tgz` above. If the path is missing after reconnecting to Cloud Shell, the session was ephemeral. Rerun regression and download the `.tgz` immediately.
 
-## 14. Real Device Notes
+## 15. Real Device Notes
 
 Keep this Azure page focused on cluster setup, regression, evidence download, and cleanup. Use [REAL_DEVICE_LAB.md](REAL_DEVICE_LAB.md) for OBi1022/Zoiper setup, release-image watch commands, SIP/RTP monitor commands, audio-verdict checks, troubleshooting, and the real-device roadmap.
 
@@ -490,7 +614,7 @@ AKS-specific reminders:
 - Internet phones need both SIP and RTP exposed. Enable the Azure RTP public LoadBalancer and keep its public UDP range aligned with RTPengine `rtpMin`/`rtpMax`.
 - AKS regression v2.2.2 and later waits for both SIP and RTP public LoadBalancer ingress, validates UDP `30000-30049`, and records RTPengine advertised-IP alignment in `aks-validation.json`.
 
-## 15. Recover Kube Credentials
+## 16. Recover Kube Credentials
 
 In a new Cloud Shell session, re-export stable names:
 
@@ -528,7 +652,7 @@ chmod 600 ~/.kube/config
 kubectl get pods -n playsbc
 ```
 
-## 16. Cleanup
+## 17. Cleanup
 
 Start cleanup:
 
