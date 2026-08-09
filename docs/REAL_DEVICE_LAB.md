@@ -195,11 +195,18 @@ Small RTPengine `errors=1` counters can appear during NAT learning. Treat them a
 
 ## 6. Capture A Wireshark Bundle
 
-Run this from the checked-out PlaySBC source in Cloud Shell, then place and clear both manual calls while the capture is active.
+Run this from Cloud Shell. It reclones the exact release source, starts the capture, then you place and clear both manual calls while the capture is active.
 
 The capture tool uses one temporary privileged `netshoot` pod with `hostNetwork: true`. It does not require `tcpdump` inside the PlaySBC or RTPengine containers, because those images are intentionally slim.
 
 ```bash
+cd ~
+rm -rf "PlaySBC-v$PLAYSBC_VERSION"
+git clone --branch "v$PLAYSBC_VERSION" --depth 1 \
+  https://github.com/sudheerkumarvatrapu/PlaySBC.git \
+  "PlaySBC-v$PLAYSBC_VERSION"
+cd "PlaySBC-v$PLAYSBC_VERSION"
+
 PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_real_device_capture.py \
   --namespace playsbc \
   --duration 120 \
