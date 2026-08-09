@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shlex
 import subprocess
@@ -14,10 +15,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-from tools.run_k8s_regression import merge_pcap_files, prune_merged_capture_inputs  # noqa: E402
-
-
 DEFAULT_OUTPUT_ROOT = ROOT / "logs" / "Real-Device-Lab"
 SIP_LOG_PATTERN = re.compile(
     r"SIP (?:INVITE|ACK|BYE|CANCEL)|SIP TX response|SIP response|INVITE ROUTE|"
@@ -28,7 +25,6 @@ SIP_LOG_PATTERN = re.compile(
 
 @dataclass
 class Capture:
-    role: str
     pod: str
     container: str
     remote_path: str
@@ -49,40 +45,141 @@ def run_command(command: list[str], *, timeout: int = 60, check: bool = True) ->
     return result
 
 
+def run_command_with_input(
+    command: list[str],
+    stdin: str,
+    *,
+    timeout: int = 60,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(command, cwd=ROOT, input=stdin, text=True, capture_output=True, timeout=timeout)
+    if check and result.returncode != 0:
+        raise RuntimeError(
+            f"Command failed ({result.returncode}): {command_text(command)}\n{result.stdout}{result.stderr}"
+        )
+    return result
+
+
 def capture_filter(args: argparse.Namespace) -> str:
+    sip_min = min(args.sip_port, args.tls_port, args.sip_capture_min)
+    sip_max = max(args.sip_port, args.tls_port, args.sip_capture_max)
     return (
-        f"((udp and (port {args.sip_port} or portrange {args.rtp_min}-{args.rtp_max})) "
-        f"or (tcp and (port {args.sip_port} or port {args.tls_port})))"
+        f"((udp and (portrange {sip_min}-{sip_max} or port {args.rtpengine_control_port} "
+        f"or portrange {args.rtp_min}-{args.rtp_max} or portrange {args.nodeport_min}-{args.nodeport_max})) "
+        f"or (tcp and (portrange {sip_min}-{sip_max} or portrange {args.nodeport_min}-{args.nodeport_max})))"
     )
 
 
-def first_pod(args: argparse.Namespace, selector: str) -> str:
+def capture_pod_manifest(args: argparse.Namespace, pod_name: str) -> dict[str, object]:
+    return {
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+            "name": pod_name,
+            "namespace": args.namespace,
+            "labels": {
+                "app.kubernetes.io/name": "playsbc-real-device-capture",
+                "app.kubernetes.io/instance": "playsbc",
+                "app.kubernetes.io/part-of": "playsbc",
+            },
+        },
+        "spec": {
+            "restartPolicy": "Never",
+            "hostNetwork": True,
+            "dnsPolicy": "ClusterFirstWithHostNet",
+            "terminationGracePeriodSeconds": 5,
+            "tolerations": [{"operator": "Exists"}],
+            "containers": [
+                {
+                    "name": "capture",
+                    "image": args.capture_image,
+                    "imagePullPolicy": args.capture_image_pull_policy,
+                    "command": ["sh", "-lc"],
+                    "args": ["trap 'exit 0' TERM INT; sleep 3600 & wait"],
+                    "securityContext": {
+                        "privileged": True,
+                        "capabilities": {"add": ["NET_ADMIN", "NET_RAW"]},
+                    },
+                }
+            ],
+        },
+    }
+
+
+def create_capture_pod(args: argparse.Namespace, pod_name: str, bundle: Path) -> None:
+    manifest = json.dumps(capture_pod_manifest(args, pod_name), indent=2)
+    (bundle / "capture-pod.json").write_text(manifest + "\n", encoding="utf-8")
+    result = run_command_with_input(
+        [args.kubectl_bin, "apply", "-f", "-"],
+        manifest,
+        check=False,
+    )
+    (bundle / "capture-pod-apply.log").write_text(result.stdout + result.stderr, encoding="utf-8")
+    if result.returncode != 0:
+        raise RuntimeError(f"Could not create capture pod; see {bundle / 'capture-pod-apply.log'}")
+    wait = run_command(
+        [
+            args.kubectl_bin,
+            "-n",
+            args.namespace,
+            "wait",
+            f"pod/{pod_name}",
+            "--for=condition=Ready",
+            f"--timeout={args.capture_pod_ready_timeout}s",
+        ],
+        timeout=args.capture_pod_ready_timeout + 15,
+        check=False,
+    )
+    (bundle / "capture-pod-ready.log").write_text(wait.stdout + wait.stderr, encoding="utf-8")
+    if wait.returncode != 0:
+        describe = run_command(
+            [args.kubectl_bin, "-n", args.namespace, "describe", "pod", pod_name],
+            check=False,
+        )
+        (bundle / "capture-pod-describe.log").write_text(describe.stdout + describe.stderr, encoding="utf-8")
+        raise RuntimeError(
+            f"Capture pod did not become Ready; see {bundle / 'capture-pod-ready.log'} "
+            f"and {bundle / 'capture-pod-describe.log'}"
+        )
+
+
+def delete_capture_pod(args: argparse.Namespace, pod_name: str, bundle: Path) -> None:
+    if args.keep_capture_pod:
+        return
     result = run_command(
         [
             args.kubectl_bin,
             "-n",
             args.namespace,
-            "get",
-            "pods",
-            "-l",
-            selector,
-            "-o",
-            "jsonpath={.items[0].metadata.name}",
-        ]
+            "delete",
+            "pod",
+            pod_name,
+            "--ignore-not-found=true",
+            "--wait=false",
+        ],
+        check=False,
     )
-    pod = result.stdout.strip()
-    if not pod:
-        raise RuntimeError(f"No pod found for selector={selector}")
-    return pod
+    (bundle / "capture-pod-delete.log").write_text(result.stdout + result.stderr, encoding="utf-8")
 
 
-def start_capture(args: argparse.Namespace, bundle: Path, role: str, pod: str, container: str) -> Capture:
-    remote_path = f"/tmp/playsbc-real-device-{role}.pcap"
-    local_path = bundle / f"capture-{role}.pcap"
-    step_dir = bundle / f"capture-{role}"
-    step_dir.mkdir(parents=True, exist_ok=True)
+def collect_cluster_snapshot(args: argparse.Namespace, bundle: Path, suffix: str) -> None:
+    snapshots = {
+        f"kubectl-pods-{suffix}.log": [args.kubectl_bin, "-n", args.namespace, "get", "pods", "-o", "wide"],
+        f"kubectl-services-{suffix}.log": [args.kubectl_bin, "-n", args.namespace, "get", "svc", "-o", "wide"],
+        f"kubectl-endpoints-{suffix}.log": [args.kubectl_bin, "-n", args.namespace, "get", "endpoints", "-o", "wide"],
+    }
+    for file_name, command in snapshots.items():
+        result = run_command(command, check=False)
+        (bundle / file_name).write_text(result.stdout + result.stderr, encoding="utf-8")
+
+
+def start_capture(args: argparse.Namespace, bundle: Path, pod: str) -> Capture:
+    remote_path = "/tmp/playsbc-real-device-combined.pcap"
+    local_path = bundle / "capture.pcap"
     tcpdump_filter = capture_filter(args)
     shell_command = (
+        "command -v tcpdump >/dev/null 2>&1 || "
+        "{ echo 'tcpdump not found in capture image; set --capture-image to an image that contains tcpdump' >&2; exit 127; }; "
         f"rm -f {shlex.quote(remote_path)}; "
         f"tcpdump -i any -U -n -s 0 -w {shlex.quote(remote_path)} {shlex.quote(tcpdump_filter)}"
     )
@@ -93,23 +190,23 @@ def start_capture(args: argparse.Namespace, bundle: Path, role: str, pod: str, c
         "exec",
         pod,
         "-c",
-        container,
+        "capture",
         "--",
         "sh",
         "-lc",
         shell_command,
     ]
-    (step_dir / "command.txt").write_text(command_text(command) + "\n", encoding="utf-8")
-    stdout = (step_dir / "stdout.log").open("w", encoding="utf-8")
-    stderr = (step_dir / "stderr.log").open("w", encoding="utf-8")
+    (bundle / "tcpdump-command.txt").write_text(command_text(command) + "\n", encoding="utf-8")
+    stdout = (bundle / "tcpdump.stdout.log").open("w", encoding="utf-8")
+    stderr = (bundle / "tcpdump.stderr.log").open("w", encoding="utf-8")
     process = subprocess.Popen(command, cwd=ROOT, text=True, stdout=stdout, stderr=stderr)
     process._playsbc_stdout = stdout  # type: ignore[attr-defined]
     process._playsbc_stderr = stderr  # type: ignore[attr-defined]
     time.sleep(1.0)
     if process.poll() is not None:
         close_capture_files(process)
-        raise RuntimeError(f"tcpdump exited early for role={role}; see {step_dir}")
-    return Capture(role, pod, container, remote_path, local_path, process)
+        raise RuntimeError(f"tcpdump exited early; see {bundle / 'tcpdump.stderr.log'}")
+    return Capture(pod, "capture", remote_path, local_path, process)
 
 
 def close_capture_files(process: subprocess.Popen[str]) -> None:
@@ -161,10 +258,7 @@ def copy_capture(args: argparse.Namespace, capture: Capture, bundle: Path) -> bo
         ],
         check=False,
     )
-    (bundle / f"capture-{capture.role}" / "copy.log").write_text(
-        result.stdout + result.stderr,
-        encoding="utf-8",
-    )
+    (bundle / "capture-copy.log").write_text(result.stdout + result.stderr, encoding="utf-8")
     return result.returncode == 0 and capture.local_path.exists() and capture.local_path.stat().st_size > 24
 
 
@@ -210,6 +304,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--kubectl-bin", default="kubectl")
     parser.add_argument("--duration", type=int, default=90)
     parser.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
+    parser.add_argument("--capture-image", default="nicolaka/netshoot:latest")
+    parser.add_argument("--capture-image-pull-policy", default="IfNotPresent")
+    parser.add_argument("--capture-pod-ready-timeout", type=int, default=120)
+    parser.add_argument("--keep-capture-pod", action="store_true")
     parser.add_argument("--playsbc-selector", default="app.kubernetes.io/name=playsbc,app.kubernetes.io/instance=playsbc")
     parser.add_argument("--rtpengine-selector", default="app.kubernetes.io/name=playsbc-rtpengine,app.kubernetes.io/instance=playsbc")
     parser.add_argument("--playsbc-container", default="playsbc")
@@ -218,8 +316,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--rtpengine-deployment", default="playsbc-playsbc-rtpengine")
     parser.add_argument("--sip-port", type=int, default=5062)
     parser.add_argument("--tls-port", type=int, default=5061)
+    parser.add_argument("--sip-capture-min", type=int, default=5060)
+    parser.add_argument("--sip-capture-max", type=int, default=5079)
+    parser.add_argument("--rtpengine-control-port", type=int, default=2223)
     parser.add_argument("--rtp-min", type=int, default=30000)
     parser.add_argument("--rtp-max", type=int, default=30049)
+    parser.add_argument("--nodeport-min", type=int, default=30000)
+    parser.add_argument("--nodeport-max", type=int, default=32767)
     return parser.parse_args(argv)
 
 
@@ -227,58 +330,55 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     run_id = time.strftime("real-device-capture-%Y%m%d-%H%M%S", time.localtime())
     bundle = Path(args.output_root) / run_id
+    capture_pod = f"{run_id}-pod"
     bundle.mkdir(parents=True, exist_ok=True)
     (bundle / "README.txt").write_text(
         (
             "Place and clear the manual OBi1022 <-> Zoiper calls while this capture is running.\n"
             f"duration_seconds={args.duration}\n"
+            f"capture_pod={capture_pod}\n"
+            f"capture_image={args.capture_image}\n"
             f"filter={capture_filter(args)}\n"
         ),
         encoding="utf-8",
     )
 
-    captures: list[Capture] = []
+    capture: Capture | None = None
+    copied = False
+    capture_bytes = 0
+    error = ""
     try:
-        captures.append(
-            start_capture(
-                args,
-                bundle,
-                "playsbc",
-                first_pod(args, args.playsbc_selector),
-                args.playsbc_container,
-            )
-        )
-        captures.append(
-            start_capture(
-                args,
-                bundle,
-                "rtpengine",
-                first_pod(args, args.rtpengine_selector),
-                args.rtpengine_container,
-            )
-        )
-        print(f"Capturing for {args.duration}s. Run the real device call now.")
+        collect_cluster_snapshot(args, bundle, "before")
+        create_capture_pod(args, capture_pod, bundle)
+        capture = start_capture(args, bundle, capture_pod)
+        print(f"Capturing for {args.duration}s using pod/{capture_pod}. Run the real device call now.")
         time.sleep(args.duration)
+    except Exception as exc:  # pragma: no cover - exercised against live AKS
+        error = f"{type(exc).__name__}: {exc}"
+        print(error, file=sys.stderr)
     finally:
-        for capture in captures:
+        if capture is not None:
             stop_capture(args, capture)
-
-    copied = [capture.local_path for capture in captures if copy_capture(args, capture, bundle)]
-    merged_bytes = merge_pcap_files(copied, bundle / "capture.pcap")
-    removed = prune_merged_capture_inputs(copied, bundle / "capture.pcap") if merged_bytes > 0 else []
-    collect_logs(args, bundle)
-    (bundle / "summary.log").write_text(
-        (
-            f"bundle={bundle}\n"
-            f"capture_pcap={bundle / 'capture.pcap'}\n"
-            f"merged_sources={','.join(path.name for path in copied) or 'none'}\n"
-            f"discarded_role_pcaps={','.join(removed) or 'none'}\n"
-            f"merged_bytes={merged_bytes}\n"
-        ),
-        encoding="utf-8",
-    )
+            copied = copy_capture(args, capture, bundle)
+            capture_bytes = capture.local_path.stat().st_size if copied else 0
+        collect_cluster_snapshot(args, bundle, "after")
+        collect_logs(args, bundle)
+        delete_capture_pod(args, capture_pod, bundle)
+        (bundle / "summary.log").write_text(
+            (
+                f"bundle={bundle}\n"
+                f"capture_pcap={bundle / 'capture.pcap'}\n"
+                f"capture_source=single_host_network_capture_pod\n"
+                f"capture_pod={capture_pod}\n"
+                f"capture_image={args.capture_image}\n"
+                f"capture_bytes={capture_bytes}\n"
+                f"single_combined_pcap={str(copied and capture_bytes > 24).lower()}\n"
+                f"error={error or 'none'}\n"
+            ),
+            encoding="utf-8",
+        )
     print(f"Real-device evidence bundle: {bundle}")
-    return 0 if merged_bytes > 24 else 1
+    return 0 if not error and copied and capture_bytes > 24 else 1
 
 
 if __name__ == "__main__":

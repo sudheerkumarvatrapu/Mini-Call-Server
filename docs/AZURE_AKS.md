@@ -52,6 +52,7 @@ Active-active, full media ranges, hardphones, and production-grade state are fut
 | `v2.3.2` | PlaySBC image publish hotfix: use Piper's current voice download CLI so the `playsbc` GHCR image builds cleanly. |
 | `v2.3.3` | AKS regression auth isolation: profile Helm values no longer inherit real-device `authSecret` settings into open REGISTER regression cases. |
 | `v2.4.0` | Evidence hardening: strict SRTP/RTPengine proof, OPTIONS-only evidence isolation, lean merged PCAPs, and real-device capture bundles. |
+| `v2.4.1` | Real-device capture hotfix: replace in-container tcpdump with one temporary host-network capture pod and keep one flat combined `capture.pcap` bundle. |
 
 ## Cost Guardrail
 
@@ -92,7 +93,7 @@ export SIP_PIP_NAME=playsbc-sip-pip
 export RTP_PIP_NAME=playsbc-rtp-pip
 export DNS_LABEL=playsbc-sip-lab-$RANDOM
 export RTP_DNS_LABEL=playsbc-rtp-lab-$RANDOM
-export PLAYSBC_VERSION=2.4.0
+export PLAYSBC_VERSION=2.4.1
 ```
 
 ## 3. Register Azure Providers
@@ -321,6 +322,8 @@ playsbc:
     rtpengine_media_handover: true
     rtpengine_nat_wait: true
     rtpengine_pierce_nat: true
+    rtp_min: 30000
+    rtp_max: 30049
     sip_advertised_ip: "$SIP_PUBLIC_IP"
     b2bua_advertised_ip: "$SIP_PUBLIC_IP"
 EOF
@@ -449,6 +452,8 @@ helm upgrade --install playsbc \
   --set-string playsbc.config.sip_advertised_ip="$SIP_LB_IP" \
   --set-string playsbc.config.b2bua_advertised_ip="$SIP_LB_IP" \
   --set-string rtpengine.advertisedIP="$RTP_LB_IP" \
+  --set playsbc.config.rtp_min=30000 \
+  --set playsbc.config.rtp_max=30049 \
   --set rtpengine.rtpMin=30000 \
   --set rtpengine.rtpMax=30049
 
@@ -544,7 +549,7 @@ PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_k8s_regression_job.py
   --job-timeout 3600
 ```
 
-`--aks-load-balancer-wait-timeout 1200` gives Azure up to 20 minutes to allocate SIP/RTP LoadBalancer ingress. The run starts only after the selected Azure LoadBalancer services have real ingress values. v2.4.0 keeps AKS readiness on a single PlaySBC/RTPengine workload by default, isolates regression REGISTER auth from real-device lab Helm values, and fails the profile if strict evidence is missing or stale. Pass `--active-active-topology` only for HA-specific experiments.
+`--aks-load-balancer-wait-timeout 1200` gives Azure up to 20 minutes to allocate SIP/RTP LoadBalancer ingress. The run starts only after the selected Azure LoadBalancer services have real ingress values. v2.4.x keeps AKS readiness on a single PlaySBC/RTPengine workload by default, isolates regression REGISTER auth from real-device lab Helm values, and fails the profile if strict evidence is missing or stale. Pass `--active-active-topology` only for HA-specific experiments.
 
 AKS profiles currently cover OPTIONS, REGISTER auth, registered inbound routing, RTPengine media, RTPengine transcoding, SIP TCP, SIP TLS, SRTP/RTP interop, and RTCP quality evidence.
 
@@ -613,6 +618,7 @@ AKS-specific reminders:
 - Some Cloud Shell sessions returned `InvalidApiVersionParameter` for `az aks get-credentials`; the REST kubeconfig fallback in the next section avoids that CLI/API mismatch.
 - Internet phones need both SIP and RTP exposed. Enable the Azure RTP public LoadBalancer and keep its public UDP range aligned with RTPengine `rtpMin`/`rtpMax`.
 - AKS regression v2.2.2 and later waits for both SIP and RTP public LoadBalancer ingress, validates UDP `30000-30049`, and records RTPengine advertised-IP alignment in `aks-validation.json`.
+- Manual real-device PCAP capture uses one temporary host-network `netshoot` pod and writes a single flat `capture.pcap`. PlaySBC and RTPengine containers do not need `tcpdump`.
 
 ## 16. Recover Kube Credentials
 
@@ -623,7 +629,7 @@ export LOCATION=eastus
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
-export PLAYSBC_VERSION=2.4.0
+export PLAYSBC_VERSION=2.4.1
 export ACR_NAME=$(az acr list --resource-group "$AKS_RG" --query "[0].name" -o tsv)
 ```
 

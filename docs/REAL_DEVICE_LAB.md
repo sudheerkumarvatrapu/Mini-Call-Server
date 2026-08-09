@@ -8,10 +8,10 @@ OBi1022 1001 -> Internet/NAT -> Azure LB UDP 5062 -> PlaySBC -> RTPengine -> Zoi
 
 ## 1. Upgrade AKS For Real Devices
 
-Run in Azure Cloud Shell after the `v2.4.0` release/images are published.
+Run in Azure Cloud Shell after the `v2.4.1` release/images are published.
 
 ```bash
-export PLAYSBC_VERSION=2.4.0
+export PLAYSBC_VERSION=2.4.1
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
@@ -62,6 +62,8 @@ helm upgrade --install playsbc \
   --set rtpengine.image.repository="$ACR_NAME.azurecr.io/playsbc-rtpengine" \
   --set-string rtpengine.image.tag="$PLAYSBC_VERSION" \
   --set rtpengine.image.pullPolicy=Always \
+  --set playsbc.config.rtp_min=30000 \
+  --set playsbc.config.rtp_max=30049 \
   --set rtpengine.rtpMin=30000 \
   --set rtpengine.rtpMax=30049 \
   --set-string rtpengine.advertisedIP="$RTP_PUBLIC_IP" \
@@ -195,13 +197,30 @@ Small RTPengine `errors=1` counters can appear during NAT learning. Treat them a
 
 Run this from the checked-out PlaySBC source in Cloud Shell, then place and clear both manual calls while the capture is active.
 
+The capture tool uses one temporary privileged `netshoot` pod with `hostNetwork: true`. It does not require `tcpdump` inside the PlaySBC or RTPengine containers, because those images are intentionally slim.
+
 ```bash
 PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_real_device_capture.py \
   --namespace playsbc \
-  --duration 120
+  --duration 120 \
+  --capture-image nicolaka/netshoot:latest
 ```
 
-The output is one compact bundle:
+If Docker Hub pulls are restricted, import the capture image into ACR and use that image instead:
+
+```bash
+az acr import --name "$ACR_NAME" \
+  --source docker.io/nicolaka/netshoot:latest \
+  --image netshoot:latest \
+  --force
+
+PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_real_device_capture.py \
+  --namespace playsbc \
+  --duration 120 \
+  --capture-image "$ACR_NAME.azurecr.io/netshoot:latest"
+```
+
+The output is one flat compact bundle:
 
 ```text
 logs/Real-Device-Lab/real-device-capture-<timestamp>/
@@ -210,10 +229,23 @@ logs/Real-Device-Lab/real-device-capture-<timestamp>/
   playsbc.log
   rtpengine.log
   rtpengine-verdict.log
+  kubectl-pods-before.log
+  kubectl-pods-after.log
+  kubectl-services-before.log
+  kubectl-services-after.log
+  tcpdump-command.txt
+  tcpdump.stderr.log
   summary.log
 ```
 
-Open `capture.pcap` in Wireshark. It is timestamp-sorted and merged from PlaySBC and RTPengine capture points, so you do not need separate core/peer PCAPs for manual real-device review.
+Open `capture.pcap` in Wireshark. It is the only PCAP produced for the manual real-device test and covers SIP signalling, RTP/RTCP media, RTPengine control, and AKS LoadBalancer/NodePort packet paths. No `capture-playsbc` or `capture-rtpengine` folders are created.
+
+If Zoiper cannot dial `1001`, keep the capture running for one failed attempt and then check:
+
+```bash
+grep -aE "REGISTER|Registered|1001|1002|INVITE ROUTE|ROUTE FAILED|SIP TX response" \
+  logs/Real-Device-Lab/real-device-capture-*/sipmsg.log | tail -80
+```
 
 ## 7. Fast Troubleshooting
 

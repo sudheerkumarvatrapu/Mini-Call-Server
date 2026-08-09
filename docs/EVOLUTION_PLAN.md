@@ -104,6 +104,7 @@ Azure release track:
 - `v2.3.2`: PlaySBC image publish hotfix. Keep the v2.3.1 regression safety behavior and update the PlaySBC Dockerfile to Piper's current `download_voices --data-dir` CLI so GHCR publishes all four images.
 - `v2.3.3`: AKS regression auth isolation hotfix. Prevent real-device `authSecret` Helm values from leaking into open REGISTER regression profiles while keeping digest-auth profiles and OBi/Zoiper real-device auth deterministic.
 - `v2.4.0`: regression and real-device evidence milestone. Fix all open v2.3.x caveats, keep AKS regression and real-device Helm values isolated, add combined SIP/RTP/RTCP PCAP generation for manual OBi1022/Zoiper calls, and make regression evidence strict enough that media/SRTP caveats cannot pass silently.
+- `v2.4.1`: real-device capture hotfix. Move manual AKS packet capture out of slim PlaySBC/RTPengine containers into one temporary host-network capture pod and keep exactly one combined `capture.pcap` in the evidence bundle.
 
 v2.4.0 closure work:
 
@@ -111,7 +112,7 @@ v2.4.0 closure work:
 - Strict evidence validation: SRTP profiles fail if RTPengine media-security proof is missing, crypto negotiation errors appear, or RTPengine packet verdicts do not prove both RTP directions.
 - Lean evidence bundles: local K8s, AKS K8s, Docker dual-realm, and AI/Rasa regression keep one merged `capture.pcap`, one root `sipmsg.log`, and no stale core/peer split PCAPs after a successful merge.
 - OPTIONS isolation: OPTIONS keepalive evidence must remain OPTIONS-only in ladder, `sipmsg.log`, and capture artifacts.
-- Real-device capture: manual OBi1022/Zoiper tests can create one Wireshark-ready bundle with merged SIP/RTP/RTCP `capture.pcap`, `sipmsg.log`, PlaySBC logs, RTPengine logs, and packet verdict lines.
+- Real-device capture: manual OBi1022/Zoiper tests use one temporary host-network capture pod and create one Wireshark-ready SIP/RTP/RTCP/networking `capture.pcap`, `sipmsg.log`, PlaySBC logs, RTPengine logs, and packet verdict lines. No PlaySBC/RTPengine capture subfolders are kept.
 - Duplicate teardown tolerance: duplicate B2BUA BYE after a recently finalized call receives `200 OK` instead of noisy harmless `481`, while truly unknown dialogs still fail normally.
 - NAT/media noise handling: small early RTPengine error counters are acceptable only when both RTP directions are observed and the packet verdict proves media flow.
 

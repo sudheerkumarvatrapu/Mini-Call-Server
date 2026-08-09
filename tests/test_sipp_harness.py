@@ -3354,10 +3354,25 @@ class RealTopologyTests(unittest.TestCase):
 
         capture_filter = run_real_device_capture.capture_filter(args)
 
-        self.assertIn("port 5062", capture_filter)
-        self.assertIn("port 5061", capture_filter)
+        self.assertIn("portrange 5060-5079", capture_filter)
+        self.assertIn("port 2223", capture_filter)
         self.assertIn("portrange 30000-30049", capture_filter)
+        self.assertIn("portrange 30000-32767", capture_filter)
         self.assertNotIn("port 53", capture_filter)
+
+    def test_real_device_capture_uses_host_network_tcpdump_pod(self):
+        args = run_real_device_capture.parse_args(
+            ["--duration", "1", "--capture-image", "example.test/netshoot:lab"]
+        )
+
+        manifest = run_real_device_capture.capture_pod_manifest(args, "real-device-capture-unit-pod")
+        container = manifest["spec"]["containers"][0]
+
+        self.assertTrue(manifest["spec"]["hostNetwork"])
+        self.assertEqual(container["name"], "capture")
+        self.assertEqual(container["image"], "example.test/netshoot:lab")
+        self.assertTrue(container["securityContext"]["privileged"])
+        self.assertIn("NET_RAW", container["securityContext"]["capabilities"]["add"])
 
     def test_kubernetes_real_rasa_profile_is_selectable_and_rewrites_webhook(self):
         self.assertIn("ai-rasa-real-lab", run_k8s_regression.SELECTABLE_PROFILES)
