@@ -303,6 +303,8 @@ logs/Real-Device-Lab/real-device-capture-<timestamp>.tgz
 
 Open `capture.pcap` in Wireshark. It is the untouched wire record and the only PCAP produced for the manual real-device test. `sipmsg.log` is the canonical call ladder: near-simultaneous public-LB/pod-interface mirrors are collapsed, while genuine later UDP retransmissions are listed as annotations. `media-evidence.log` separates real PCMU/PCMA speech, RTCP, telephone events, and tiny NAT/probe RTP. `latest.html` presents the same clean summary. Download the `.tgz` to move the complete bundle. No `capture-playsbc` or `capture-rtpengine` folders are created.
 
+Because the capture pod listens on `any`, the raw PCAP can observe one media packet on the Azure public, host, and pod interfaces. Treat `voice_rtp_packets` as wire observations, not a unique packet total for loss calculations. Use RTPengine's per-call query totals as the authoritative session count; the mirrored PCAP remains useful for proving direction, timing, codec, and endpoint reachability.
+
 Press `Ctrl-C` once if the calls finish before the requested duration. The tool stops tcpdump, copies the merged `capture.pcap`, collects logs, deletes the temporary capture pod, and writes `summary.log` with `interrupted=true`. Avoid repeated `Ctrl-C`; if it happens, cleanup is deferred until evidence is saved.
 
 If Zoiper cannot dial `1001`, keep the capture running for one failed attempt and then check:
@@ -354,6 +356,20 @@ Common symptoms:
 - RTP is green only with real voice packets plus a reverse PCAP flow or RTPengine's two-direction verdict. One-sided RTCP is reported as `endpoint-limited`, not silently passed as bidirectional.
 - PlaySBC and RTPengine logs use the exact capture start timestamp, preventing earlier calls from leaking into a later bundle.
 - Common regression now includes digest REGISTER-only profiles over TCP and TLS, including TLS certificate and transport evidence, while the working UDP/RTP call baseline stays unchanged.
+
+### Validated AKS Result
+
+The `2026-08-23` v2.5.0 OBi1022/Zoiper run passed both directions:
+
+- Zoiper `1002` to OBi1022 `1001`: complete INVITE/100/180/200/ACK and BYE/200 flow with audible two-way PCMU.
+- OBi1022 `1001` to Zoiper `1002`: complete INVITE/100/180/200/ACK and BYE/200 flow with audible two-way PCMU.
+- RTPengine recorded `2,114` and `2,810` RTP packets for the two calls and reported both `caller_to_callee=observed` and `callee_to_caller=observed`.
+- The combined PCAP contained no pre-answer G.711 speech. Six PT95 packets were correctly classified as tiny NAT probes.
+- Zoiper sent RTCP receiver reports while OBi1022 sent none, so the truthful result is `endpoint-limited`; this does not make two-way RTP fail.
+- Canonical evidence reduced `123` captured SIP observations to `40` events, collapsed `82` interface mirrors, and annotated one expected UDP INVITE `200 OK` retransmission after ACK.
+- Packet capture completed with zero kernel drops, exact-window component logs, deterministic JSON/text/HTML evidence, capture-pod cleanup, and a generated `.tgz` archive.
+
+An internal `CALL END reason=timer` can appear when the far B2BUA leg sends BYE. The two-second finalizer is expected; verify the canonical ladder contains BYE and `200 OK` on both legs before treating it as a teardown problem.
 
 ## 9. Next Roadmap
 

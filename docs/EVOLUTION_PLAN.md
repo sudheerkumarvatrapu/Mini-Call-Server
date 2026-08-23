@@ -134,7 +134,9 @@ v2.5.0 release validation gates:
 
 - Run AKS regression profiles with current release images and confirm all profiles pass strict evidence validation.
 - Run local kind/minikube regression and confirm no real-device settings leak into default profile Helm values.
-- Run OBi1022 `1001` to Zoiper `1002` and Zoiper `1002` to OBi1022 `1001`, then verify `caller_to_callee=observed`, `callee_to_caller=observed`, audible two-way RTP, and a single real-device `capture.pcap`.
+- **Complete (2026-08-23):** OBi1022 `1001` to Zoiper `1002` and Zoiper `1002` to OBi1022 `1001` both completed with audible two-way PCMU, clean SIP setup/teardown, RTPengine two-direction verdicts, one combined PCAP, canonical SIP evidence, exact-window logs, and a generated archive.
+- The validated run recorded authoritative RTPengine totals of `2,114` and `2,810` RTP packets. Host-network PCAP media totals remain observation counts because Azure public, host, and pod interfaces can mirror the same packet.
+- Physical hardphone TCP/TLS registration remains open. The automated TCP/TLS profiles and focused tests are present, but the validated OBi1022/Zoiper bundle exercised UDP signalling and RTP/AVP only.
 
 Production-readiness gates:
 

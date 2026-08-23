@@ -624,6 +624,8 @@ AKS-specific reminders:
 - Internet phones need both SIP and RTP exposed. Enable the Azure RTP public LoadBalancer and keep its public UDP range aligned with RTPengine `rtpMin`/`rtpMax`.
 - AKS regression v2.2.2 and later waits for both SIP and RTP public LoadBalancer ingress, validates UDP `30000-30049`, and records RTPengine advertised-IP alignment in `aks-validation.json`.
 - Manual real-device PCAP capture uses one temporary host-network `netshoot` pod and writes one raw `capture.pcap`, a canonical `sipmsg.log`, classified RTP/RTCP evidence, a compact `latest.html`, and a `real-device-capture-<timestamp>.tgz` archive. PlaySBC and RTPengine containers do not need `tcpdump`.
+- A host-network `any` capture sees public-LB, host, and pod-interface copies of media. Use RTPengine query totals for unique session packet counts; use the PCAP for direction, timing, codec, endpoint, and raw-wire verification.
+- The validated `2026-08-23` v2.5.0 AKS real-device run passed OBi1022-to-Zoiper and Zoiper-to-OBi1022 signalling, two-way PCMU, and normal BYE/200 teardown. RTCP was correctly reported as `endpoint-limited` because only Zoiper emitted receiver reports.
 
 ## 16. Recover Kube Credentials
 
