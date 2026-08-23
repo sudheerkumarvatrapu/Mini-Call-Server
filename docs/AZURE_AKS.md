@@ -578,6 +578,16 @@ export ACR_LOGIN_SERVER=$(az acr show \
 : "${ACR_LOGIN_SERVER:?Azure did not return an ACR login server}"
 
 for IMAGE in playsbc playsbc-rtpengine playsbc-k8s-regression playsbc-sipp; do
+  echo "Importing $IMAGE:$PLAYSBC_VERSION into $ACR_NAME"
+  az acr import \
+    --name "$ACR_NAME" \
+    --source "ghcr.io/sudheerkumarvatrapu/$IMAGE:$PLAYSBC_VERSION" \
+    --image "$IMAGE:$PLAYSBC_VERSION" \
+    --force
+done
+
+for IMAGE in playsbc playsbc-rtpengine playsbc-k8s-regression playsbc-sipp; do
+  echo "Verifying $IMAGE:$PLAYSBC_VERSION"
   az acr repository show \
     --name "$ACR_NAME" \
     --image "$IMAGE:$PLAYSBC_VERSION" \
@@ -627,6 +637,16 @@ export ACR_LOGIN_SERVER=$(az acr show \
 : "${ACR_LOGIN_SERVER:?Azure did not return an ACR login server}"
 
 for IMAGE in playsbc playsbc-rtpengine playsbc-k8s-regression playsbc-sipp; do
+  echo "Importing $IMAGE:$PLAYSBC_VERSION into $ACR_NAME"
+  az acr import \
+    --name "$ACR_NAME" \
+    --source "ghcr.io/sudheerkumarvatrapu/$IMAGE:$PLAYSBC_VERSION" \
+    --image "$IMAGE:$PLAYSBC_VERSION" \
+    --force
+done
+
+for IMAGE in playsbc playsbc-rtpengine playsbc-k8s-regression playsbc-sipp; do
+  echo "Verifying $IMAGE:$PLAYSBC_VERSION"
   az acr repository show \
     --name "$ACR_NAME" \
     --image "$IMAGE:$PLAYSBC_VERSION" \
@@ -644,25 +664,12 @@ git log --oneline -1
 
 PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_k8s_regression_job.py \
   --aks-profiles \
-  --aks-mode \
-  --aks-require-azure-services \
-  --aks-require-static-sip \
-  --aks-require-public-sip-ingress \
-  --aks-require-public-rtp-ingress \
-  --aks-require-rtp-port-range \
-  --aks-rtp-port-min 30000 \
-  --aks-rtp-port-max 30049 \
   --runner-image "$ACR_LOGIN_SERVER/playsbc-k8s-regression:$PLAYSBC_VERSION" \
   --sipp-image "$ACR_LOGIN_SERVER/playsbc-sipp:$PLAYSBC_VERSION" \
   --playsbc-image "$ACR_LOGIN_SERVER/playsbc:$PLAYSBC_VERSION" \
   --rtpengine-image "$ACR_LOGIN_SERVER/playsbc-rtpengine:$PLAYSBC_VERSION" \
   --set-playsbc-image \
   --set-rtpengine-image \
-  --no-load-playsbc-image \
-  --no-load-rtpengine-image \
-  --no-load-sipp-image \
-  --rtpengine-enabled \
-  --no-active-active-topology \
   --aks-load-balancer-wait-timeout 1200 \
   --job-timeout 3600
 )
