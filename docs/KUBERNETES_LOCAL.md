@@ -5,7 +5,7 @@ This page explains the local topology. Use the [Kubernetes and Helm runbook](KUB
 ## Default Topology
 
 ```text
-kind/minikube
+kind (canonical) or minikube (compatibility)
 ├── PlaySBC-0 -> RTPengine-0
 ├── PlaySBC-1 -> RTPengine-1
 ├── shared HA lab state
@@ -36,9 +36,16 @@ In default kind/minikube these are logical realms represented in configuration, 
 
 ## kind And minikube
 
-Use kind for the primary development and regression lane. It supports deterministic image loading and is the target for the upcoming multi-node HA lab.
+Use kind for the primary development and regression lane. The maintained cluster is named `playsbc`, and its kubectl context is `kind-playsbc`. kind runs every Kubernetes node as a Docker container, so Docker Desktop must be running before the cluster or its workloads are available.
 
-Use minikube as a compatibility lane. The same Helm chart and regression behavior must remain valid, but kind is the canonical command path.
+Use minikube as a compatibility lane. It creates a separate cluster and context, usually named `minikube`; it is not part of a `kind-playsbc` deployment. Minikube's runtime requirement depends on its driver: `--driver=docker` requires Docker Desktop, while a VM-based driver requires its corresponding hypervisor instead. The same Helm chart and regression behavior must remain valid, but kind is the canonical command path.
+
+| Local cluster | kubectl context | Runtime dependency | PlaySBC role |
+| --- | --- | --- | --- |
+| kind `playsbc` | `kind-playsbc` | Docker Desktop | Primary development, HA, and full regression |
+| minikube | `minikube` | Selected driver, commonly Docker Desktop | Compatibility validation |
+
+Stopping Docker Desktop stops access to the kind API server and pauses every PlaySBC, RTPengine, Grafana, and Prometheus container. Their Kubernetes objects remain present. Restarting Docker Desktop normally resumes the existing cluster; pod restart counts can increase, which is expected after the node runtime restarts.
 
 ## Shared State
 

@@ -21,11 +21,20 @@ Regression Job + temporary SIPp core/peer pods
 ## Prerequisites
 
 ```bash
+open -a Docker
+
+until docker info >/dev/null 2>&1; do
+  echo "Waiting for Docker Desktop..."
+  sleep 5
+done
+
 docker info
 kubectl version --client
 helm version --short
 kind version
 ```
+
+kind uses Docker containers as Kubernetes nodes. Docker Desktop must remain running while the local PlaySBC lab or regression is running. Minikube is a separate compatibility lane and is not required for the canonical `kind-playsbc` workflow.
 
 Create the default cluster once:
 
@@ -34,6 +43,46 @@ kind create cluster --name playsbc
 kubectl config use-context kind-playsbc
 kubectl config set-context --current --namespace=playsbc
 ```
+
+## Resume The Local Lab
+
+After a Mac reboot or Docker Desktop shutdown, start Docker and reuse the existing kind cluster:
+
+```bash
+open -a Docker
+
+until docker info >/dev/null 2>&1; do
+  echo "Waiting for Docker Desktop..."
+  sleep 5
+done
+
+kind get clusters
+docker ps -a --filter label=io.x-k8s.kind.cluster
+
+kubectl config use-context kind-playsbc
+kubectl config set-context --current --namespace=playsbc
+kubectl get nodes
+kubectl get pods -n playsbc
+```
+
+If `playsbc-control-plane` exists but is stopped, resume it and verify the API:
+
+```bash
+docker start playsbc-control-plane
+kubectl cluster-info --context kind-playsbc
+kubectl get pods -n playsbc
+```
+
+An error such as `127.0.0.1:<port>: connect: connection refused` means the kubeconfig context exists but the local kind API container is unavailable. Start Docker Desktop first. Recreate the cluster only when `kind get clusters` does not list `playsbc`:
+
+```bash
+kind create cluster --name playsbc --wait 180s
+kubectl config use-context kind-playsbc
+kubectl create namespace playsbc --dry-run=client -o yaml | kubectl apply -f -
+kubectl config set-context --current --namespace=playsbc
+```
+
+Do not run `kind delete cluster` as a restart step; deletion removes the local Kubernetes workloads and requires a fresh Helm deployment.
 
 ## Release Upgrade And Full Regression
 
