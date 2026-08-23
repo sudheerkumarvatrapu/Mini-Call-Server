@@ -339,6 +339,8 @@ The `--aks-profiles` shortcut enforces Azure services, static SIP, public SIP/RT
 
 AKS profile runs default both regression images to `imagePullPolicy: Always`. This matters when a release tag such as `2.5.0` is rebuilt in place: `IfNotPresent` can silently reuse an older node-cached runner with stale scenarios and validators. Confirm the refreshed GHCR workflow and all four ACR imports completed before launching the Job.
 
+For the mixed `tls-srtp-to-udp-rtp` and `udp-rtp-to-tls-srtp` profiles, the secure SIPp leg must render both `rtp_echo=startaudio` and `rtp_echo=updateaudio`. The first creates the SRTP echo context; the second activates the negotiated SDES receive/transmit keys after SDP exchange. The runner also enables SIPp RTP/SRTP diagnostics on that secure leg only. If RTPengine shows packets delivered to the secure pod but zero packets returned, verify the runner image contains both actions before investigating Azure networking. These settings are regression-endpoint behavior and do not alter the real-device Helm media policy.
+
 Stop only regression resources:
 
 ```bash

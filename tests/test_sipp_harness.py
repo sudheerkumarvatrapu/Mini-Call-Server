@@ -2988,6 +2988,7 @@ class RealTopologyTests(unittest.TestCase):
         self.assertIn("[rtpstream_audio_port]", secure)
         self.assertNotIn("play_pcap_audio", secure)
         self.assertIn('rtp_echo="startaudio,0,PCMU/8000"', secure)
+        self.assertIn('rtp_echo="updateaudio,0,PCMU/8000"', secure)
         self.assertIn("RTP/AVP", plain)
         self.assertIn("play_pcap_audio", plain)
 
@@ -3003,11 +3004,39 @@ class RealTopologyTests(unittest.TestCase):
 
                 self.assertIn("RTP/SAVP", secure)
                 self.assertIn("a=crypto:", secure)
-                self.assertIn("rtp_echo=", secure)
+                self.assertIn('rtp_echo="startaudio,0,PCMU/8000"', secure)
+                self.assertIn('rtp_echo="updateaudio,0,PCMU/8000"', secure)
                 self.assertNotIn("play_pcap_audio", secure)
                 self.assertIn("RTP/AVP", plain)
                 self.assertNotIn("a=crypto:", plain)
                 self.assertIn("play_pcap_audio", plain)
+
+    def test_kubernetes_secure_media_profiles_enable_srtp_diagnostics_only_on_secure_leg(self):
+        runner = object.__new__(run_k8s_regression.K8sRegressionRunner)
+        runner.args = SimpleNamespace(
+            callee="1002",
+            caller="1001",
+            call_hold_ms=1000,
+            service="playsbc-playsbc",
+            sip_port=5062,
+            tls_port=5061,
+        )
+
+        for profile_name, secure_role in (
+            ("tls-srtp-to-udp-rtp", "uac"),
+            ("udp-rtp-to-tls-srtp", "uas"),
+        ):
+            with self.subTest(profile=profile_name):
+                profile = run_k8s_regression.profile_values(profile_name, "secure-k8s")
+                uac = runner.b2bua_uac_args(profile, "/tmp/uac.xml", "10.244.0.10")
+                uas = runner.b2bua_uas_args(profile, "/tmp/uas.xml", "10.244.0.11")
+                secure = uac if secure_role == "uac" else uas
+                plain = uas if secure_role == "uac" else uac
+
+                self.assertIn("-rtpcheck_debug", secure)
+                self.assertIn("-srtpcheck_debug", secure)
+                self.assertNotIn("-rtpcheck_debug", plain)
+                self.assertNotIn("-srtpcheck_debug", plain)
 
     def test_sipp_docker_image_is_built_with_tls_and_pcap(self):
         dockerfile = (ROOT / "docker" / "sipp.Dockerfile").read_text(encoding="utf-8")

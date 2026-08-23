@@ -26,6 +26,7 @@ PlaySBC v2.5.0 makes real-device evidence easier to trust and begins the hardpho
 - Validate SRTP and RTPengine errors only against call IDs present in the current profile's `sipmsg.log`, so prior calls and public SIP scanner traffic cannot contaminate the verdict.
 - Validate OPTIONS using request and CSeq lines, allowing a normal `Allow: REGISTER, OPTIONS, INVITE, ACK, BYE, CANCEL` response header.
 - Default AKS runner and SIPp images to `imagePullPolicy: Always`, preventing a rebuilt `2.5.0` tag from reusing stale node-cached regression code.
+- Complete the secure SIPp media lifecycle with `startaudio` plus `updateaudio`, and enable RTP/SRTP diagnostics only on the configured secure leg. This fixes the two mixed SRTP profiles where encrypted media reached SIPp but the endpoint returned no packets.
 - Keep the release and container tag at `2.5.0`; no chart value, real-device UDP/RTP, AI/Rasa, HA, or observability behavior changes.
 
 ## Compatibility Contract

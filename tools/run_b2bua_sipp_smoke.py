@@ -2049,13 +2049,21 @@ def render_srtp_media_scenario(text: str) -> str:
             "      a=ptime:20"
         ),
     )
-    secure_action = '<exec rtp_echo="startaudio,0,PCMU/8000"/>'
+    secure_actions = (
+        '<exec rtp_echo="startaudio,0,PCMU/8000"/>',
+        '<exec rtp_echo="updateaudio,0,PCMU/8000"/>',
+    )
     return re.sub(
         r"\n\s*<nop>\s*<action>\s*<exec play_pcap_audio=\"[^\"]+\"/>\s*</action>\s*</nop>\s*",
         (
             "\n  <nop>\n"
             "    <action>\n"
-            f"      {secure_action}\n"
+            f"      {secure_actions[0]}\n"
+            "    </action>\n"
+            "  </nop>\n\n"
+            "  <nop>\n"
+            "    <action>\n"
+            f"      {secure_actions[1]}\n"
             "    </action>\n"
             "  </nop>\n\n"
         ),
@@ -2109,9 +2117,8 @@ def prepare_media_scenarios(args: argparse.Namespace, run_dir: Path) -> None:
             getattr(args, "uac_srtp", False) if attr_name == "uac_scenario" else getattr(args, "uas_srtp", False)
         )
         if secure_leg:
-            # SIPp's SRTP echo path selects the negotiated remote SDES key for
-            # transmit. rtp_stream uses the locally offered key, which causes
-            # RTPengine to reject the packets as authentication failures.
+            # Start and then update SIPp's SRTP echo context after SDP exchange.
+            # The update step activates the negotiated receive/transmit keys.
             text = render_srtp_media_scenario(text)
         destination.write_text(text, encoding="ISO-8859-1")
         setattr(args, attr_name, destination.resolve())

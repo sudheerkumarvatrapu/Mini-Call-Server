@@ -2436,14 +2436,16 @@ class K8sRegressionRunner:
         ]
 
     def b2bua_uas_args(self, profile: SimpleNamespace, scenario: str, peer_ip: str) -> list[str]:
-        return [
+        args = [
             "-sf",
             scenario,
             "-s",
             str(getattr(profile, "callee", self.args.callee)),
             *self.b2bua_base_args(profile, peer_ip, 5060),
-            *transport_args(getattr(profile, "uas_transport", "udp"), "server"),
         ]
+        if bool(getattr(profile, "uas_srtp", False)):
+            args.extend(["-rtpcheck_debug", "-srtpcheck_debug"])
+        return [*args, *transport_args(getattr(profile, "uas_transport", "udp"), "server")]
 
     def b2bua_register_args(self, profile: SimpleNamespace, scenario: str, user: str, pod_ip: str, realm: str) -> list[str]:
         transport_name = getattr(profile, "uas_transport", "udp") if realm == "peer" else getattr(profile, "uac_transport", "udp")
@@ -2481,7 +2483,7 @@ class K8sRegressionRunner:
         calls = int(getattr(profile, "calls", 1))
         rate = int(getattr(profile, "rate", 1))
         hold_ms = int(getattr(profile, "hold_ms", self.args.call_hold_ms))
-        return [
+        args = [
             f"{self.args.service}:{remote_port}",
             "-sf",
             scenario,
@@ -2495,8 +2497,10 @@ class K8sRegressionRunner:
             "-d",
             str(hold_ms),
             *self.b2bua_base_args(profile, core_ip, 5060),
-            *transport_args(transport_name, "client"),
         ]
+        if bool(getattr(profile, "uac_srtp", False)):
+            args.extend(["-rtpcheck_debug", "-srtpcheck_debug"])
+        return [*args, *transport_args(transport_name, "client")]
 
     def run_profile(self, profile: str, output_root: Path) -> ReportRow:
         bundle = output_root / f"{self.run_id}-{profile}"
