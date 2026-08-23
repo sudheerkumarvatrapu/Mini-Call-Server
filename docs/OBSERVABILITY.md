@@ -1,49 +1,24 @@
 # PlaySBC Observability
 
-PlaySBC can deploy a small lab observability stack in the same namespace as PlaySBC, RTPengine, and Rasa:
+The lab observability path is:
 
 ```text
 PlaySBC /metrics -> Prometheus -> Grafana
-       RTPengine evidence and AI/Rasa counters are exported by PlaySBC.
 ```
 
-## What It Gives
+PlaySBC also exports RTPengine and AI/Rasa state derived from its call-control evidence. Enable or upgrade the stack with the canonical command in [KUBERNETES_HELM_RUNBOOK.md](KUBERNETES_HELM_RUNBOOK.md).
 
-- Prometheus pod scraping PlaySBC every `2s` by default for short SIPp lab calls.
-- Grafana pod with a PlaySBC dashboard.
-- Core/peer labels for trunk and RTPengine media views.
-- Active-active node panels for PlaySBC replicas, shared registrar/dialog state, and drain status.
-- SIP request and response counters by realm, direction, method, status, and status class.
-- Negotiated media codec and transcoding counters, for example `PCMU -> PCMA`.
-- AI Voice Gateway counters for STT, Rasa, TTS, bot actions, and RTP prompts.
-- Prometheus retention set to `31d` by default.
-- PersistentVolumeClaims for Prometheus and Grafana data when the cluster has a storage class.
+## What Is Measured
 
-## Enable It
+| Area | Examples |
+| --- | --- |
+| Calls | active, admitted, completed, rejected, peak |
+| SIP | requests and responses by realm, method, direction, status, and class |
+| Media | negotiated codecs, transcoding intent, active RTPengine sessions, failures |
+| HA | node health, drain state, shared registrations, shared dialogs |
+| AI | STT, Rasa, TTS, prompt, fallback, and bot-action counters |
 
-```bash
-helm upgrade --install playsbc charts/playsbc \
-  --namespace playsbc \
-  --create-namespace \
-  --reuse-values \
-  --set observability.enabled=true \
-  --set observability.prometheus.retention=31d \
-  --set observability.prometheus.persistence.size=5Gi \
-  --set observability.grafana.persistence.size=2Gi
-```
-
-Expected pods:
-
-```bash
-kubectl -n playsbc get pods
-```
-
-You should see PlaySBC, RTPengine when enabled, Rasa when enabled, plus:
-
-```text
-playsbc-playsbc-prometheus-...
-playsbc-playsbc-grafana-...
-```
+Prometheus defaults to a short scrape interval for brief SIPp calls and 31-day retention. Persistence depends on a working cluster storage class.
 
 ## Open Grafana
 
@@ -51,38 +26,21 @@ playsbc-playsbc-grafana-...
 kubectl -n playsbc port-forward svc/playsbc-playsbc-grafana 3000:3000
 ```
 
-Open:
-
-```text
-http://127.0.0.1:3000
-```
-
-Default lab login:
+Open `http://127.0.0.1:3000` and use the lab credentials:
 
 ```text
 user: admin
 password: playsbc-lab
+dashboard: PlaySBC Core/Peer SBC Lab
 ```
 
-The dashboard is named:
-
-```text
-PlaySBC Core/Peer SBC Lab
-```
-
-## Query Prometheus Directly
+## Query Prometheus
 
 ```bash
 kubectl -n playsbc port-forward svc/playsbc-playsbc-prometheus 9090:9090
 ```
 
-Open:
-
-```text
-http://127.0.0.1:9090
-```
-
-Useful queries:
+Open `http://127.0.0.1:9090`. Useful queries:
 
 ```promql
 sum(playsbc_active_calls)
@@ -102,7 +60,14 @@ sum by (bot,stt,tts) (increase(playsbc_ai_voice_turns_total[15m]))
 sum(increase(playsbc_ai_rasa_failures_total[15m]))
 ```
 
-For Kubernetes regression, PlaySBC rolls per profile and counters reset from zero. Use `increase(...[window])` for counters and `playsbc_active_calls` for the current live gauge. Use `max_over_time(...)` only for gauges such as trunk health or peak active calls. After a load profile finishes, current active calls should return to `0`, while range panels intentionally keep the completed-run evidence until the selected time window moves past it.
+## Interpret The Panels
+
+- Counters reset when regression rolls PlaySBC. Use `increase(metric[window])`.
+- `playsbc_active_calls` is a live gauge and should return to `0` after calls end.
+- Range panels intentionally retain completed calls until the selected time window moves forward.
+- Use `max_over_time` only for gauges such as peak calls or trunk health.
+- A value such as `2.1` on a smoothed panel is a rate or average, not a fractional call.
+- Grafana and Prometheus should match because Grafana queries Prometheus; compare the exact query, time range, job filter, and refresh interval.
 
 ## Direct Metrics Check
 
@@ -111,29 +76,11 @@ kubectl -n playsbc port-forward svc/playsbc-playsbc 8080:8080
 curl http://127.0.0.1:8080/metrics
 ```
 
-The endpoint emits Prometheus text format with `# HELP`, `# TYPE`, and labels such as:
+The endpoint returns Prometheus text with `# HELP`, `# TYPE`, and labels such as `cluster`, `node`, `realm`, `trunk`, `backend`, `inbound_codec`, `outbound_codec`, and `transcoding`.
 
-```text
-cluster
-node
-realm
-trunk
-from_realm
-to_realm
-bot
-stt
-tts
-backend
-inbound_codec
-outbound_codec
-transcoding
-```
+## Optional Operator Resources
 
-## Notes
-
-- RTPengine does not expose Prometheus metrics directly in this lab chart yet. PlaySBC exports RTPengine control failures, active RTPengine-backed media sessions, negotiated codec pairs, and transcoding intent from its own call state.
-- Rasa is observed through PlaySBC AI counters for request, failure, STT, TTS, and bot-action evidence.
-- For Prometheus Operator clusters, you can also enable `ServiceMonitor` and `PrometheusRule` objects:
+For clusters with Prometheus Operator CRDs:
 
 ```bash
 helm upgrade playsbc charts/playsbc \
@@ -142,3 +89,7 @@ helm upgrade playsbc charts/playsbc \
   --set observability.prometheus.serviceMonitor.enabled=true \
   --set observability.prometheus.rules.enabled=true
 ```
+
+## Current Boundary
+
+RTPengine does not expose native Prometheus metrics through this chart. PlaySBC reports RTPengine control failures, call-owned media sessions, codec negotiation, and transcoding intent from its own state. Packet-level truth remains in RTPengine query evidence and `capture.pcap`.

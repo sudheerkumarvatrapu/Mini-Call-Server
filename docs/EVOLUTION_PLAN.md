@@ -1,189 +1,117 @@
 # PlaySBC Evolution Plan
 
-PlaySBC is an enterprise-style SIP/RTP experimentation lab today, not a production-certified SBC yet.
+PlaySBC is an enterprise-style SIP/RTP lab and regression platform. It is not yet a production-certified SBC. Production readiness must be earned through measured scale, security, HA, cloud networking, and long-duration validation.
 
-The long-term mission is serious: evolve PlaySBC from the current `v1.5.0` development line into a public-cloud production SBC line over future major releases, with Azure as the first priority cloud and AWS next. The target future state is a PlaySBC `v10.x.x` generation that can be validated for large-scale SIP gateway deployments such as hundreds of thousands of registered devices and thousands of concurrent calls.
+## Current Baseline
 
-That production path must be earned with benchmarks, security hardening, carrier-grade HA behavior, long soak runs, and cloud networking proof. Until those gates are met, PlaySBC should be described as a lab and regression platform, not a replacement for certified commercial SBCs.
+### Signalling
 
-## Implemented
-
-### Signalling And Routing
-
-- SIP over UDP/TCP/TLS; REGISTER, OPTIONS, INVITE, ACK, CANCEL, and BYE
-- Digest registration, dialog/transaction state, registrar-backed routing
-- Trunk groups, primary/secondary selection, hunt groups, route policies, E.164/header normalization, CAC, health state, and counters
-- Active SIP OPTIONS trunk probing with failure thresholds and timed health recovery
-- HA shared registrar/dialog/B2BUA leg state using a SQLite lab store, plus node-to-RTPengine pairing for active-active experiments
-- HA node model with external-LB policy, per-node weights, runtime drain state, and `503 Node Draining` rejection for new calls
-- PlaySBC pre-call, mid-call, and post-call pod-failover regression profiles with shared state restore evidence
-- RTPengine pre-call failover and mid-call best-effort recovery profiles
+- SIP UDP/TCP/TLS with REGISTER, OPTIONS, INVITE, ACK, CANCEL, BYE, and digest authentication
+- Registrar-backed B2BUA routing, trunk groups, route policies, normalization, CAC, health probing, and node draining
+- Shared registrar/dialog/B2BUA lab state and active-active node identity
+- Pre-call, mid-call, post-call, RTPengine failure, drain, restore, and load-distribution regression profiles
 
 ### Media
 
-- G.711u/G.711a RTP, internal transcoding, and RFC 4733 DTMF
-- RTCP sender/receiver evidence and quality analytics for single calls; load profiles omit RTCP validation
-- RTPengine anchoring, SDP rewrite, interface selection, transcoding, bidirectional SDES-SRTP/RTP interworking, and fault profiles
-- RTCP receiver-report loss/jitter analytics for single calls
+- PCMU/PCMA, transcoding, RFC 4733, RTP/RTCP, and SDES-SRTP/RTP interworking
+- RTPengine anchoring, SDP rewrite, public advertised IP, NAT learning, media handover, and packet verdicts
+- One combined PCAP, canonical SIP ladder, media classification, and HTML evidence
+- Validated two-way OBi1022/Zoiper PCMU calls through AKS
 
 ### AI Voice Gateway
 
+- Rasa REST, real Rasa pod, chat/NLU matrices, and guardrail profiles
+- Vosk/Whisper STT and Piper/Coqui TTS adapter paths
+- Real G.711 speech input, WAV evidence, contact-center sales flow, and long-response chunking
+
+### Platform
+
+- Docker dual-realm regression
+- Helm deployment for kind, minikube, and AKS
+- Active-active PlaySBC/RTPengine lab topology
+- Prometheus/Grafana with node, realm, SIP, media, codec, transcoding, and AI metrics
+- AKS public SIP/RTP LoadBalancers and strict cloud readiness profiles
+
+## Next Implementation: Local Multi-Node HA Lab
+
+This is the immediate priority. It moves expensive HA/failover iteration from AKS to a repeatable local environment.
+
 ```text
-SIP caller -> PlaySBC AI route -> RTP/RTPengine media input -> STT/intent adapter -> Rasa REST -> TTS adapter
+kind control-plane
+├── worker-1: PlaySBC-0 + RTPengine-0
+└── worker-2: PlaySBC-1 + RTPengine-1
 ```
 
-- Route policies can target `ai-gateway:<bot-name>`.
-- STT/TTS provider boundaries exist for lab-scripted, Whisper, Vosk, text-only, Piper, and Coqui modes.
-- Rasa REST supports multi-message responses; custom bot actions can request join, transfer, or release and are logged as control-plane actions.
-- Regression includes `ai-rasa-lab`: SIPp A calls `ai-bot`, PlaySBC answers, sends a Rasa REST turn, logs `log.ai`, and captures SIP/RTP/HTTP evidence.
-- Regression includes `ai-rasa-rtpengine`: RTP/RTCP is anchored by RTPengine while PlaySBC handles SIP/control and the Rasa turn.
-- Optional real Rasa lab is wired for local config, Docker dual-realm, Helm, and Kubernetes via `ai-rasa-real-lab`.
-- Current AI/Rasa regression includes `ai-rasa-rtpengine-speech`: SIPp plays real G.711 speech, PlaySBC decodes RTP to WAV, Vosk transcribes `i need support`, PlaySBC posts the transcript to real Rasa, Piper generates the bot-response WAV/RTP prompt, and RTP/RTCP stay anchored by RTPengine.
-- Whisper STT is selectable through `ai-rasa-rtpengine-speech-whisper`, using the same RTPengine/WAV/Rasa/Piper path with the Whisper adapter boundary.
-- Contact-center sales bot profile is wired as `ai-rasa-contact-center-sales`: SIPp A calls a virtual SIPp B bot agent, Vosk transcribes `connect me to sales`, real Rasa runs the sales workflow, Piper generates the bot-agent prompt, and RTP/RTCP stay anchored by RTPengine.
-- Coqui TTS is selectable through `ai-rasa-contact-center-sales-coqui`, using the same contact-center sales bot flow with Coqui-generated prompt evidence.
-- Long Rasa replies are covered by `ai-rasa-long-response-streaming`, where real Rasa long-response text is split into ordered TTS chunks with per-chunk WAV/RTP prompt evidence.
-- Real Rasa project assets live under `rasa/`, with `tools/check_rasa.py` as the readiness gate.
+### Priority 0
 
-### Lab Platform
+- Create a reproducible kind configuration with one control-plane and two workers.
+- Pin each PlaySBC/RTPengine pair to separate workers with pod anti-affinity.
+- Add PodDisruptionBudgets and controlled node drain behavior.
+- Provide shared registrar/dialog state that works across workers; SQLite/RWO remains lab-only, so RWX or Redis/PostgreSQL must be evaluated.
+- Run all existing HA profiles through the multi-node topology.
+- Kill PlaySBC-0, RTPengine-0, and worker-1 during active calls and record recovery behavior.
+- Prove active-active load distribution and restored registrar/dialog ownership.
+- Add Grafana panels for worker, PlaySBC node, RTPengine pair, drain state, failover count, and recovery time.
+- Keep one canonical SIP/RTP/RTCP PCAP and a clear four-node ladder.
 
-- Dual-realm Docker topology: core `172.28.0.0/24`, peer `192.168.28.0/24`
-- Dual-homed PlaySBC and RTPengine with Docker-based SIPp agents
-- Helm-rendered configuration for every regression profile
-- Every dual-realm regression profile runs with HA enabled by default
-- SBC category logs, combined live PCAP, and Robot-style HTML report with unified ladders and AI speech WAV playback evidence
-- Prometheus text-format `/metrics` endpoint with `HELP`, `TYPE`, and labels for node, realm, trunk, SIP requests/responses, RTPengine direction, negotiated codecs, transcoding, and AI providers
-- Helm observability lab stack: Prometheus, Grafana, 31-day retention, PVC-backed storage, core/peer dashboard, scrape annotations, optional `ServiceMonitor`, and alert rules
-- Signalling, media, auth, routing, negative, soak, and 5 cps / 60-second CHT profiles
-- Kubernetes Helm lab with health probes, Secret-backed SIP users, RTPengine pairing, kind/minikube values, and a dialog-affinity experiment
-- HA regression profiles: `ha-shared-state-rtpengine`, `ha-options-health-recovery`, `ha-node-draining`, `ha-playsbc-precall-failover`, `ha-playsbc-midcall-failover`, `ha-playsbc-postcall-failover`, `ha-rtpengine-precall-failover`, `ha-rtpengine-midcall-recovery`, `ha-node-drain-active-calls`, `ha-active-active-load-distribution`, and `ha-shared-registrar-dialog-restore`
-- Kubernetes active-active lab mode: PlaySBC runs as a two-replica StatefulSet, RTPengine runs as a paired two-replica StatefulSet, `$POD_NAME` becomes the HA node identity, shared registrar/dialog state is mounted from a PVC, and all Kubernetes regression profiles default through this topology
-- Optional Multus chart wiring: core `172.28.0.0/24` and peer `192.168.28.0/24` NetworkAttachmentDefinition templates and pod annotations are available, while kind remains logical dual-realm until Multus CRDs are installed
+### Acceptance Gates
 
-## Next
+- Existing Docker, single-node kind/minikube, AKS, Rasa, and real-device regressions remain green.
+- A failed image or missing variable cannot mutate a healthy deployment.
+- Pod failure and node drain have deterministic report verdicts.
+- Mid-call tests distinguish signalling recovery from true media continuity.
+- The runbook can create, test, inspect, and delete the lab without manual repair.
 
-### Production Cloud SBC Track
+### Scope Boundary
 
-Target direction:
+Multi-node kind validates Kubernetes scheduling, pod/node disruption, shared state, and application recovery on one Mac. It does not prove Azure zone failure, physical host failure, or production load-balancer behavior. AKS remains the release-milestone lane for those cloud-specific checks.
 
-- Azure-first deployment model for AKS, Azure Load Balancer, static public IPs, SIP UDP/TCP/TLS, RTP/SRTP media port ranges, private networking, firewall rules, and observability.
-- AWS deployment model after Azure, covering EKS, NLB, static addresses, security groups, and media-port exposure.
-- Scale target roadmap: 10k, 50k, 100k, then 300k registered devices; 250, 500, 1000, then 2500 concurrent calls.
-- Replace SQLite lab HA state with production-grade shared state such as PostgreSQL, Redis, or another replicated store.
-- Harden registrar, dialog, transaction, CDR, audit, and billing-grade event persistence.
-- Add production SIP load-balancer and affinity model for UDP/TCP/TLS with health-based steering and controlled node draining.
-- Add SIP flood, malformed-message, registration storm, OPTIONS storm, INVITE burst, and overload-control protection.
-- Add TLS certificate lifecycle, secret rotation, SRTP/DTLS-SRTP hardening, and security policy controls.
-- Add multi-AZ failure testing, pod/node/AZ failure simulation, and long-running soak jobs measured in days.
-- Add capacity dashboards, alerting, release gates, and performance baselines for CPU, memory, packets per second, RTP sessions, registrations, dialogs, and call attempts per second.
-
-Azure release track:
-
-- `v1.4.2`: frozen local lab baseline for kind, minikube, local Docker regression, RTPengine, Rasa, Prometheus, and Grafana validation.
-- `v1.4.3`: AKS Helm values, Azure public SIP LoadBalancer service, optional private SIP LoadBalancer service, static public IP annotations, lab media-port service wiring, observability defaults, and `docs/AZURE_AKS.md`.
-- `v1.4.4`: AKS-specific regression/report evidence, `--aks-profiles`, Azure LoadBalancer validation for SIP UDP/TCP/TLS, TLS certificate lifecycle notes, per-exposure source CIDR hardening, and single-call media dataplane checks.
-- `v1.5.0`: first Azure AKS public-cloud validation target with production-style reference architecture, dedicated node pools, RTP/SRTP range validation path, NSG/Azure Firewall guidance, external shared state planning, multi-zone failure planning, backup/restore planning, upgrade/rollback planning, and a three-hardphone registration/calling lab target. The same v1.5.0 chart must also stay kind-compatible through the local-image Kubernetes regression command.
-- `v1.5.1`: Azure Cloud Shell playbook milestone. Document the validated free-account AKS path end to end: provider registration, ACR import, one PlaySBC pod, one RTPengine pod, public SIP/RTP LoadBalancers, AKS regression profiles, report download, and cleanup.
-- `v1.5.2`: Azure Cloud Shell resilience milestone. Document the kube-credential refresh workaround for Azure CLI API-version mismatch, the need to re-export session variables, and immediate report/evidence download when Cloud Shell is ephemeral.
-- `v1.5.3`: Azure Cloud Shell cleanup milestone. Document asynchronous `az group delete --no-wait` behavior, split resource-group deletion progress, and the final verification gate that both lab resource groups are gone.
-- `v1.5.4`: Azure documentation cleanup milestone. Merge the Azure AKS and Cloud Shell playbook content into one shorter `docs/AZURE_AKS.md` guide with deploy, regression, report download, recovery, and cleanup in one flow.
-- `v1.5.5`: AKS readiness and evidence hardening milestone. Wait for Azure LoadBalancer ingress before strict AKS regression starts, generate a verified `latest-aks-regression.tgz` directly from the Kubernetes regression job wrapper, and document archive validation so failed AKS runs keep usable HTML, JSON, SIP, media, and platform evidence.
-- `v1.6.0`: AKS evidence correctness milestone. Keep OPTIONS keepalive ladders OPTIONS-only, merge core/peer captures into one timestamp-sorted `capture.pcap`, and filter AKS packet capture to SIP/RTP/SRTP/RTCP ports so Wireshark evidence is clean.
-- `v1.6.1`: real-device AKS milestone. Validate OBi1022 REGISTER through Azure public SIP LoadBalancer, document OBi/Zoiper setup, and add home-NAT registrar routing so private Contact addresses can still receive B2BUA outbound legs via the observed REGISTER source.
-- `v1.6.2`: real-device call hotfix. Support OBi/ATA proxy-style INVITEs where the Request-URI is the SBC public IP and the dialed extension is carried in the `To` header.
-- `v1.6.3`: real-device call hotfix. Retry routing from the `To` user when the Request-URI user is unroutable, keep in-dialog ACK/BYE packets away from private dialog Contacts by using the learned registered destination, and allow RTPengine to advertise the Azure RTP public IP for internet media.
-- `v1.6.4`: real-device B2BUA hotfix. Use candidate-based INVITE target routing, forward BYE from either B2BUA leg, and log selected/failed route candidates for OBi1022 and Zoiper troubleshooting.
-- `v1.6.5`: real-device AKS diagnostics/media hotfix. Emit route selection, SIP TX responses, tolerant ACK/BYE forwarding, and RTPengine evidence to pod stdout; accept common hardphone target header variants; and add compact Azure RTP public port-range exposure for one-call OBi/Zoiper validation.
-- `v2.0.0`: real-device AKS lab baseline. Include the v1.6.5/v1.6.6 cleanup, reject missing registered routes instead of fallback echo, add configurable B2BUA outbound INVITE timeout, add optional RTPengine G.711-only codec clamp, and add plain RTP/AVP SDP normalization for the first OBi1022/Zoiper media baseline.
-- `v2.1.1`: real-device media hardening. Add RTPengine SIP-source-address NAT learning, explicit `ICE=remove`, forced `RTP/AVP`, and caller-leg in-dialog re-INVITE acceptance for OBi1022 -> Zoiper RTP through AKS.
-- `v2.2.0`: AKS regression/runtime hardening. Make AKS profiles wait for SIP and RTP public LoadBalancer ingress, validate the public RTP UDP `30000-30049` range, and fail early with clear preflight evidence while Azure networking is still pending.
-- `v2.2.1`: AKS regression hotfix. Keep real-device NAT routing, but preserve Contact-port routing when SIPp REGISTER and UAS are on the same pod IP; also align PlaySBC server version reporting with the release.
-- `v2.2.2`: real-device AKS media topology hardening. Lock RTPengine and Azure RTP LoadBalancer to UDP `30000-30049`, require advertised RTP public IP alignment, add RTPengine media-handover NAT learning, and log four-stage SDP plus per-direction RTP verdict evidence.
-- `v2.3.0`: real-device NAT pinhole hardening. Add RTPengine `NAT-wait` and `pierce NAT` controls for OBi1022/Zoiper calls behind home NAT, keep them enabled in AKS real-device values, and log the exact RTPengine NAT flags used on offer/answer.
-- `v2.3.1`: regression safety hotfix. Keep AKS readiness profiles on a single PlaySBC/RTPengine workload by default, explicitly disable stale active-active Helm values when requested, and preserve active-active defaults for local full K8s regression.
-- `v2.3.2`: PlaySBC image publish hotfix. Keep the v2.3.1 regression safety behavior and update the PlaySBC Dockerfile to Piper's current `download_voices --data-dir` CLI so GHCR publishes all four images.
-- `v2.3.3`: AKS regression auth isolation hotfix. Prevent real-device `authSecret` Helm values from leaking into open REGISTER regression profiles while keeping digest-auth profiles and OBi/Zoiper real-device auth deterministic.
-- `v2.4.0`: regression and real-device evidence milestone. Fix all open v2.3.x caveats, keep AKS regression and real-device Helm values isolated, add combined SIP/RTP/RTCP PCAP generation for manual OBi1022/Zoiper calls, and make regression evidence strict enough that media/SRTP caveats cannot pass silently.
-- `v2.4.1`: real-device capture hotfix. Move manual AKS packet capture out of slim PlaySBC/RTPengine containers into one temporary host-network capture pod and keep exactly one combined `capture.pcap` in the evidence bundle.
-- `v2.4.2`: real-device registrar NAT hotfix. For public Internet registrations where the Contact host matches the observed source IP but NAT remaps the source port, route new inbound calls to the observed REGISTER source endpoint so Zoiper -> OBi1022 calls can reach the phone.
-- `v2.4.3`: real-device evidence cleanup hotfix. Finalize the manual capture bundle cleanly on Ctrl-C, keep one combined `capture.pcap`, and disable aggressive RTPengine `pierce NAT` by default so pre-answer pinhole packets do not look like voice RTP after `180 Ringing`.
-- `v2.4.4`: real-device RTCP/evidence archive hotfix. Add explicit `a=rtcp:<RTP+1>` SDP advertisement for RTPengine-backed real-device calls and generate a downloadable `.tgz` evidence archive beside the real-device capture folder.
-- `v2.5.0`: clean real-device SIP/RTP/RTCP evidence milestone plus TCP/TLS registration foundation. Keep the working two-way OBi1022/Zoiper audio path, then make reports and logs show one clean SIP call flow, classify duplicate UDP retransmissions separately, distinguish tiny NAT/probe packets from real G.711 media, prove RTP plus RTCP directionality without confusing packet noise, and start hardphone TCP/TLS REGISTER validation without disturbing the UDP/RTP baseline.
-
-v2.4.0 closure work:
-
-- Regression isolation: AKS readiness profiles stay single-workload by default and real-device auth/RTP/NAT/timeout/HA values remain opt-in per profile.
-- Strict evidence validation: SRTP profiles fail if RTPengine media-security proof is missing, crypto negotiation errors appear, or RTPengine packet verdicts do not prove both RTP directions.
-- Lean evidence bundles: local K8s, AKS K8s, Docker dual-realm, and AI/Rasa regression keep one merged `capture.pcap`, one root `sipmsg.log`, and no stale core/peer split PCAPs after a successful merge.
-- OPTIONS isolation: OPTIONS keepalive evidence must remain OPTIONS-only in ladder, `sipmsg.log`, and capture artifacts.
-- Real-device capture: manual OBi1022/Zoiper tests use one temporary host-network capture pod and create one Wireshark-ready SIP/RTP/RTCP/networking `capture.pcap`, `sipmsg.log`, PlaySBC logs, RTPengine logs, and packet verdict lines. No PlaySBC/RTPengine capture subfolders are kept.
-- Duplicate teardown tolerance: duplicate B2BUA BYE after a recently finalized call receives `200 OK` instead of noisy harmless `481`, while truly unknown dialogs still fail normally.
-- NAT/media noise handling: small RTPengine error counters are acceptable only when both RTP directions are observed and the packet verdict proves media flow; pre-answer `pierce NAT` pinhole probes stay opt-in for difficult NATs.
-
-v2.5.0 closure work:
-
-- Clean SIP evidence: `sipmsg.log` contains one canonical transaction flow, collapses near-simultaneous public-LB/pod-interface capture mirrors, and keeps a separate retransmission annotations section; repeated INVITE `200 OK` after ACK is classified as expected SIP-over-UDP behavior.
-- Media classification: PCMU/PCMA speech, tiny NAT probes, telephone events, RTCP, and unknown RTP are counted separately, including pre-answer packet classification.
-- Bidirectional RTP: the evidence gate requires real G.711 voice packets plus a reverse PCAP flow or RTPengine's `caller_to_callee=observed` and `callee_to_caller=observed` verdict.
-- Honest RTCP: bidirectional RTCP is proven only by reverse RTCP flows. A single endpoint's reports are labeled `endpoint-limited` rather than making the whole call appear dirty.
-- Exact log window: Kubernetes logs are collected using the capture start timestamp, so earlier calls cannot leak into a later manual bundle.
-- TCP/TLS registration: `register-auth-tcp` and `register-auth-tls` perform digest REGISTER-only checks over TCP `5062` and TLS `5061`, with the existing UDP/RTP real-device calls unchanged.
-- Final evidence: one raw `capture.pcap`, canonical `sipmsg.log`, JSON/text media evidence, compact `latest.html`, clean component logs, and one downloadable archive.
-
-v2.5.0 release validation gates:
-
-- Run AKS regression profiles with current release images and confirm all profiles pass strict evidence validation.
-- Run local kind/minikube regression and confirm no real-device settings leak into default profile Helm values.
-- **Complete (2026-08-23):** OBi1022 `1001` to Zoiper `1002` and Zoiper `1002` to OBi1022 `1001` both completed with audible two-way PCMU, clean SIP setup/teardown, RTPengine two-direction verdicts, one combined PCAP, canonical SIP evidence, exact-window logs, and a generated archive.
-- The validated run recorded authoritative RTPengine totals of `2,114` and `2,810` RTP packets. Host-network PCAP media totals remain observation counts because Azure public, host, and pod interfaces can mirror the same packet.
-- Physical hardphone TCP/TLS registration remains open. The automated TCP/TLS profiles and focused tests are present, but the validated OBi1022/Zoiper bundle exercised UDP signalling and RTP/AVP only.
-
-Production-readiness gates:
-
-- No critical SIP/RTP/HA/regression caveats open for the target release line.
-- Full Kubernetes regression passes on the cloud reference architecture.
-- Load and soak profiles pass with packet, SIP, media, RTCP, CDR, and observability evidence.
-- Security scans, dependency review, container scan, config scan, fuzz tests, and negative SIP tests pass.
-- Documented operating model exists for deploy, upgrade, rollback, scale-out, drain, failover, backup, restore, and incident triage.
-
-### Observability Lab
-
-- Add direct RTPengine exporter support if the deployed RTPengine image exposes native counters.
-- Add SIP signalling rate, profile, and regression-verdict labels where those can be measured without distorting call handling.
-- Kubernetes regression profiles: `observability-prometheus-scrape`, `observability-grafana-dashboard`, and `observability-alert-rules`.
-- Report evidence that Prometheus scraped PlaySBC after a B2BUA call and that Grafana dashboard JSON loads cleanly.
+## Near-Term Work
 
 ### HA And Networking
 
-- Extend restored mid-call handling from ACK/BYE to CANCEL/re-INVITE and transfer flows.
-- Promote RTPengine mid-call media-session migration from best-effort recovery to lossless continuity if Sipwise/session ownership support allows it.
-- Multi-node chaos/failover regression that kills one PlaySBC/RTPengine pair during active SIP/RTP traffic.
-- Kubernetes real dual-realm networking: install Multus or another multi-network CNI so SIPp, PlaySBC, and RTPengine can use real secondary interfaces, not only logical core/peer evidence over normal pod networking.
-- External load balancer model for active-active SIP affinity, health-based draining, and per-node traffic steering.
-- External shared state backend option such as Redis/PostgreSQL after the SQLite lab store proves the behavior.
+- Extend restored mid-call handling to CANCEL, re-INVITE, REFER, and transfer flows.
+- Promote RTPengine mid-call recovery toward lossless continuity where Sipwise session ownership permits it.
+- Add real core/peer interfaces with Multus or another multi-network CNI.
+- Define external SIP affinity, health steering, and graceful drain behavior.
+- Replace SQLite lab HA state with Redis/PostgreSQL or another replicated backend.
+
+### Real Devices
+
+- Validate OBi1022 and future Poly/Yealink devices over TCP and TLS.
+- Add longer calls, re-registration during calls, SIP ALG detection, and multi-device scenarios.
+- Run local-LAN real-device tests through a dedicated kind cluster with one-to-one SIP and RTP port mappings.
+- Add richer RTCP loss/jitter and MOS-style evidence.
 
 ### AI Voice Gateway
 
-- Play generated TTS RTP back into the live SIP call through RTPengine, not only as report evidence.
-- Package heavyweight Whisper and Coqui image variants with real models preloaded, beside the portable lab-fallback wrappers.
-- Add streamed callback/channel support for bot responses that arrive over time rather than in one REST result.
-- Add Rasa Action Server integration for tool-backed bot workflows.
-- Add multi-turn contact-center bot calls with stateful sales, support, billing, repeat, confirm, deny, and agent-transfer paths.
-- Add speech plus RFC 4733 DTMF hybrid IVR flows.
-- Add interruption/barge-in handling for long streamed bot prompts.
-- Expand RASA regression with multi-turn chat, long audio prompts, fallback recovery, and action-server verdicts.
-- Add AI latency metrics for STT decode, Rasa request, TTS generation, streamed chunk duration, fallback count, and action count.
+- Return generated TTS RTP into the live call, not only report evidence.
+- Add real model images for Whisper and Coqui.
+- Add action-server workflows, multi-turn state, DTMF hybrid IVR, transfer, and barge-in.
+- Add STT, Rasa, TTS, streaming, fallback, and action latency metrics.
 
-## Later
+## Production Cloud Track
 
-### WebRTC Gateway
+Azure remains the first production reference cloud; AWS follows.
 
-- SIP WebSocket, ICE/STUN, DTLS-SRTP, and browser calling
+- External shared state for registrar, dialog, transaction, CDR, audit, and billing events
+- Production SIP load balancing and affinity for UDP/TCP/TLS
+- Certificate lifecycle, secret rotation, SRTP/DTLS-SRTP policy, and firewall controls
+- SIP flood, malformed-message, registration storm, OPTIONS storm, INVITE burst, and overload protection
+- Multi-AZ deployment, failure injection, backup/restore, upgrade/rollback, and days-long soak runs
+- Capacity progression: 10k, 50k, 100k, then 300k registrations; 250, 500, 1000, then 2500 concurrent calls
+- Measured CPU, memory, packets per second, RTP sessions, registrations, dialogs, and calls per second
 
-### AI Voice Gateway
+## Production Readiness Gates
 
-- Executed bot-assisted B2BUA actions: REFER/re-INVITE transfer, conference join, and release
+- No critical signalling, media, HA, security, or evidence caveats
+- Full regression passes on local multi-node and cloud reference topologies
+- Load and soak tests pass with packet, media, CDR, and observability proof
+- Security scans, fuzzing, malformed SIP, dependency, image, and configuration scans pass
+- Operators have tested deploy, scale, drain, failover, backup, restore, upgrade, rollback, and incident procedures
 
 ## Delivery Rule
 
-Every new feature needs focused unit tests, a dual-realm SIPp profile when applicable, clear SBC logs, combined packet evidence, and a report verdict.
+Every change must preserve the golden rule: Docker regression, local Kubernetes, AKS regression, AI/Rasa, real-device behavior, and other deployment models must not regress. New behavior needs focused tests, clear logs, combined evidence, and an actionable report verdict.
+
+Historical version-by-version milestones remain in [release notes](../release/README.md).

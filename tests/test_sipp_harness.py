@@ -1678,9 +1678,12 @@ Content-Length: 0
         self.assertIn(f'tag: "{current_version}"', aks_values)
         self.assertIn(f"kind/minikube must track the current release (`v{current_version}`", readme)
         self.assertIn(f"export PLAYSBC_VERSION={current_version}", runbook)
-        self.assertIn(f"export PLAYSBC_VERSION={current_version}", local_runbook)
-        self.assertIn("--all-profiles", local_runbook)
-        self.assertIn("--set-rtpengine-image", local_runbook)
+        self.assertIn(
+            "[Kubernetes and Helm runbook](KUBERNETES_HELM_RUNBOOK.md)",
+            local_runbook,
+        )
+        self.assertIn("--all-profiles", runbook)
+        self.assertIn("--set-rtpengine-image", runbook)
         self.assertNotIn("playsbc-k8s-regression:1.4.2", runbook)
         self.assertIn("Clean Real-Device Evidence", release_notes)
         self.assertIn("register-auth-tls", release_notes)

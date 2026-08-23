@@ -1,82 +1,53 @@
 # PlaySBC AI Voice Gateway
 
-PlaySBC can act as an AI voice endpoint: it answers a SIP call, anchors RTP/RTCP through RTPengine when enabled, converts speech to text, sends the text to Rasa, generates a TTS reply, and records the full evidence in the regression report.
+PlaySBC can answer a SIP call as an AI endpoint, anchor its media through RTPengine, convert speech to text, send the transcript to Rasa, synthesize the response, and preserve the evidence in one report.
 
 ```text
-SIPp caller -> PlaySBC AI route -> RTPengine -> STT -> Rasa -> TTS -> RTP prompt evidence
+SIPp caller -> PlaySBC -> RTPengine -> STT -> Rasa -> TTS -> RTP response
 ```
 
-## Architecture
+## Component Roles
 
-- **PlaySBC:** SIP callee, AI gateway, RTP decode/encode point, and Rasa client.
-- **RTPengine:** media/RTCP anchor. It does not perform STT, TTS, or bot logic.
-- **Vosk / Whisper STT:** convert decoded caller WAV audio into text through the same adapter boundary.
-- **Rasa:** receives the text over REST and returns bot text/actions.
-- **Piper / Coqui TTS:** generate spoken bot reply WAV/RTP evidence.
-- **SIPp:** caller traffic generator for voice profiles; chat profiles use YAML text cases.
+| Component | Responsibility |
+| --- | --- |
+| PlaySBC | SIP/B2BUA control, media conversion, AI orchestration, and evidence |
+| RTPengine | RTP/RTCP anchoring and media transformation |
+| Vosk or Whisper | STT through the shared adapter boundary |
+| Rasa | Intent recognition, dialogue, and bot responses |
+| Piper or Coqui | TTS through the shared adapter boundary |
+| SIPp | Voice traffic and speech-PCAP playback |
 
-## RASA Test Section
+## Rasa Regression Profiles
 
-Use `--rasa-profiles` for the focused AI/Rasa suite. It runs the AI/Rasa voice, speech, streaming, contact-center, and chat/NLU profiles and writes:
+Run `--rasa-profiles` to execute only the AI/Rasa suite. The report is written to:
 
 ```text
 logs/RASA-Regression/<run-id>/RASA-reports/latest.html
 ```
 
-Common flow:
+| Profile | Validates | Primary evidence |
+| --- | --- | --- |
+| `ai-rasa-lab` | PlaySBC AI route with mock Rasa | SIP/AI logs, ladder, merged PCAP |
+| `ai-rasa-rtpengine` | Mock Rasa with anchored media | RTPengine query and media logs |
+| `ai-rasa-real-lab` | Real Rasa train/start/webhook path | Rasa rollout, webhook, and SIP evidence |
+| `ai-rasa-rtpengine-speech` | G.711 speech, Vosk, Rasa, and Piper | Input/output WAV, transcript, RTP prompt |
+| `ai-rasa-rtpengine-speech-whisper` | Whisper STT alternative | Provider, transcript, WAV, and RTP evidence |
+| `ai-rasa-long-response-streaming` | Ordered TTS chunks for long replies | Stream logs and per-chunk artifacts |
+| `ai-rasa-contact-center-sales` | Vosk/Piper contact-center workflow | Sales ladder and speech evidence |
+| `ai-rasa-contact-center-sales-coqui` | Coqui TTS alternative | Renderer and generated prompt evidence |
+| `ai-rasa-chat-nlu` | Positive intent matrix | Chat window, JSON verdicts, NLU ladder |
+| `ai-rasa-chat-negative` | Guardrails and negative inputs | Guardrail chat window and JSON verdicts |
 
-```text
-K8s regression Job
-  -> render profile config
-  -> roll PlaySBC/RTPengine/Rasa when needed
-  -> run SIPp voice traffic or Rasa chat YAML cases
-  -> validate Rasa intent/response/action
-  -> render logs, ladders, chat windows, audio evidence, and verdicts
-```
+The negative matrix covers denial, ambiguity, empty input, fallback text, special characters, long input, unsupported language, offensive input, and latest-instruction handling.
 
-| Profile | Purpose | E2E Flow | Evidence |
-| --- | --- | --- | --- |
-| `ai-rasa-lab` | Mock Rasa sanity check. | K8s Runner -> profile config -> SIPp A -> PlaySBC AI callee -> scripted STT/media -> Mock Rasa REST -> `log.ai` -> HTML Report. | `log.ai`, `log.sip`, `log.media`, `sipmsg.log`, one merged `capture.pcap`, mock ladder. |
-| `ai-rasa-rtpengine` | Mock Rasa with RTPengine media anchor. | K8s Runner -> profile config -> SIPp A -> PlaySBC -> RTPengine -> Mock Rasa REST/action -> RTPengine evidence -> HTML Report. | RTPengine query evidence, `log.ai`, `log.media`, `sipmsg.log`, one merged `capture.pcap`, AI ladder. |
-| `ai-rasa-real-lab` | Real Rasa pod integration. | K8s Runner -> Helm/Rasa config -> Real Rasa Pod train/start -> SIPp A -> PlaySBC/RTPengine -> Rasa webhook -> HTML Report. | Rasa rollout logs, pod evidence, `log.ai`, `log.sip`, `log.media`. |
-| `ai-rasa-rtpengine-speech` | Real speech STT/TTS path. | K8s Runner -> SIPp A speech PCAP -> RTPengine -> PlaySBC WAV decode -> Vosk STT -> Real Rasa -> Piper TTS -> RTP prompt/WAV evidence -> HTML Report. | Input/output WAV players, RTPengine evidence, Vosk/Rasa/Piper ladder. |
-| `ai-rasa-rtpengine-speech-whisper` | Whisper STT speech variant. | K8s Runner -> SIPp A speech PCAP -> RTPengine -> PlaySBC WAV decode -> Whisper STT adapter -> Real Rasa -> Piper TTS -> RTP prompt/WAV evidence -> HTML Report. | `provider=whisper`, WAV/RTP prompt evidence, AI ladder. |
-| `ai-rasa-long-response-streaming` | Long bot response streaming. | K8s Runner -> SIPp A speech PCAP -> RTPengine -> PlaySBC -> Real Rasa long response -> ordered Piper TTS chunks -> per-chunk RTP prompt evidence -> HTML Report. | `AI TTS STREAM` logs, chunked WAV/RTP prompt artifacts, AI ladder. |
-| `ai-rasa-contact-center-sales` | Contact-center bot-agent call. | K8s Runner -> SIPp A -> PlaySBC virtual SIPp B Bot Agent -> RTPengine -> Vosk STT -> Real Rasa sales workflow -> Piper TTS -> HTML Report. | Contact-center ladder, speech WAVs, `log.ai`, `log.media`. |
-| `ai-rasa-contact-center-sales-coqui` | Coqui TTS contact-center variant. | K8s Runner -> SIPp A -> PlaySBC virtual SIPp B Bot Agent -> RTPengine -> Vosk STT -> Real Rasa sales workflow -> Coqui TTS -> RTP prompt/WAV evidence -> HTML Report. | `renderer=coqui`, contact-center ladder, speech WAVs. |
-| `ai-rasa-chat-nlu` | Positive chat intent matrix. | Chat YAML -> K8s Runner -> PlaySBC Guard -> Rasa NLU `/model/parse` -> Rasa Bot Webhook -> JSON verdict/chat window -> HTML Report. | Rasa chat window, `rasa-nlu-results.json`, `log.rasa-nlu`, NLP ladder. |
-| `ai-rasa-chat-negative` | **Negative Chat / Guardrails.** | Negative Chat YAML -> K8s Runner -> PlaySBC no-input/language guards -> Rasa NLU/webhook when valid -> JSON verdict/guardrail chat window -> HTML Report. | Guardrail chat window, `rasa-nlu-results.json`, `log.rasa-nlu`, NLP ladder. |
-
-The negative profile covers denial, ambiguity, empty input, fallback text, special characters, long input, unsupported language, offensive/frustrated input, and "transfer me - actually don't".
-
-## Chat Coverage
-
-Positive chat profile:
-
-- `support`: connection/service problems.
-- `sales`: pricing and new-connection requests.
-- `billing`: invoice and duplicate-charge questions.
-- `agent`: human-assistance requests.
-- `repeat`, `confirm`, `deny`: simple control intents.
-
-Negative chat profile:
-
-- `deny`: "I don't want sales", "Transfer me - actually don't".
-- `clarify`: ambiguous requests like "Billing or maybe support".
-- `no_input`: empty message handled before Rasa.
-- `nlu_fallback`: random text and special characters.
-- `language_limitation`: unsupported-language text.
-- `safe_continue`: frustrated/offensive input handled safely.
-- `safe_processing`: long text is bounded and processed safely.
-
-Case files:
+Case definitions:
 
 ```text
 tests/rasa/chat_nlu_cases.yml
 tests/rasa/chat_negative_cases.yml
 ```
 
-## Run RASA-Only K8s Regression
+## Run The Focused Suite
 
 ```bash
 kubectl config use-context kind-playsbc
@@ -92,25 +63,19 @@ python3 tools/run_k8s_regression_job.py \
   --kind-cluster playsbc
 ```
 
-Open:
+Use [KUBERNETES_HELM_RUNBOOK.md](KUBERNETES_HELM_RUNBOOK.md) for installation, image, observability, and cleanup commands.
 
-```text
-logs/RASA-Regression/<run-id>/RASA-reports/latest.html
-```
-
-## Config Shape
+## Configuration
 
 ```yaml
 route_policies:
   - name: ai-rasa-gateway
     match: ai-bot
     target: ai-gateway:rasa-support
-    priority: 5
 
 ai_voice_gateway:
   enabled: true
   provider: rasa
-  bot_name: rasa-support
   rasa_webhook_url: http://rasa:5005/webhooks/rest/webhook
   input_mode: speech
   stt_provider: vosk
@@ -118,7 +83,7 @@ ai_voice_gateway:
   response_mode: rest
 ```
 
-Whisper and Coqui are selectable by changing the adapter providers and commands:
+Adapter alternatives:
 
 ```yaml
 ai_voice_gateway:
@@ -126,24 +91,18 @@ ai_voice_gateway:
   stt_command: python3 tools/whisper_stt_wrapper.py --audio {audio_path} --fallback-transcript "{text}" --allow-lab-fallback
   tts_provider: coqui
   tts_command: python3 tools/coqui_tts_wrapper.py --text "{text}" --output {audio_path} --allow-lab-fallback
-```
-
-For longer bot replies, set:
-
-```yaml
-ai_voice_gateway:
   response_mode: streaming
   tts_chunk_chars: 120
 ```
 
-## Still To Build
+## Evidence Contract
 
-- Play generated TTS RTP back into the live SIP call through RTPengine.
-- Package heavyweight Whisper/Coqui image variants with real models preloaded.
-- Add Rasa Action Server integration for real workflow actions.
-- Add stateful multi-turn contact-center conversations.
-- Add speech plus RFC 4733 DTMF hybrid IVR flows.
-- Add streamed callback/channel support for longer bot responses.
-- Add interruption/barge-in handling for long bot prompts.
-- Execute bot actions with SIP REFER/re-INVITE, conference join, and bot-driven release.
-- Add metrics for STT latency, Rasa latency, TTS latency, fallback rate, streamed chunks, and action count.
+Each voice profile should provide `sipmsg.log`, one merged `capture.pcap`, SIP/media/AI logs, an aligned ladder, and playable WAV evidence when speech is involved. Chat profiles provide an initially collapsed chat window, NLU verdict JSON, and an NLP ladder; old voice audio is not shown on chat-only reports.
+
+## Next Work
+
+- Feed generated TTS RTP into the live call for every provider path.
+- Package production Whisper and Coqui model images.
+- Add Rasa Action Server and stateful multi-turn workflows.
+- Add RFC 4733 DTMF, barge-in, transfer, conference, and bot-driven release.
+- Export STT, Rasa, TTS, fallback, streaming, and action latency metrics.

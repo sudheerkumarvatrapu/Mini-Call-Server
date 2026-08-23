@@ -6,284 +6,99 @@
 <p align="center"><strong>A serious SBC lab where SIP, RTP, and AI voice learn to behave before real calls do.</strong></p>
 
 <p align="center">
-  <img alt="Python 3.x" src="https://img.shields.io/badge/-Python%203.x-3776AB?style=flat-square&logo=python&logoColor=white">
-  <img alt="SIPp Regression" src="https://img.shields.io/badge/-SIPp%20Regression-16A34A?style=flat-square">
-  <img alt="B2BUA" src="https://img.shields.io/badge/-B2BUA-2563EB?style=flat-square">
-  <img alt="G711 Transcoding" src="https://img.shields.io/badge/-G711u%20%7C%20G711a-9333EA?style=flat-square">
+  <img alt="Python" src="https://img.shields.io/badge/-Python%203.x-3776AB?style=flat-square&logo=python&logoColor=white">
+  <img alt="SIPp" src="https://img.shields.io/badge/-SIPp%20Regression-16A34A?style=flat-square">
   <img alt="RTPengine" src="https://img.shields.io/badge/-RTPengine-0F766E?style=flat-square">
-  <img alt="AI Rasa" src="https://img.shields.io/badge/-AI%20Rasa%20Gateway-BE185D?style=flat-square">
+  <img alt="Rasa" src="https://img.shields.io/badge/-AI%20Rasa%20Gateway-BE185D?style=flat-square">
   <img alt="Version" src="https://img.shields.io/badge/-v2.5.0-111827?style=flat-square">
-  <img alt="License MIT" src="https://img.shields.io/badge/-MIT%20License-F59E0B?style=flat-square">
+  <img alt="License" src="https://img.shields.io/badge/-MIT-F59E0B?style=flat-square">
 </p>
 
-Python SIP/RTP lab for B2BUA routing, G.711 media, transcoding, RTPengine, HA state experiments, AI voice gateway, observability, and SIPp regression across core and peer realms.
+PlaySBC is a Python SIP/RTP lab for B2BUA routing, G.711 media, RTPengine, HA experiments, AI voice, observability, and evidence-driven SIPp regression. It is an engineering and validation platform, not yet a production-certified SBC.
 
-Local Kubernetes full regression defaults to an active-active PlaySBC/RTPengine lab topology with logical core and peer realms. Azure AKS readiness profiles intentionally default to one PlaySBC and one RTPengine unless HA mode is explicitly requested.
+## Start Here
 
-[Evolution plan](docs/EVOLUTION_PLAN.md) | [RTPengine runbook](docs/RTPENGINE_LOCAL.md) | [AI Voice Gateway](docs/AI_VOICE_GATEWAY.md) | [Observability](docs/OBSERVABILITY.md) | [Kubernetes lab](docs/KUBERNETES_LOCAL.md) | [Kubernetes Helm runbook](docs/KUBERNETES_HELM_RUNBOOK.md) | [Azure AKS](docs/AZURE_AKS.md) | [Real Device Lab](docs/REAL_DEVICE_LAB.md)
+| Goal | Guide |
+| --- | --- |
+| Choose the correct workflow | [Documentation index](docs/README.md) |
+| Deploy and regress on local Kubernetes | [Kubernetes and Helm runbook](docs/KUBERNETES_HELM_RUNBOOK.md) |
+| Understand kind/minikube topology | [Local Kubernetes lab](docs/KUBERNETES_LOCAL.md) |
+| Deploy and regress on Azure AKS | [Azure AKS runbook](docs/AZURE_AKS.md) |
+| Test OBi1022 and Zoiper | [Real-device lab](docs/REAL_DEVICE_LAB.md) |
+| Run Rasa voice/chat profiles | [AI Voice Gateway](docs/AI_VOICE_GATEWAY.md) |
+| Use Grafana and Prometheus | [Observability](docs/OBSERVABILITY.md) |
+| Review planned work | [Evolution plan](docs/EVOLUTION_PLAN.md) |
+| Inspect release artifacts | [Release index](release/README.md) |
 
-## Status
+## Current Release
 
 - Version: `2.5.0`
-- Local release lab: kind/minikube must track the current release (`v2.5.0` here), while the locally built-image path remains the required compatibility gate before publishing.
-- License: MIT
 - Release: <https://github.com/sudheerkumarvatrapu/PlaySBC/releases/tag/v2.5.0>
-- Images: `ghcr.io/sudheerkumarvatrapu/playsbc:2.5.0`, `ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:2.5.0`, `ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.5.0`, `ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.5.0`
-- Security: CodeQL, Dependency Review, Trivy, and Checkov run in GitHub Actions.
+- Helm: `playsbc-2.5.0.tgz`
+- Images: `playsbc`, `playsbc-rtpengine`, `playsbc-k8s-regression`, and `playsbc-sipp` under `ghcr.io/sudheerkumarvatrapu`
+- Security: CodeQL, Dependency Review, Trivy, and Checkov in GitHub Actions
 
-The Helm package contains Kubernetes manifests and configuration. Kubernetes pulls the PlaySBC, RTPengine, SIPp, and regression-runner images at deploy/test time.
+Local kind/minikube must track the current release (`v2.5.0`) unless a compatibility run intentionally pins an older version.
 
-## Standard Kubernetes Architecture
-
-Going forward, the normal Kubernetes lab and regression path is always:
+## Architecture
 
 ```text
-PlaySBC active-active StatefulSet: 2 pods
-RTPengine active-active StatefulSet: 2 pods
-Prometheus: 1 pod
-Grafana: 1 pod
+Core SIP endpoint
+      |
+      v
+PlaySBC active-active pair
+      |
+      v
+Paired RTPengine media anchors
+      |
+      v
+Peer SIP endpoint / Rasa AI route
+
+Prometheus <- metrics -> Grafana
+Regression runner -> SIPp core/peer agents -> combined HTML/PCAP evidence
 ```
 
-Always deploy with `configs/kubernetes/active-active-values.yaml` or equivalent `--set topology.activeActive.enabled=true` overrides. If `kubectl get pods` shows only one PlaySBC pod and one RTPengine pod, the chart is running in single-replica mode and should be upgraded again with active-active enabled.
+Local full regression defaults to two PlaySBC and two RTPengine replicas. AKS readiness regression intentionally defaults to one PlaySBC and one RTPengine to keep the cloud smoke lane focused and affordable. HA experiments are run locally unless cloud behavior is specifically under test.
 
-Exception: the Azure AKS readiness regression shortcut is a public-cloud smoke lane and stays single-workload by default. Use explicit HA profiles or `--active-active-topology` when testing active-active behavior.
+## Quick Validation
 
-## Deployment Models
-
-| Model | Best For | Needs Docker Desktop? | Needs Kubernetes? |
-| --- | --- | --- | --- |
-| Local regression suite | Development and validation on a laptop | Yes on macOS/Windows, Docker Engine is fine on Linux | No |
-| Manual SIPp experiments | Host loopback tests and quick SIP parser checks | No for host loopback | No |
-| Local Kubernetes with local images | kind/minikube lab before publishing images | Yes | Yes |
-| Kubernetes with published images | Customer/shared lab cluster | No | Yes |
-| Observability lab | Prometheus/Grafana for PlaySBC, RTPengine, and AI gateway evidence | No, if images are published | Yes |
-| Maintainer release flow | Build/publish images and Helm releases | Yes locally, or GitHub Actions | Optional |
-
-## Quick Start
+Clone the repository and run the Docker regression suite:
 
 ```bash
 git clone https://github.com/sudheerkumarvatrapu/PlaySBC.git
 cd PlaySBC
-helm version --short
-```
 
-Install only the tools required by your model: Docker for local regression/image builds, SIPp for host manual tests, and `kubectl` plus Helm for Kubernetes.
-
-<details>
-<summary><strong>Model 1: Local Regression Suite</strong></summary>
-
-Requirements:
-
-- Docker Desktop on macOS/Windows, or Docker Engine with Compose on Linux
-- Python 3
-- Helm
-
-Run:
-
-```bash
-env PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache python3 tools/run_regression_suite.py \
+PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache \
+python3 tools/run_regression_suite.py \
   --skip-sipp-smoke \
   --all-b2bua-profiles \
   --timeout 420
 ```
 
-Host SIPp, host RTPengine, and `sudo` are not required. The suite starts its own PlaySBC, RTPengine, SIPp agents, RTCP helpers, and packet capture containers.
-
-Topology used by local Docker regression:
-
-```text
-Core: SIPp A 172.28.0.10 -> PlaySBC 172.28.0.20 -> RTPengine 172.28.0.40
-Peer: RTPengine 192.168.28.40 <- PlaySBC 192.168.28.20 <- SIPp B 192.168.28.30
-```
-
-Results:
+Report:
 
 ```text
 logs/reports/latest.html
-logs/b2bua-Regression/<testcase>/
 ```
 
-</details>
+For Kubernetes, use the single maintained copy/paste flow in [docs/KUBERNETES_HELM_RUNBOOK.md](docs/KUBERNETES_HELM_RUNBOOK.md).
 
-<details>
-<summary><strong>Model 2: Manual SIPp Experiments</strong></summary>
+## Evidence Contract
 
-Manual mode is for quick experiments. Host loopback uses `127.0.0.1`; real dual-realm manual SIPp should run inside the Docker topology agents because `172.28.x` and `192.168.28.x` live inside Docker networks.
+Every applicable regression profile should produce:
 
-Install SIPp on the host only for manual mode:
+- a clear verdict and SIP ladder
+- `log.sip`, `log.media`, and `log.platform`
+- one combined `sipmsg.log`
+- one combined `capture.pcap` for non-load call profiles
+- codec, RTP/RTCP, transcoding, AI, or HA evidence required by that profile
+- an HTML report that links or embeds the useful artifacts
 
-```bash
-# macOS
-brew install sipp
+## Production Status
 
-# Ubuntu/Debian
-sudo apt-get update
-sudo apt-get install -y sipp
-```
+PlaySBC has strong lab coverage, but large-scale production claims require external shared state, carrier-grade load balancing, security hardening, multi-node and multi-zone failure proof, long soak tests, and measured capacity baselines. See the [evolution plan](docs/EVOLUTION_PLAN.md).
 
-Start PlaySBC:
-
-```bash
-python3 mini_call_server.py --config configs/config.b2bua.example.yaml
-```
-
-Terminal 1: start SIPp B as UAS:
-
-```bash
-sipp -sf sipp/scenarios/b2bua_uas_b.xml -i 127.0.0.1 -p 5070 -m 1 -trace_msg -trace_err
-```
-
-Terminal 2: register SIPp B as user `1002`:
-
-```bash
-sipp 127.0.0.1:25062 -sf sipp/scenarios/register_contact.xml -s 1002 -i 127.0.0.1 -p 5072 -key contact_port 5070 -m 1
-```
-
-Terminal 3: place the call from SIPp A:
-
-```bash
-sipp 127.0.0.1:25062 -sf sipp/scenarios/b2bua_uac_a.xml -s 1002 -key caller 1001 -i 127.0.0.1 -p 5062 -m 1 -r 1 -d 1000
-```
-
-Built-in SIPp scenarios such as `-sn uas` and `-sn uac` can be used for parser/transport smoke checks. B2BUA routing still needs a REGISTERed callee or static route.
-
-Media assets live under:
-
-```text
-sipp/scenarios/pcap/
-```
-
-</details>
-
-<details>
-<summary><strong>Model 3: Local Kubernetes With Local Images</strong></summary>
-
-Use this when you are changing source locally and want kind/minikube to run your local images.
-
-Requirements:
-
-- Docker Desktop or Docker Engine
-- Helm
-- `kubectl`
-- `kind` or `minikube`
-
-Main command shape:
-
-```bash
-PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache python3 tools/run_k8s_regression_job.py \
-  --all-profiles \
-  --build-playsbc-image \
-  --build-runner-image \
-  --build-sipp-image \
-  --build-rtpengine-image \
-  --kind-load-images \
-  --set-playsbc-image \
-  --set-rtpengine-image \
-  --kind-cluster playsbc
-```
-
-This remains the required v2.x kind safety gate. It builds PlaySBC, RTPengine, SIPp, and the regression runner from the current source tree and loads those images into kind, so it does not depend on published GHCR images.
-
-Full cluster creation, Helm install, rollout, and debug steps are in [docs/KUBERNETES_HELM_RUNBOOK.md](docs/KUBERNETES_HELM_RUNBOOK.md).
-
-</details>
-
-<details>
-<summary><strong>Model 4: Kubernetes With Published Images</strong></summary>
-
-Use this for the normal release path. Docker Desktop is not required if the cluster can pull from GitHub Container Registry.
-
-The current release chart:
-
-```text
-https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v2.5.0/playsbc-2.5.0.tgz
-```
-
-Published images:
-
-```text
-ghcr.io/sudheerkumarvatrapu/playsbc:2.5.0
-ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:2.5.0
-ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.5.0
-ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.5.0
-```
-
-The standard process is:
-
-1. Upgrade PlaySBC and RTPengine to `v2.5.0`.
-2. Enable observability.
-3. Wait for PlaySBC, RTPengine, Prometheus, and Grafana rollouts.
-4. Run the full Kubernetes regression catalog with release images.
-
-The exact copy/paste command is in [docs/KUBERNETES_HELM_RUNBOOK.md](docs/KUBERNETES_HELM_RUNBOOK.md#standard-full-regression-flow).
-
-</details>
-
-<details>
-<summary><strong>Model 5: Observability Lab</strong></summary>
-
-PlaySBC can deploy Prometheus and Grafana in the same namespace.
-
-Dashboard:
-
-```text
-PlaySBC Core/Peer SBC Lab
-```
-
-The dashboard tracks:
-
-- current active calls
-- calls and completed calls in selected range
-- SIP requests and responses
-- RTPengine sessions and control failures
-- codec negotiation and transcoding
-- AI/Rasa STT/TTS turns
-
-Open Grafana:
-
-```bash
-kubectl -n playsbc port-forward svc/playsbc-playsbc-grafana 3000:3000
-```
-
-Then open:
-
-```text
-http://127.0.0.1:3000
-```
-
-Full observability notes are in [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
-
-</details>
-
-<details>
-<summary><strong>Model 6: Maintainer Release Flow</strong></summary>
-
-GitHub Actions publishes images automatically when `main` or a `v*` tag is pushed.
-
-The `v2.5.0` tag publishes:
-
-```text
-2.5.0
-2.4
-latest
-```
-
-Images:
-
-```text
-ghcr.io/sudheerkumarvatrapu/playsbc
-ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine
-ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression
-ghcr.io/sudheerkumarvatrapu/playsbc-sipp
-```
-
-Security scans run through GitHub Actions. Release notes and chart assets are published on the GitHub release page.
-
-</details>
-
-## Uninstall
-
-Remove PlaySBC from Kubernetes:
+## Cleanup
 
 ```bash
 helm uninstall playsbc --namespace playsbc

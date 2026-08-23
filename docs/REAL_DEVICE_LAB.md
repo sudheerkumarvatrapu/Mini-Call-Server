@@ -1,14 +1,18 @@
-# PlaySBC Real Device Lab
+# PlaySBC Real-Device Lab
 
-Use this runbook for the first AKS test with one hardphone and one softphone.
+This guide covers the validated OBi1022 `1001` and Zoiper `1002` call flow. Build the AKS base first with [AZURE_AKS.md](AZURE_AKS.md).
 
 ```text
-OBi1022 1001 -> Internet/NAT -> Azure LB UDP 5062 -> PlaySBC -> RTPengine -> Zoiper 1002
+OBi1022 1001
+  -> Internet/NAT -> Azure SIP LB -> PlaySBC -> RTPengine -> Azure RTP LB
+  -> Internet/NAT -> Zoiper 1002
 ```
 
-## 1. Upgrade AKS For Real Devices
+Validated baseline: SIP UDP `5062`, RTP/RTCP UDP `30000-30049`, PCMU/PCMA, digest REGISTER, and two-way RTPengine-anchored audio.
 
-Run in Azure Cloud Shell after the `v2.5.0` release/images are published.
+## 1. Apply Real-Device Values
+
+Run in Cloud Shell after the base AKS services have public IPs:
 
 ```bash
 export PLAYSBC_VERSION=2.5.0
@@ -17,66 +21,28 @@ export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
 export SIP_PIP_NAME=playsbc-sip-pip
 export RTP_PIP_NAME=playsbc-rtp-pip
-export ACR_NAME=$(az acr list --resource-group "$AKS_RG" --query "[0].name" -o tsv)
-: "${ACR_NAME:?No ACR found in $AKS_RG}"
-export ACR_LOGIN_SERVER=$(az acr show --resource-group "$AKS_RG" --name "$ACR_NAME" --query loginServer -o tsv)
-: "${ACR_LOGIN_SERVER:?Azure did not return an ACR login server}"
-export NODE_RG=$(az aks show --resource-group "$AKS_RG" --name "$AKS_NAME" --query nodeResourceGroup -o tsv)
-export SIP_PUBLIC_IP=$(az network public-ip show --resource-group "$NETWORK_RG" --name "$SIP_PIP_NAME" --query ipAddress -o tsv)
-export RTP_PUBLIC_IP=$(az network public-ip show --resource-group "$NETWORK_RG" --name "$RTP_PIP_NAME" --query ipAddress -o tsv)
 
-az acr import --name "$ACR_NAME" --source ghcr.io/sudheerkumarvatrapu/playsbc:$PLAYSBC_VERSION --image playsbc:$PLAYSBC_VERSION --force
-az acr import --name "$ACR_NAME" --source ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:$PLAYSBC_VERSION --image playsbc-rtpengine:$PLAYSBC_VERSION --force
+export ACR_NAME=$(az acr list --resource-group "$AKS_RG" --query '[0].name' -o tsv)
+export ACR_LOGIN_SERVER=$(az acr show -g "$AKS_RG" -n "$ACR_NAME" --query loginServer -o tsv)
+export SIP_PUBLIC_IP=$(az network public-ip show -g "$NETWORK_RG" -n "$SIP_PIP_NAME" --query ipAddress -o tsv)
+export RTP_PUBLIC_IP=$(az network public-ip show -g "$NETWORK_RG" -n "$RTP_PIP_NAME" --query ipAddress -o tsv)
 
-for IMAGE in playsbc playsbc-rtpengine; do
-  az acr repository show --name "$ACR_NAME" --image "$IMAGE:$PLAYSBC_VERSION" -o none
-done
-```
-
-If ACR import returns `MANIFEST_UNKNOWN`, GHCR has not exposed the new image yet. From the repo on the Mac, watch the image build:
-
-```bash
-gh run list --workflow="container-images.yml" --limit 5
-gh workflow run container-images.yml --ref v$PLAYSBC_VERSION
-gh run watch <run-id> --exit-status
-```
-
-Then rerun the failed `az acr import`.
-
-Deploy or upgrade AKS:
-
-```bash
-helm upgrade --install playsbc \
-  https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v$PLAYSBC_VERSION/playsbc-$PLAYSBC_VERSION.tgz \
+helm upgrade playsbc \
+  "https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz" \
   --namespace playsbc \
   --reuse-values \
   --atomic \
   --wait \
   --timeout 10m \
-  --set cloud.provider=azure \
-  --set cloud.azure.enabled=true \
-  --set cloud.azure.nodeResourceGroup="$NODE_RG" \
-  --set cloud.azure.sip.public.enabled=true \
-  --set cloud.azure.sip.public.publicIPResourceGroup="$NETWORK_RG" \
-  --set cloud.azure.sip.public.publicIPName="$SIP_PIP_NAME" \
-  --set cloud.azure.media.public.enabled=true \
-  --set cloud.azure.media.public.publicIPResourceGroup="$NETWORK_RG" \
-  --set cloud.azure.media.public.publicIPName="$RTP_PIP_NAME" \
-  --set cloud.azure.media.public.portRange.enabled=true \
-  --set cloud.azure.media.public.portRange.min=30000 \
-  --set cloud.azure.media.public.portRange.max=30049 \
   --set image.repository="$ACR_LOGIN_SERVER/playsbc" \
   --set-string image.tag="$PLAYSBC_VERSION" \
-  --set image.pullPolicy=Always \
-  --set rtpengine.enabled=true \
   --set rtpengine.image.repository="$ACR_LOGIN_SERVER/playsbc-rtpengine" \
   --set-string rtpengine.image.tag="$PLAYSBC_VERSION" \
-  --set rtpengine.image.pullPolicy=Always \
-  --set playsbc.config.rtp_min=30000 \
-  --set playsbc.config.rtp_max=30049 \
   --set rtpengine.rtpMin=30000 \
   --set rtpengine.rtpMax=30049 \
   --set-string rtpengine.advertisedIP="$RTP_PUBLIC_IP" \
+  --set playsbc.config.rtp_min=30000 \
+  --set playsbc.config.rtp_max=30049 \
   --set playsbc.config.media_backend=rtpengine \
   --set-string playsbc.config.rtpengine_url=udp://playsbc-playsbc-rtpengine:2223 \
   --set playsbc.config.reject_unknown_routes=true \
@@ -94,23 +60,17 @@ helm upgrade --install playsbc \
   --set-string authSecret.users.1001=secret-password \
   --set-string authSecret.users.1002=secret-password
 
-kubectl -n playsbc rollout restart deployment/playsbc-playsbc deployment/playsbc-playsbc-rtpengine
-kubectl -n playsbc rollout status deployment/playsbc-playsbc --timeout=180s
-kubectl -n playsbc rollout status deployment/playsbc-playsbc-rtpengine --timeout=180s
-```
-
-Hard preflight:
-
-```bash
+kubectl -n playsbc rollout status deployment/playsbc-playsbc --timeout=240s
+kubectl -n playsbc rollout status deployment/playsbc-playsbc-rtpengine --timeout=240s
+kubectl -n playsbc get pods -o wide
 kubectl -n playsbc get svc playsbc-playsbc-azure-sip-public playsbc-playsbc-azure-rtp-public -o wide
-kubectl -n playsbc get pod -l app.kubernetes.io/name=playsbc-rtpengine -o jsonpath='{.items[0].spec.containers[0].args}{"\n"}'
 ```
 
-The SIP service must show the SIP public IP, the RTP service must show the RTP public IP, and the RTPengine command must include `!$RTP_PUBLIC_IP` with ports `30000-30049`.
+The SIP service must show `SIP_PUBLIC_IP`; the RTP service and RTPengine command must show `RTP_PUBLIC_IP` and `30000-30049`.
 
 ## 2. Configure OBi1022 As `1001`
 
-Open `http://192.168.1.9`, then disable old provider provisioning:
+Open `http://192.168.1.9` and disable old provider provisioning:
 
 ```text
 System Management -> Auto Provisioning
@@ -141,14 +101,14 @@ X_ServProvProfile: A
 AuthUserName: 1001
 AuthPassword: secret-password
 URI: 1001
-X_DisplayLabel: 1001
-X_DisplayNumber: 1001
 RegisterEnable: checked
 KeepAliveEnable: checked
 
 Service Providers -> ITSP Profile A -> RTP
 X_RTPTransport: UDP
 ```
+
+Submit and reboot the phone.
 
 ## 3. Configure Zoiper As `1002`
 
@@ -160,106 +120,50 @@ Transport: UDP
 Outbound proxy: blank
 ```
 
-## 3A. TCP/TLS Hardphone Registration Track
+## 4. Monitor Signalling And Media
 
-`v2.5.0` adds automated digest REGISTER-only profiles for TCP and TLS. The manual hardphone lane follows the same registration-first order. Keep the working UDP/RTP media baseline unchanged until each physical device transport proves stable.
-
-AKS exposure already supports the required listener shape:
-
-```text
-SIP UDP: 5062
-SIP TCP: 5062
-SIP TLS: 5061
-RTP/RTCP UDP: 30000-30049
-```
-
-Validation order:
-
-1. Keep OBi1022 and Zoiper UDP registered as the known-good baseline.
-2. Register one hardphone over TCP to `<SIP_PUBLIC_IP>:5062`.
-3. Register one hardphone over TLS to `<SIP_PUBLIC_IP>:5061`.
-4. Keep calls on the current UDP/RTP baseline until TCP and TLS REGISTER evidence is clean.
-5. After REGISTER works, try TCP/TLS signalling with plain RTP, then SRTP only where the device supports it cleanly.
-
-Device priority:
-
-- OBi1022 can be tried if the transport settings are available, but customized firmware may limit TCP/TLS behavior.
-- Poly VVX600 and Yealink SIP-T33G are better primary TCP/TLS candidates for the next hardphone lab.
-- Zoiper can remain UDP during this phase so failures stay isolated to the hardphone transport under test.
-
-TLS requirements:
-
-- PlaySBC must have a Kubernetes TLS Secret mounted for SIP TLS.
-- The device must either trust the certificate chain or allow the lab certificate for testing.
-- Capture evidence should include TLS handshake success, SIP REGISTER over TLS, and the selected certificate/SNI behavior where visible.
-
-Run the automated profiles before configuring a physical phone:
-
-```bash
-PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_k8s_regression_job.py \
-  --profile register-auth-tcp \
-  --profile register-auth-tls \
-  --job-timeout 1800
-```
-
-Monitor TCP/TLS hardphone registration:
+Registration only:
 
 ```bash
 kubectl -n playsbc logs deployment/playsbc-playsbc -f --since=10m \
-  | grep -aE "REGISTER|Registered|401|403|transport=tcp|transport=tls|TLS|TCP|5061|5062|1001|1002"
+  | grep -aE 'REGISTER|Registered|401|403|1001|1002'
 ```
 
-## 4. Monitor Registration
+Calls and media from both PlaySBC and RTPengine:
 
 ```bash
-kubectl -n playsbc logs deployment/playsbc-playsbc -f --since=10m \
-  | grep -aE "REGISTER|Registered|401|403|1001|1002"
+kubectl -n playsbc logs -f \
+  -l app.kubernetes.io/instance=playsbc \
+  --all-containers=true \
+  --prefix \
+  --max-log-requests=10 \
+  --since=10m \
+  | grep -aE 'SIP (INVITE|ACK|BYE|CANCEL)|SIP TX response|SIP response|INVITE ROUTE|B2BUA|SDP SUMMARY|RTPENGINE|RTPengine|RTP packet|RTCP|1001|1002'
 ```
 
-Expected registration:
-
-```text
-Challenged REGISTER for 1001
-Registered 1001 -> sip:1001@...
-Challenged REGISTER for 1002
-Registered 1002 -> sip:1002@...
-```
-
-## 5. Monitor Calls And RTP
-
-Use this command while placing calls. It intentionally omits REGISTER noise so signalling and media evidence are readable.
-
-```bash
-kubectl -n playsbc logs deployment/playsbc-playsbc -f --since=10m \
-  | grep -aE "SIP (INVITE|ACK|BYE|CANCEL)|SIP TX response|SIP response|INVITE ROUTE|ROUTE FAILED|B2BUA|SDP SUMMARY|RTPENGINE PORT ALLOCATION|RTPENGINE NAT LEARNING|RTPENGINE NAT PINHOLE|RTPENGINE PACKET VERDICT|RTPengine"
-```
-
-Expected call tests:
+Place both calls:
 
 ```text
 OBi1022 1001 -> Zoiper 1002
 Zoiper 1002 -> OBi1022 1001
 ```
 
-The OBi can register with a private Contact such as `192.168.1.9:5060`. PlaySBC keeps that Contact in SIP, but sends packets to the observed public REGISTER source so AKS can reach the device through NAT.
+Pass criteria:
 
-Good call evidence:
+- both devices register after a `401` challenge
+- INVITE routes to the registered peer
+- INVITE/100/180/200/ACK and BYE/200 complete
+- SDP advertises the Azure RTP IP and ports inside `30000-30049`
+- RTPengine reports `caller_to_callee=observed` and `callee_to_caller=observed`
+- audio is heard in both directions
 
-- `INVITE ROUTE SELECTED` routes to the registered peer.
-- `RTPENGINE MEDIA SECURITY` shows `RTP/AVP`, `ice=remove`, `sip_source_address=true`, `media_handover=true`, `nat_wait=true`, and normally `pierce_nat=false`.
-- `SDP SUMMARY` shows public RTP media on the Azure RTP LoadBalancer IP and ports inside `30000-30049`.
-- `RTPENGINE PACKET VERDICT` shows `caller_to_callee=observed callee_to_caller=observed` and `total_rtp_packets` greater than zero.
-- `BYE`, `200 OK BYE`, and `RTPENGINE DELETE status=ok` appear at call release.
+## 5. Capture One Evidence Archive
 
-Small RTPengine `errors=1` counters can appear during NAT learning. Treat them as noise when both packet directions are observed and audio is heard both ways.
-
-## 6. Capture A Wireshark Bundle
-
-Run this from Cloud Shell. It reclones the exact release source, starts the capture, then you place and clear both manual calls while the capture is active.
-
-The capture tool uses one temporary privileged `netshoot` pod with `hostNetwork: true`. It does not require `tcpdump` inside the PlaySBC or RTPengine containers, because those images are intentionally slim.
+Use the released capture tool and one temporary host-network `netshoot` pod:
 
 ```bash
+export PLAYSBC_VERSION=2.5.0
+
 cd ~
 rm -rf "PlaySBC-v$PLAYSBC_VERSION"
 git clone --branch "v$PLAYSBC_VERSION" --depth 1 \
@@ -267,27 +171,32 @@ git clone --branch "v$PLAYSBC_VERSION" --depth 1 \
   "PlaySBC-v$PLAYSBC_VERSION"
 cd "PlaySBC-v$PLAYSBC_VERSION"
 
-PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_real_device_capture.py \
+PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache \
+python3 tools/run_real_device_capture.py \
   --namespace playsbc \
   --duration 120 \
   --capture-image nicolaka/netshoot:latest
 ```
 
-If Docker Hub pulls are restricted, import the capture image into ACR and use that image instead:
+If Docker Hub pulls are blocked:
 
 ```bash
-az acr import --name "$ACR_NAME" \
+az acr import \
+  --name "$ACR_NAME" \
   --source docker.io/nicolaka/netshoot:latest \
   --image netshoot:latest \
   --force
 
-PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_real_device_capture.py \
+PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache \
+python3 tools/run_real_device_capture.py \
   --namespace playsbc \
   --duration 120 \
-  --capture-image "$ACR_NAME.azurecr.io/netshoot:latest"
+  --capture-image "$ACR_LOGIN_SERVER/netshoot:latest"
 ```
 
-The output is one flat compact bundle plus a downloadable archive next to it:
+Press `Ctrl-C` once when both calls finish. The tool saves evidence before deleting the capture pod.
+
+Output:
 
 ```text
 logs/Real-Device-Lab/real-device-capture-<timestamp>/
@@ -297,96 +206,55 @@ logs/Real-Device-Lab/real-device-capture-<timestamp>/
   media-evidence.log
   media-evidence.json
   latest.html
-  capture-window.log
   playsbc.log
   rtpengine.log
   rtpengine-verdict.log
-  kubectl-pods-before.log
-  kubectl-pods-after.log
-  kubectl-services-before.log
-  kubectl-services-after.log
-  tcpdump-command.txt
-  tcpdump.stderr.log
   summary.log
+
 logs/Real-Device-Lab/real-device-capture-<timestamp>.tgz
 ```
 
-Open `capture.pcap` in Wireshark. It is the untouched wire record and the only PCAP produced for the manual real-device test. `sipmsg.log` is the canonical call ladder: near-simultaneous public-LB/pod-interface mirrors are collapsed, while genuine later UDP retransmissions are listed as annotations. `media-evidence.log` separates real PCMU/PCMA speech, RTCP, telephone events, and tiny NAT/probe RTP. `latest.html` presents the same clean summary. Download the `.tgz` to move the complete bundle. No `capture-playsbc` or `capture-rtpengine` folders are created.
+Download the `.tgz` immediately from Cloud Shell.
 
-Because the capture pod listens on `any`, the raw PCAP can observe one media packet on the Azure public, host, and pod interfaces. Treat `voice_rtp_packets` as wire observations, not a unique packet total for loss calculations. Use RTPengine's per-call query totals as the authoritative session count; the mirrored PCAP remains useful for proving direction, timing, codec, and endpoint reachability.
+## 6. Interpret Evidence
 
-Press `Ctrl-C` once if the calls finish before the requested duration. The tool stops tcpdump, copies the merged `capture.pcap`, collects logs, deletes the temporary capture pod, and writes `summary.log` with `interrupted=true`. Avoid repeated `Ctrl-C`; if it happens, cleanup is deferred until evidence is saved.
-
-If Zoiper cannot dial `1001`, keep the capture running for one failed attempt and then check:
-
-```bash
-grep -aE "REGISTER|Registered|1001|1002|INVITE ROUTE|ROUTE FAILED|SIP TX response" \
-  logs/Real-Device-Lab/real-device-capture-*/sipmsg.log | tail -80
-```
+- `capture.pcap` is the only raw packet capture.
+- `sipmsg.log` collapses near-simultaneous host/LB/pod mirrors into one call ladder.
+- Later repeated SIP-over-UDP messages remain as retransmission annotations.
+- `media-evidence.log` separates PCMU/PCMA speech, RTCP, telephone events, and tiny NAT probes.
+- Host-network capture counts are observations because one packet may appear on several interfaces. RTPengine query totals are authoritative for unique session packet counts.
+- One-sided RTCP is reported as `endpoint-limited`; it does not invalidate proven two-way RTP.
 
 ## 7. Fast Troubleshooting
 
+| Symptom | Check |
+| --- | --- |
+| No REGISTER | SIP public IP, UDP `5062`, home SIP ALG, OBi provisioning |
+| Repeated `401` | User/password, token auth, realm |
+| `404`/address incomplete | `INVITE ROUTE SELECTED`; both users must be registered |
+| `Unparsable SDP` | Unknown-route fallback must remain disabled |
+| `480` | Answer before the 60-second B2BUA timeout |
+| One-way/no audio | RTP LB IP, advertised IP, `30000-30049`, NAT learning flags |
+| RTP after `180` | Check whether packets are tiny NAT probes or real G.711 speech |
+| Call remains connected | Verify BYE/200 on both B2BUA legs and RTPengine delete |
+| Capture pod remains | Delete `pod/real-device-capture-*-pod` after confirming evidence copied |
+
+Basic snapshot:
+
 ```bash
-kubectl -n playsbc get pods -o wide
-kubectl -n playsbc get svc -o wide
+kubectl -n playsbc get pods,svc -o wide
 kubectl -n playsbc logs deployment/playsbc-playsbc --tail=200
+kubectl -n playsbc logs deployment/playsbc-playsbc-rtpengine --tail=200
 ```
 
-Common symptoms:
+## 8. Validated Result And Next Work
 
-- No REGISTER: check SIP public IP, UDP 5062, home-router SIP ALG, and OBi provisioning.
-- 401 loop: wrong password, token auth still enabled, or realm mismatch.
-- OBi address-incomplete: check `INVITE ROUTE SELECTED`; PlaySBC should route using the `To` user when Request-URI is only the AKS public IP.
-- Zoiper `Unparsable SDP`: route fallback/echo leaked into a real-device call. Keep `reject_unknown_routes=true` and re-register both endpoints after a pod restart.
-- `480 Temporarily Unavailable`: hardphone was not answered before `b2bua_invite_timeout`. Use `60.0`.
-- No or one-way audio: check the Azure RTP public LoadBalancer, `rtpengine.advertisedIP`, RTP ports `30000-30049`, and keep `rtpengine_g711_only=true`, `rtpengine_plain_rtp_sdp=true`, `rtpengine_explicit_rtcp=true`, `rtpengine_sip_source_address=true`, `rtpengine_media_handover=true`, and `rtpengine_nat_wait=true` for the baseline.
-- RTP packets visible immediately after `180 Ringing`: check `media-evidence.log`. v2.5.0 separates tiny NAT/probe packets from G.711 speech and reports any real pre-answer PCMU/PCMA packets explicitly. Keep `rtpengine_pierce_nat=false` unless a specific NAT needs it.
-- Keepalive noise: OBi/Zoiper may send CRLF or `keep-alive` UDP packets with no CSeq. PlaySBC logs them as `SIP KEEP-ALIVE` and ignores them; they should not create stack traces.
+The `2026-08-23` v2.5.0 run passed OBi1022-to-Zoiper and Zoiper-to-OBi1022 signalling, two-way PCMU, normal teardown, combined PCAP, and archive generation. Zoiper emitted RTCP receiver reports; OBi1022 did not, so RTCP was correctly `endpoint-limited`.
 
-## 8. What v2.5.0 Hardens
+Next real-device work:
 
-- Real-device SIP users: `1001` and `1002`.
-- Dynamic AKS SIP/RTP public IPs; no hard-coded public IPs.
-- Strict real-device routing with no fallback echo for missing registrar routes.
-- 60 second outbound answer window for human hardphone pickup.
-- G.711-only RTPengine baseline for OBi/Zoiper media before wider codec experiments.
-- Plain RTP/AVP SDP normalization for real devices that do not like ICE, RTCP-mux, fingerprint, or WebRTC-style SDP attributes.
-- Explicit `a=rtcp:<RTP+1>` SDP advertisement for RTPengine calls so endpoints have clear bidirectional RTCP targets after `rtcp-mux` is stripped.
-- RTPengine SIP-source-address NAT learning so OBi/Zoiper media uses the observed public SIP source instead of private/fragile endpoint SDP.
-- RTPengine media-handover learning for real OBi/Zoiper NAT flows where the endpoint media tuple may differ from initial SDP.
-- RTPengine `NAT-wait` plus media-handover learning for home-NAT devices, with `pierce NAT` left as an opt-in fallback for difficult NATs.
-- Locked Azure RTP media range: RTPengine and the public RTP LoadBalancer both use UDP `30000-30049`; Helm fails if they drift.
-- Explicit SDP/RTP evidence: inbound offer, outbound offer, callee answer, caller answer, allocated RTPengine ports, learned endpoints, and per-direction packet verdicts.
-- OBi-style in-dialog re-INVITE media refreshes get a valid `200 OK` SDP answer instead of `491 Request Pending`.
-- Safe UDP NAT keepalive handling for hardphones and softphones.
-- Duplicate B2BUA BYE after teardown is answered with `200 OK` when the call ID was just finalized, avoiding noisy harmless `481` responses.
-- Manual OBi1022/Zoiper tests can generate one combined SIP/RTP/RTCP `capture.pcap`, `sipmsg.log`, RTPengine packet verdict evidence, and a downloadable `.tgz` bundle.
-- `sipmsg.log` shows one canonical call flow, collapses public-LB/pod-interface capture mirrors, and lists genuine SIP-over-UDP retransmissions, including repeated INVITE `200 OK` after ACK, once in an annotations section.
-- Real G.711 speech RTP is separated from tiny NAT probes, telephone events, RTCP, and unknown media packets by payload type and payload size.
-- RTP is green only with real voice packets plus a reverse PCAP flow or RTPengine's two-direction verdict. One-sided RTCP is reported as `endpoint-limited`, not silently passed as bidirectional.
-- PlaySBC and RTPengine logs use the exact capture start timestamp, preventing earlier calls from leaking into a later bundle.
-- Common regression now includes digest REGISTER-only profiles over TCP and TLS, including TLS certificate and transport evidence, while the working UDP/RTP call baseline stays unchanged.
-
-### Validated AKS Result
-
-The `2026-08-23` v2.5.0 OBi1022/Zoiper run passed both directions:
-
-- Zoiper `1002` to OBi1022 `1001`: complete INVITE/100/180/200/ACK and BYE/200 flow with audible two-way PCMU.
-- OBi1022 `1001` to Zoiper `1002`: complete INVITE/100/180/200/ACK and BYE/200 flow with audible two-way PCMU.
-- RTPengine recorded `2,114` and `2,810` RTP packets for the two calls and reported both `caller_to_callee=observed` and `callee_to_caller=observed`.
-- The combined PCAP contained no pre-answer G.711 speech. Six PT95 packets were correctly classified as tiny NAT probes.
-- Zoiper sent RTCP receiver reports while OBi1022 sent none, so the truthful result is `endpoint-limited`; this does not make two-way RTP fail.
-- Canonical evidence reduced `123` captured SIP observations to `40` events, collapsed `82` interface mirrors, and annotated one expected UDP INVITE `200 OK` retransmission after ACK.
-- Packet capture completed with zero kernel drops, exact-window component logs, deterministic JSON/text/HTML evidence, capture-pod cleanup, and a generated `.tgz` archive.
-
-An internal `CALL END reason=timer` can appear when the far B2BUA leg sends BYE. The two-second finalizer is expected; verify the canonical ladder contains BYE and `200 OK` on both legs before treating it as a teardown problem.
-
-## 9. Next Roadmap
-
-- Add MOS-style scoring and richer RTCP receiver-report analytics to the real-device HTML evidence.
-- Add real-device RTCP receiver-report, jitter, packet-loss, and MOS-style media-quality evidence.
-- Run longer OBi1022 and Zoiper soak calls with re-registration during active calls.
-- Validate the automated TCP/TLS REGISTER profiles against Poly VVX600 and Yealink SIP-T33G, then add TCP/TLS signalling calls and SRTP where the endpoint supports it.
-- Add multi-device tests: two hardphones plus one softphone, multiple home NAT types, and SIP ALG detection notes.
-- Exercise real-device HA: PlaySBC pod restart, RTPengine pod restart, active-active routing, and shared registrar/dialog restore.
-- Add Azure production hardening: DNS/FQDN, NSG/firewall templates, dashboard panels for real devices, and cleanup/cost guardrails.
+- local-LAN testing through the planned dedicated kind cluster
+- Poly VVX600 and Yealink SIP-T33G TCP/TLS registration
+- longer calls, re-registration, multiple devices, and SIP ALG detection
+- richer RTCP loss/jitter and MOS-style evidence
+- local PlaySBC/RTPengine HA and failover during device calls
