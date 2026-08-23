@@ -605,20 +605,20 @@ kubectl -n playsbc get pods -o wide
 
 The regression launcher also validates every selected container image before cleanup, Helm changes, RBAC creation, or Job creation. A malformed `.azurecr.io/...`, blank tag, unresolved shell variable, or unqualified AKS image now fails immediately without changing the running workloads.
 
-Clone the matching release source:
+Run the current regression launcher from `main` with the released `2.5.0` images. The launcher contains post-release AKS image validation that is newer than the immutable `v2.5.0` source tag. Everything runs in a subshell so a failed preflight stops the run without disconnecting Cloud Shell:
 
 ```bash
-rm -rf PlaySBC-v$PLAYSBC_VERSION
-git clone --branch v$PLAYSBC_VERSION --depth 1 https://github.com/sudheerkumarvatrapu/PlaySBC.git PlaySBC-v$PLAYSBC_VERSION
-cd PlaySBC-v$PLAYSBC_VERSION
-```
-
-Run AKS profiles:
-
-```bash
+(
 set -euo pipefail
-: "${ACR_NAME:?Export ACR_NAME before regression}"
-: "${PLAYSBC_VERSION:?Export PLAYSBC_VERSION before regression}"
+
+export PLAYSBC_VERSION=2.5.0
+export AKS_RG=playsbc-aks-rg
+export ACR_NAME=$(az acr list \
+  --resource-group "$AKS_RG" \
+  --query '[0].name' \
+  -o tsv)
+: "${ACR_NAME:?No ACR found in $AKS_RG}"
+
 export ACR_LOGIN_SERVER=$(az acr show \
   --resource-group "$AKS_RG" \
   --name "$ACR_NAME" \
@@ -632,6 +632,15 @@ for IMAGE in playsbc playsbc-rtpengine playsbc-k8s-regression playsbc-sipp; do
     --image "$IMAGE:$PLAYSBC_VERSION" \
     -o none
 done
+
+cd ~
+rm -rf PlaySBC-main
+git clone --branch main --depth 1 \
+  https://github.com/sudheerkumarvatrapu/PlaySBC.git \
+  PlaySBC-main
+cd PlaySBC-main
+
+git log --oneline -1
 
 PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_k8s_regression_job.py \
   --aks-profiles \
@@ -656,9 +665,10 @@ PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_k8s_regression_job.py
   --no-active-active-topology \
   --aks-load-balancer-wait-timeout 1200 \
   --job-timeout 3600
+)
 ```
 
-`--aks-load-balancer-wait-timeout 1200` gives Azure up to 20 minutes to allocate SIP/RTP LoadBalancer ingress. The run starts only after the selected Azure LoadBalancer services have real ingress values. v2.4.x keeps AKS readiness on a single PlaySBC/RTPengine workload by default, isolates regression REGISTER auth from real-device lab Helm values, and fails the profile if strict evidence is missing or stale. Pass `--active-active-topology` only for HA-specific experiments.
+`--aks-load-balancer-wait-timeout 1200` gives Azure up to 20 minutes to allocate SIP/RTP LoadBalancer ingress. The run starts only after the selected Azure LoadBalancer services have real ingress values. v2.5.0 keeps AKS readiness on a single PlaySBC/RTPengine workload by default, isolates regression REGISTER auth from real-device lab Helm values, and fails the profile if strict evidence is missing or stale. Pass `--active-active-topology` only for HA-specific experiments.
 
 AKS profiles currently cover OPTIONS, REGISTER auth, registered inbound routing, RTPengine media, RTPengine transcoding, SIP TCP, SIP TLS, SRTP/RTP interop, and RTCP quality evidence.
 
@@ -667,7 +677,7 @@ AKS profiles currently cover OPTIONS, REGISTER auth, registered inbound routing,
 Each AKS profile writes one bundle under:
 
 ```text
-~/PlaySBC-v$PLAYSBC_VERSION/logs/AKS-Regression/<run-id>/AKS-Regression/<profile-bundle>/
+~/PlaySBC-main/logs/AKS-Regression/<run-id>/AKS-Regression/<profile-bundle>/
 ```
 
 Use these files first:
@@ -688,7 +698,7 @@ AKS keeps only the merged `capture.pcap`; temporary `capture-core.pcap` and `cap
 Find the latest run:
 
 ```bash
-RUN=$(ls -td ~/PlaySBC-v$PLAYSBC_VERSION/logs/AKS-Regression/aks-regression-* | head -1)
+RUN=$(ls -td ~/PlaySBC-main/logs/AKS-Regression/aks-regression-* | head -1)
 echo "$RUN"
 tail -120 "$RUN/runner.log"
 ls -l "$RUN/AKS-reports"
@@ -697,7 +707,7 @@ ls -l "$RUN/AKS-reports"
 The runner also creates a verified archive automatically:
 
 ```bash
-ARCHIVE=~/PlaySBC-v$PLAYSBC_VERSION/logs/AKS-Regression/latest-aks-regression.tgz
+ARCHIVE=~/PlaySBC-main/logs/AKS-Regression/latest-aks-regression.tgz
 ls -lh "$ARCHIVE"
 tar -tzf "$ARCHIVE" | head -40
 test "$(tar -tzf "$ARCHIVE" | wc -l)" -gt 0
@@ -712,7 +722,7 @@ $RUN/AKS-reports/latest.html
 Download this path from the Cloud Shell toolbar:
 
 ```text
-/home/sudheer/PlaySBC-v$PLAYSBC_VERSION/logs/AKS-Regression/latest-aks-regression.tgz
+/home/sudheer/PlaySBC-main/logs/AKS-Regression/latest-aks-regression.tgz
 ```
 
 Do not manually create a `.tar` from `$RUN`; if `$RUN` is unset, tar can create a tiny empty file. Use the runner-generated `.tgz` above. If the path is missing after reconnecting to Cloud Shell, the session was ephemeral. Rerun regression and download the `.tgz` immediately.
