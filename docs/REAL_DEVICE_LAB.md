@@ -18,12 +18,19 @@ export AKS_NAME=playsbc-aks
 export SIP_PIP_NAME=playsbc-sip-pip
 export RTP_PIP_NAME=playsbc-rtp-pip
 export ACR_NAME=$(az acr list --resource-group "$AKS_RG" --query "[0].name" -o tsv)
+: "${ACR_NAME:?No ACR found in $AKS_RG}"
+export ACR_LOGIN_SERVER=$(az acr show --resource-group "$AKS_RG" --name "$ACR_NAME" --query loginServer -o tsv)
+: "${ACR_LOGIN_SERVER:?Azure did not return an ACR login server}"
 export NODE_RG=$(az aks show --resource-group "$AKS_RG" --name "$AKS_NAME" --query nodeResourceGroup -o tsv)
 export SIP_PUBLIC_IP=$(az network public-ip show --resource-group "$NETWORK_RG" --name "$SIP_PIP_NAME" --query ipAddress -o tsv)
 export RTP_PUBLIC_IP=$(az network public-ip show --resource-group "$NETWORK_RG" --name "$RTP_PIP_NAME" --query ipAddress -o tsv)
 
 az acr import --name "$ACR_NAME" --source ghcr.io/sudheerkumarvatrapu/playsbc:$PLAYSBC_VERSION --image playsbc:$PLAYSBC_VERSION --force
 az acr import --name "$ACR_NAME" --source ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:$PLAYSBC_VERSION --image playsbc-rtpengine:$PLAYSBC_VERSION --force
+
+for IMAGE in playsbc playsbc-rtpengine; do
+  az acr repository show --name "$ACR_NAME" --image "$IMAGE:$PLAYSBC_VERSION" -o none
+done
 ```
 
 If ACR import returns `MANIFEST_UNKNOWN`, GHCR has not exposed the new image yet. From the repo on the Mac, watch the image build:
@@ -43,6 +50,9 @@ helm upgrade --install playsbc \
   https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v$PLAYSBC_VERSION/playsbc-$PLAYSBC_VERSION.tgz \
   --namespace playsbc \
   --reuse-values \
+  --atomic \
+  --wait \
+  --timeout 10m \
   --set cloud.provider=azure \
   --set cloud.azure.enabled=true \
   --set cloud.azure.nodeResourceGroup="$NODE_RG" \
@@ -55,11 +65,11 @@ helm upgrade --install playsbc \
   --set cloud.azure.media.public.portRange.enabled=true \
   --set cloud.azure.media.public.portRange.min=30000 \
   --set cloud.azure.media.public.portRange.max=30049 \
-  --set image.repository="$ACR_NAME.azurecr.io/playsbc" \
+  --set image.repository="$ACR_LOGIN_SERVER/playsbc" \
   --set-string image.tag="$PLAYSBC_VERSION" \
   --set image.pullPolicy=Always \
   --set rtpengine.enabled=true \
-  --set rtpengine.image.repository="$ACR_NAME.azurecr.io/playsbc-rtpengine" \
+  --set rtpengine.image.repository="$ACR_LOGIN_SERVER/playsbc-rtpengine" \
   --set-string rtpengine.image.tag="$PLAYSBC_VERSION" \
   --set rtpengine.image.pullPolicy=Always \
   --set playsbc.config.rtp_min=30000 \

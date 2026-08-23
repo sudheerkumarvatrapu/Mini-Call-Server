@@ -150,7 +150,15 @@ az acr import --name "$ACR_NAME" \
   --image playsbc-sipp:$PLAYSBC_VERSION
 
 az acr repository list --name "$ACR_NAME" -o table
+
+export ACR_LOGIN_SERVER=$(az acr show \
+  --resource-group "$AKS_RG" \
+  --name "$ACR_NAME" \
+  --query loginServer \
+  -o tsv)
 ```
+
+Use `ACR_LOGIN_SERVER` from Azure instead of constructing `$ACR_NAME.azurecr.io`. This avoids malformed image names when a new Cloud Shell loses `ACR_NAME`.
 
 ## 6. Create AKS
 
@@ -337,15 +345,36 @@ EOF
 Deploy:
 
 ```bash
+set -euo pipefail
+: "${ACR_NAME:?Export ACR_NAME before deploying}"
+: "${PLAYSBC_VERSION:?Export PLAYSBC_VERSION before deploying}"
+
+ACR_LOGIN_SERVER=$(az acr show \
+  --resource-group "$AKS_RG" \
+  --name "$ACR_NAME" \
+  --query loginServer \
+  -o tsv)
+: "${ACR_LOGIN_SERVER:?Azure did not return an ACR login server}"
+
+for IMAGE in playsbc playsbc-rtpengine; do
+  az acr repository show \
+    --name "$ACR_NAME" \
+    --image "$IMAGE:$PLAYSBC_VERSION" \
+    -o none
+done
+
 helm upgrade --install playsbc \
   https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v$PLAYSBC_VERSION/playsbc-$PLAYSBC_VERSION.tgz \
   --namespace playsbc \
   --create-namespace \
+  --atomic \
+  --wait \
+  --timeout 10m \
   -f playsbc-azure-lab-values.yaml \
-  --set image.repository="$ACR_NAME.azurecr.io/playsbc" \
+  --set image.repository="$ACR_LOGIN_SERVER/playsbc" \
   --set-string image.tag="$PLAYSBC_VERSION" \
   --set image.pullPolicy=Always \
-  --set rtpengine.image.repository="$ACR_NAME.azurecr.io/playsbc-rtpengine" \
+  --set rtpengine.image.repository="$ACR_LOGIN_SERVER/playsbc-rtpengine" \
   --set-string rtpengine.image.tag="$PLAYSBC_VERSION" \
   --set rtpengine.image.pullPolicy=Always
 ```
@@ -518,6 +547,64 @@ SIP OPTIONS from <your-public-ip>:5065
 
 ## 12. Run AKS Regression
 
+### Image Preflight And Recovery
+
+Cloud Shell variables do not persist. An unset `ACR_NAME` creates image values such as `.azurecr.io/playsbc:2.5.0`, and Kubernetes reports `InvalidImageName`. Stop the foreground command with `Ctrl-C`, then remove only regression resources:
+
+```bash
+kubectl -n playsbc delete job \
+  -l app.kubernetes.io/name=playsbc-k8s-regression-runner \
+  --ignore-not-found
+
+kubectl -n playsbc delete pod \
+  -l app.kubernetes.io/name=playsbc-k8s-regression-runner \
+  --ignore-not-found
+```
+
+Recover the PlaySBC and RTPengine workloads with verified ACR values:
+
+```bash
+set -euo pipefail
+export AKS_RG=playsbc-aks-rg
+export PLAYSBC_VERSION=2.5.0
+export ACR_NAME=$(az acr list --resource-group "$AKS_RG" --query "[0].name" -o tsv)
+: "${ACR_NAME:?No ACR found in $AKS_RG}"
+
+export ACR_LOGIN_SERVER=$(az acr show \
+  --resource-group "$AKS_RG" \
+  --name "$ACR_NAME" \
+  --query loginServer \
+  -o tsv)
+: "${ACR_LOGIN_SERVER:?Azure did not return an ACR login server}"
+
+for IMAGE in playsbc playsbc-rtpengine playsbc-k8s-regression playsbc-sipp; do
+  az acr repository show \
+    --name "$ACR_NAME" \
+    --image "$IMAGE:$PLAYSBC_VERSION" \
+    -o none
+done
+
+helm upgrade playsbc \
+  "https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz" \
+  --namespace playsbc \
+  --reuse-values \
+  --atomic \
+  --wait \
+  --timeout 10m \
+  --set image.repository="$ACR_LOGIN_SERVER/playsbc" \
+  --set-string image.tag="$PLAYSBC_VERSION" \
+  --set image.pullPolicy=Always \
+  --set rtpengine.image.repository="$ACR_LOGIN_SERVER/playsbc-rtpengine" \
+  --set-string rtpengine.image.tag="$PLAYSBC_VERSION" \
+  --set rtpengine.image.pullPolicy=Always
+
+kubectl -n playsbc rollout status deployment/playsbc-playsbc --timeout=240s
+kubectl -n playsbc rollout status deployment/playsbc-playsbc-rtpengine --timeout=240s
+kubectl -n playsbc get pods -o wide
+```
+
+The regression launcher also validates every selected container image before cleanup, Helm changes, RBAC creation, or Job creation. A malformed `.azurecr.io/...`, blank tag, unresolved shell variable, or unqualified AKS image now fails immediately without changing the running workloads.
+
 Clone the matching release source:
 
 ```bash
@@ -529,6 +616,23 @@ cd PlaySBC-v$PLAYSBC_VERSION
 Run AKS profiles:
 
 ```bash
+set -euo pipefail
+: "${ACR_NAME:?Export ACR_NAME before regression}"
+: "${PLAYSBC_VERSION:?Export PLAYSBC_VERSION before regression}"
+export ACR_LOGIN_SERVER=$(az acr show \
+  --resource-group "$AKS_RG" \
+  --name "$ACR_NAME" \
+  --query loginServer \
+  -o tsv)
+: "${ACR_LOGIN_SERVER:?Azure did not return an ACR login server}"
+
+for IMAGE in playsbc playsbc-rtpengine playsbc-k8s-regression playsbc-sipp; do
+  az acr repository show \
+    --name "$ACR_NAME" \
+    --image "$IMAGE:$PLAYSBC_VERSION" \
+    -o none
+done
+
 PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_k8s_regression_job.py \
   --aks-profiles \
   --aks-mode \
@@ -539,10 +643,10 @@ PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_k8s_regression_job.py
   --aks-require-rtp-port-range \
   --aks-rtp-port-min 30000 \
   --aks-rtp-port-max 30049 \
-  --runner-image "$ACR_NAME.azurecr.io/playsbc-k8s-regression:$PLAYSBC_VERSION" \
-  --sipp-image "$ACR_NAME.azurecr.io/playsbc-sipp:$PLAYSBC_VERSION" \
-  --playsbc-image "$ACR_NAME.azurecr.io/playsbc:$PLAYSBC_VERSION" \
-  --rtpengine-image "$ACR_NAME.azurecr.io/playsbc-rtpengine:$PLAYSBC_VERSION" \
+  --runner-image "$ACR_LOGIN_SERVER/playsbc-k8s-regression:$PLAYSBC_VERSION" \
+  --sipp-image "$ACR_LOGIN_SERVER/playsbc-sipp:$PLAYSBC_VERSION" \
+  --playsbc-image "$ACR_LOGIN_SERVER/playsbc:$PLAYSBC_VERSION" \
+  --rtpengine-image "$ACR_LOGIN_SERVER/playsbc-rtpengine:$PLAYSBC_VERSION" \
   --set-playsbc-image \
   --set-rtpengine-image \
   --no-load-playsbc-image \

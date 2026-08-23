@@ -409,6 +409,51 @@ def split_image_name(image: str) -> tuple[str, str]:
     return repository, tag
 
 
+def validate_image_reference(image: str, option: str) -> None:
+    value = image.strip()
+    if not value or value != image or any(character.isspace() for character in value):
+        raise SystemExit(f"Invalid {option} image reference {image!r}: empty or whitespace-containing value")
+    if value.startswith((".", "/", ":")) or "://" in value or "$" in value or "{" in value or "}" in value:
+        raise SystemExit(
+            f"Invalid {option} image reference {image!r}. "
+            "Re-export ACR_NAME/ACR_LOGIN_SERVER and PLAYSBC_VERSION before running regression."
+        )
+
+    repository, tag = split_image_name(value)
+    if not repository or repository.endswith(("/", ".", ":")) or any(
+        not component or component in {".", ".."} for component in repository.split("/")
+    ):
+        raise SystemExit(f"Invalid {option} image repository in {image!r}")
+    if not tag or not (tag[0].isalnum() or tag[0] == "_") or any(
+        not (character.isalnum() or character in "_.-") for character in tag
+    ):
+        raise SystemExit(f"Invalid {option} image tag in {image!r}")
+    if any(not (character.isalnum() or character in "._-:/") for character in repository):
+        raise SystemExit(f"Invalid {option} image repository in {image!r}")
+
+
+def validate_requested_images(args: argparse.Namespace) -> None:
+    requested = [
+        (args.runner_image, "--runner-image"),
+        (args.sipp_image, "--sipp-image"),
+    ]
+    if args.set_playsbc_image or args.build_playsbc_image:
+        requested.append((args.playsbc_image, "--playsbc-image"))
+    if args.set_rtpengine_image or args.build_rtpengine_image:
+        requested.append((args.rtpengine_image, "--rtpengine-image"))
+
+    for image, option in requested:
+        validate_image_reference(image, option)
+
+    if args.aks_mode and not args.dry_run:
+        for image, option in requested:
+            if "/" not in split_image_name(image)[0]:
+                raise SystemExit(
+                    f"AKS requires a registry-qualified {option} value; received {image!r}. "
+                    "Use the verified ACR login server or a published GHCR image."
+                )
+
+
 def prepare_playsbc_image_values(args: argparse.Namespace) -> None:
     if not args.set_playsbc_image and not args.set_rtpengine_image:
         return
@@ -754,6 +799,7 @@ def wait_for_runner(args: argparse.Namespace) -> tuple[str, str, str]:
 
 
 def run_job(args: argparse.Namespace) -> int:
+    validate_requested_images(args)
     ensure_binary(args.kubectl_bin)
     manifests = [service_account_manifest(args), role_manifest(args), role_binding_manifest(args), job_manifest(args)]
     if args.dry_run:

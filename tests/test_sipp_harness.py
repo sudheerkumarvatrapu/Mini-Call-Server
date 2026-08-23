@@ -3898,6 +3898,51 @@ class RealTopologyTests(unittest.TestCase):
         prepare.assert_not_called()
         run_command.assert_not_called()
 
+    def test_kubernetes_job_rejects_empty_acr_image_before_cluster_mutation(self):
+        args = run_k8s_regression_job.parse_args(
+            [
+                "--aks-profiles",
+                "--playsbc-image",
+                ".azurecr.io/playsbc:2.5.0",
+                "--set-playsbc-image",
+                "--runner-image",
+                ".azurecr.io/playsbc-k8s-regression:2.5.0",
+                "--sipp-image",
+                ".azurecr.io/playsbc-sipp:2.5.0",
+            ]
+        )
+
+        with (
+            mock.patch.object(run_k8s_regression_job, "ensure_binary") as ensure_binary,
+            mock.patch.object(run_k8s_regression_job, "prepare_playsbc_image_values") as prepare,
+            mock.patch.object(run_k8s_regression_job, "run_command") as run_command,
+            self.assertRaisesRegex(SystemExit, "Re-export ACR_NAME/ACR_LOGIN_SERVER"),
+        ):
+            run_k8s_regression_job.run_job(args)
+
+        ensure_binary.assert_not_called()
+        prepare.assert_not_called()
+        run_command.assert_not_called()
+
+    def test_kubernetes_job_accepts_registry_qualified_aks_images(self):
+        args = run_k8s_regression_job.parse_args(
+            [
+                "--aks-profiles",
+                "--runner-image",
+                "playsbcacr.example.azurecr.io/playsbc-k8s-regression:2.5.0",
+                "--sipp-image",
+                "playsbcacr.example.azurecr.io/playsbc-sipp:2.5.0",
+                "--playsbc-image",
+                "playsbcacr.example.azurecr.io/playsbc:2.5.0",
+                "--rtpengine-image",
+                "playsbcacr.example.azurecr.io/playsbc-rtpengine:2.5.0",
+                "--set-playsbc-image",
+                "--set-rtpengine-image",
+            ]
+        )
+
+        run_k8s_regression_job.validate_requested_images(args)
+
     def test_kubernetes_full_suite_keeps_existing_output_layout(self):
         args = run_k8s_regression_job.parse_args(["--all-profiles"])
         command = run_k8s_regression_job.runner_command_args(args)
