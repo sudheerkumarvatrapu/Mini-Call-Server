@@ -324,7 +324,9 @@ PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache \
 python3 tools/run_k8s_regression_job.py \
   --aks-profiles \
   --runner-image "$ACR_LOGIN_SERVER/playsbc-k8s-regression:$PLAYSBC_VERSION" \
+  --runner-image-pull-policy Always \
   --sipp-image "$ACR_LOGIN_SERVER/playsbc-sipp:$PLAYSBC_VERSION" \
+  --sipp-image-pull-policy Always \
   --playsbc-image "$ACR_LOGIN_SERVER/playsbc:$PLAYSBC_VERSION" \
   --rtpengine-image "$ACR_LOGIN_SERVER/playsbc-rtpengine:$PLAYSBC_VERSION" \
   --set-playsbc-image \
@@ -334,6 +336,8 @@ python3 tools/run_k8s_regression_job.py \
 ```
 
 The `--aks-profiles` shortcut enforces Azure services, static SIP, public SIP/RTP ingress, UDP `30000-30049`, and single-workload topology. Image references are validated before Helm or Job mutation.
+
+AKS profile runs default both regression images to `imagePullPolicy: Always`. This matters when a release tag such as `2.5.0` is rebuilt in place: `IfNotPresent` can silently reuse an older node-cached runner with stale scenarios and validators. Confirm the refreshed GHCR workflow and all four ACR imports completed before launching the Job.
 
 Stop only regression resources:
 

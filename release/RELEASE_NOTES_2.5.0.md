@@ -25,6 +25,7 @@ PlaySBC v2.5.0 makes real-device evidence easier to trust and begins the hardpho
 - Render the same SIPp SDES `RTP/SAVP` scenario on Kubernetes that Docker regression already used, fixing both mixed TLS/SRTP profiles.
 - Validate SRTP and RTPengine errors only against call IDs present in the current profile's `sipmsg.log`, so prior calls and public SIP scanner traffic cannot contaminate the verdict.
 - Validate OPTIONS using request and CSeq lines, allowing a normal `Allow: REGISTER, OPTIONS, INVITE, ACK, BYE, CANCEL` response header.
+- Default AKS runner and SIPp images to `imagePullPolicy: Always`, preventing a rebuilt `2.5.0` tag from reusing stale node-cached regression code.
 - Keep the release and container tag at `2.5.0`; no chart value, real-device UDP/RTP, AI/Rasa, HA, or observability behavior changes.
 
 ## Compatibility Contract

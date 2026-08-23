@@ -3819,6 +3819,11 @@ class RealTopologyTests(unittest.TestCase):
         self.assertTrue(job_args.aks_require_public_rtp_ingress)
         self.assertTrue(job_args.aks_require_rtp_port_range)
         self.assertFalse(job_args.active_active_topology)
+        self.assertEqual(job_args.runner_image_pull_policy, "Always")
+        self.assertEqual(job_args.sipp_image_pull_policy, "Always")
+        manifest = run_k8s_regression_job.job_manifest(job_args)
+        containers = manifest["spec"]["template"]["spec"]["containers"]
+        self.assertEqual([container["imagePullPolicy"] for container in containers], ["Always", "Always"])
         self.assertIn("--aks-profiles", command)
         self.assertIn("--aks-mode", command)
         self.assertIn("--no-active-active-topology", command)
@@ -3846,6 +3851,20 @@ class RealTopologyTests(unittest.TestCase):
         self.assertTrue(job_args.active_active_topology)
         self.assertIn("--active-active-topology", command)
         self.assertNotIn("--no-active-active-topology", command)
+
+    def test_kubernetes_aks_image_pull_policy_can_be_explicitly_overridden(self):
+        args = run_k8s_regression_job.parse_args(
+            [
+                "--aks-profiles",
+                "--runner-image-pull-policy",
+                "IfNotPresent",
+                "--sipp-image-pull-policy",
+                "Never",
+            ]
+        )
+
+        self.assertEqual(args.runner_image_pull_policy, "IfNotPresent")
+        self.assertEqual(args.sipp_image_pull_policy, "Never")
 
     def test_aks_evidence_archive_is_verified(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -4020,6 +4039,8 @@ class RealTopologyTests(unittest.TestCase):
         self.assertEqual(args.remote_output_root_name, "k8s-Regression")
         self.assertEqual(args.remote_report_dir_name, "k8s-reports")
         self.assertTrue(args.run_id.startswith("k8s-regression-"))
+        self.assertEqual(args.runner_image_pull_policy, "IfNotPresent")
+        self.assertEqual(args.sipp_image_pull_policy, "IfNotPresent")
         self.assertIn("--all-profiles", command)
         self.assertNotIn("--rasa-profiles", command)
         self.assertIn("--active-active-topology", command)

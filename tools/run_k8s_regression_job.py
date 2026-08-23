@@ -884,9 +884,19 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--runner-image", default="playsbc-k8s-regression:local")
     parser.add_argument("--playsbc-image", default="playsbc:k8s-regression")
     parser.add_argument("--rtpengine-image", default="playsbc/rtpengine:local")
-    parser.add_argument("--runner-image-pull-policy", default="IfNotPresent")
+    parser.add_argument(
+        "--runner-image-pull-policy",
+        choices=("Always", "IfNotPresent", "Never"),
+        default=None,
+        help="Runner image pull policy; defaults to Always for AKS profiles and IfNotPresent otherwise",
+    )
     parser.add_argument("--sipp-image", default="playsbc-sipp:local")
-    parser.add_argument("--sipp-image-pull-policy", default="IfNotPresent")
+    parser.add_argument(
+        "--sipp-image-pull-policy",
+        choices=("Always", "IfNotPresent", "Never"),
+        default=None,
+        help="SIPp image pull policy; defaults to Always for AKS profiles and IfNotPresent otherwise",
+    )
     parser.add_argument("--build-playsbc-image", action="store_true")
     parser.add_argument("--build-runner-image", action="store_true")
     parser.add_argument("--build-sipp-image", action="store_true")
@@ -983,6 +993,10 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
             args.remote_output_root_name = AKS_REMOTE_OUTPUT_ROOT
         if args.remote_report_dir_name == DEFAULT_REMOTE_REPORT_DIR:
             args.remote_report_dir_name = AKS_REMOTE_REPORT_DIR
+    if args.runner_image_pull_policy is None:
+        args.runner_image_pull_policy = "Always" if args.aks_mode else "IfNotPresent"
+    if args.sipp_image_pull_policy is None:
+        args.sipp_image_pull_policy = "Always" if args.aks_mode else "IfNotPresent"
     if args.active_active_topology is None:
         args.active_active_topology = False if args.aks_profiles else True
     if args.playsbc_replicas < 1:
