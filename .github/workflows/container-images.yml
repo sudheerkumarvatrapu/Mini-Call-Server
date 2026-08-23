@@ -7,6 +7,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version_tag:
+        description: Optional image tag for an in-place release rebuild, for example 2.5.0
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -50,6 +55,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ inputs.version_tag }},enable=${{ inputs.version_tag != '' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6

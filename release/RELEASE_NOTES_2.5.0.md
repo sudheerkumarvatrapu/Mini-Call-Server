@@ -20,17 +20,23 @@ PlaySBC v2.5.0 makes real-device evidence easier to trust and begins the hardpho
 - Include both profiles in the common full regression catalog and the AKS profile set.
 - Leave OBi1022/Zoiper UDP signalling and RTPengine-anchored G.711 media behavior unchanged.
 
+## AKS Regression Hotfix
+
+- Render the same SIPp SDES `RTP/SAVP` scenario on Kubernetes that Docker regression already used, fixing both mixed TLS/SRTP profiles.
+- Validate SRTP and RTPengine errors only against call IDs present in the current profile's `sipmsg.log`, so prior calls and public SIP scanner traffic cannot contaminate the verdict.
+- Validate OPTIONS using request and CSeq lines, allowing a normal `Allow: REGISTER, OPTIONS, INVITE, ACK, BYE, CANCEL` response header.
+- Keep the release and container tag at `2.5.0`; no chart value, real-device UDP/RTP, AI/Rasa, HA, or observability behavior changes.
+
 ## Compatibility Contract
 
 - The profile definitions are shared by Docker dual-realm, local regression, kind/minikube, and AKS runners.
 - Existing Kubernetes active-active defaults and AKS single-workload readiness defaults remain unchanged.
-- Existing Rasa/AI voice, RTPengine, SRTP, HA, load, and observability profile behavior is unchanged.
+- Existing Rasa/AI voice, RTPengine call control, HA, load, real-device, and observability behavior is unchanged.
 - The local Kubernetes playbook now carries the complete v2.5.0 active-active upgrade, observability rollout, and published-image full-regression command. Future releases must update it with the AKS and real-device playbooks.
 
 ## Validation
 
 - Python compile checks pass for all changed tools.
-- The complete `tests.test_sipp_harness` suite passes: 161 tests.
-- The combined SIP server, RTPengine, and SIPp harness gate passes: 266 tests with one expected platform skip.
+- The complete repository test gate passes: 308 tests with one expected platform skip.
 - TCP and TLS registration profile dry-runs render registration-only commands successfully.
 - Live Docker dual-realm execution still requires Docker Desktop to be running; the release branch records no protocol failure from that unavailable local daemon.

@@ -2037,6 +2037,32 @@ def format_simple_yaml_scalar(value: object) -> str:
     return json.dumps(text)
 
 
+def render_srtp_media_scenario(text: str) -> str:
+    text = text.replace("[media_port]", "[rtpstream_audio_port]")
+    text = text.replace(" RTP/AVP ", " RTP/SAVP ")
+    text = text.replace(
+        "      a=ptime:20",
+        (
+            "      a=crypto:[cryptotag1audio] "
+            "[cryptosuiteaescm128sha1801audio] inline:[cryptokeyparams1audio]\n"
+            "      a=rtcp:[rtpstream_audio_port+1]\n"
+            "      a=ptime:20"
+        ),
+    )
+    secure_action = '<exec rtp_echo="startaudio,0,PCMU/8000"/>'
+    return re.sub(
+        r"\n\s*<nop>\s*<action>\s*<exec play_pcap_audio=\"[^\"]+\"/>\s*</action>\s*</nop>\s*",
+        (
+            "\n  <nop>\n"
+            "    <action>\n"
+            f"      {secure_action}\n"
+            "    </action>\n"
+            "  </nop>\n\n"
+        ),
+        text,
+    )
+
+
 def prepare_media_scenarios(args: argparse.Namespace, run_dir: Path) -> None:
     if not args.media_enabled:
         args.uac_scenario = resolve_scenario_path(args.uac_scenario, SCENARIO_DIR / "b2bua_uac_a.xml")
@@ -2083,32 +2109,10 @@ def prepare_media_scenarios(args: argparse.Namespace, run_dir: Path) -> None:
             getattr(args, "uac_srtp", False) if attr_name == "uac_scenario" else getattr(args, "uas_srtp", False)
         )
         if secure_leg:
-            text = text.replace("[media_port]", "[rtpstream_audio_port]")
-            text = text.replace(" RTP/AVP ", " RTP/SAVP ")
-            text = text.replace(
-                "      a=ptime:20",
-                (
-                    "      a=crypto:[cryptotag1audio] "
-                    "[cryptosuiteaescm128sha1801audio] inline:[cryptokeyparams1audio]\n"
-                    "      a=rtcp:[rtpstream_audio_port+1]\n"
-                    "      a=ptime:20"
-                ),
-            )
             # SIPp's SRTP echo path selects the negotiated remote SDES key for
             # transmit. rtp_stream uses the locally offered key, which causes
             # RTPengine to reject the packets as authentication failures.
-            secure_action = '<exec rtp_echo="startaudio,0,PCMU/8000"/>'
-            text = re.sub(
-                r"\n\s*<nop>\s*<action>\s*<exec play_pcap_audio=\"[^\"]+\"/>\s*</action>\s*</nop>\s*",
-                (
-                    "\n  <nop>\n"
-                    "    <action>\n"
-                    f"      {secure_action}\n"
-                    "    </action>\n"
-                    "  </nop>\n\n"
-                ),
-                text,
-            )
+            text = render_srtp_media_scenario(text)
         destination.write_text(text, encoding="ISO-8859-1")
         setattr(args, attr_name, destination.resolve())
 

@@ -2991,6 +2991,24 @@ class RealTopologyTests(unittest.TestCase):
         self.assertIn("RTP/AVP", plain)
         self.assertIn("play_pcap_audio", plain)
 
+    def test_kubernetes_secure_media_profiles_render_sdes_on_the_secure_leg(self):
+        for profile_name, secure_role, plain_role in (
+            ("tls-srtp-to-udp-rtp", "uac", "uas"),
+            ("udp-rtp-to-tls-srtp", "uas", "uac"),
+        ):
+            with self.subTest(profile=profile_name):
+                profile = run_k8s_regression.profile_values(profile_name, "secure-k8s")
+                secure = run_k8s_regression.rendered_scenario(profile, secure_role)
+                plain = run_k8s_regression.rendered_scenario(profile, plain_role)
+
+                self.assertIn("RTP/SAVP", secure)
+                self.assertIn("a=crypto:", secure)
+                self.assertIn("rtp_echo=", secure)
+                self.assertNotIn("play_pcap_audio", secure)
+                self.assertIn("RTP/AVP", plain)
+                self.assertNotIn("a=crypto:", plain)
+                self.assertIn("play_pcap_audio", plain)
+
     def test_sipp_docker_image_is_built_with_tls_and_pcap(self):
         dockerfile = (ROOT / "docker" / "sipp.Dockerfile").read_text(encoding="utf-8")
 
@@ -3346,6 +3364,54 @@ class RealTopologyTests(unittest.TestCase):
 
             self.assertTrue(any("crypto" in failure for failure in failures))
             self.assertTrue(any("both RTP directions" in failure for failure in failures))
+
+    def test_kubernetes_srtp_validation_ignores_prior_call_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp)
+            write_test_pcap(bundle / "capture.pcap", 1.0, b"packet", linktype=1)
+            (bundle / "sipmsg.log").write_text(
+                "INVITE sip:1002@example.test SIP/2.0\nCall-ID: current-call\nCSeq: 1 INVITE\n",
+                encoding="utf-8",
+            )
+            (bundle / "log.media").write_text(
+                (
+                    "RTPENGINE MEDIA SECURITY | call_id=current-call\n"
+                    "RTPENGINE PACKET VERDICT | call_id=current-call | "
+                    "caller_to_callee=observed callee_to_caller=observed total_rtp_packets=20\n"
+                ),
+                encoding="utf-8",
+            )
+            (bundle / "rtpengine.log").write_text(
+                "ERR: [prior-call port 30000]: SRTP output wanted, but no crypto suite was negotiated\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                run_k8s_regression.validate_k8s_profile_evidence("udp-rtp-to-tls-srtp", bundle),
+                [],
+            )
+
+    def test_kubernetes_options_validation_ignores_allow_header_methods(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp)
+            write_test_pcap(bundle / "capture.pcap", 1.0, b"options", linktype=1)
+            (bundle / "sipmsg.log").write_text(
+                (
+                    "OPTIONS sip:playsbc@example.test SIP/2.0\n"
+                    "Call-ID: options-call\n"
+                    "CSeq: 1 OPTIONS\n\n"
+                    "SIP/2.0 200 OK\n"
+                    "Call-ID: options-call\n"
+                    "CSeq: 1 OPTIONS\n"
+                    "Allow: REGISTER, OPTIONS, INVITE, ACK, BYE, CANCEL\n"
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                run_k8s_regression.validate_k8s_profile_evidence("esbc-options-keepalive", bundle),
+                [],
+            )
 
     def test_kubernetes_evidence_validation_rejects_options_noise_and_split_pcaps(self):
         with tempfile.TemporaryDirectory() as tmp:
