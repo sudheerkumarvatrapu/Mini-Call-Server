@@ -23,6 +23,7 @@ from tools import run_dual_realm_profile
 from tools import run_k8s_regression
 from tools import run_k8s_regression_job
 from tools import run_real_device_capture
+from tools import real_device_evidence
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1660,13 +1661,14 @@ Content-Length: 0
 
     def test_current_release_keeps_kind_regression_path(self):
         chart = ROOT / "charts" / "playsbc"
-        current_version = "2.4.4"
+        current_version = "2.5.0"
         version = (ROOT / "VERSION").read_text(encoding="utf-8")
         chart_yaml = (chart / "Chart.yaml").read_text(encoding="utf-8")
         values = (chart / "values.yaml").read_text(encoding="utf-8")
         aks_values = (ROOT / "configs" / "kubernetes" / "aks-values.yaml").read_text(encoding="utf-8")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         runbook = (ROOT / "docs" / "KUBERNETES_HELM_RUNBOOK.md").read_text(encoding="utf-8")
+        local_runbook = (ROOT / "docs" / "KUBERNETES_LOCAL.md").read_text(encoding="utf-8")
         release_notes = (ROOT / "release" / f"RELEASE_NOTES_{current_version}.md").read_text(encoding="utf-8")
 
         self.assertEqual(version.strip(), current_version)
@@ -1674,10 +1676,14 @@ Content-Length: 0
         self.assertIn(f'appVersion: "{current_version}"', chart_yaml)
         self.assertIn(f'tag: "{current_version}"', values)
         self.assertIn(f'tag: "{current_version}"', aks_values)
-        self.assertIn("v2.x charts must continue to run the same kind regression path", readme)
-        self.assertIn("runner-image ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:1.4.2", runbook)
-        self.assertIn("RTCP evidence archive hotfix", release_notes)
-        self.assertIn("rtpengine_explicit_rtcp", release_notes)
+        self.assertIn(f"kind/minikube must track the current release (`v{current_version}`", readme)
+        self.assertIn(f"export PLAYSBC_VERSION={current_version}", runbook)
+        self.assertIn(f"export PLAYSBC_VERSION={current_version}", local_runbook)
+        self.assertIn("--all-profiles", local_runbook)
+        self.assertIn("--set-rtpengine-image", local_runbook)
+        self.assertNotIn("playsbc-k8s-regression:1.4.2", runbook)
+        self.assertIn("Clean Real-Device Evidence", release_notes)
+        self.assertIn("register-auth-tls", release_notes)
 
         args = run_k8s_regression_job.parse_args(
             [
@@ -3423,6 +3429,81 @@ class RealTopologyTests(unittest.TestCase):
                 names = set(archive.getnames())
             self.assertIn("real-device-capture-unit/capture.pcap", names)
             self.assertIn("real-device-capture-unit/sipmsg.log", names)
+
+    def test_real_device_evidence_collapses_sip_retransmissions_and_classifies_media(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp)
+            call_id = "real-device-unit@example.test"
+
+            def sip(start_line: str, cseq: str) -> bytes:
+                return (
+                    f"{start_line}\r\nCall-ID: {call_id}\r\nCSeq: {cseq}\r\nContent-Length: 0\r\n\r\n"
+                ).encode("ISO-8859-1")
+
+            def rtp(payload_type: int, media_bytes: int, sequence: int) -> bytes:
+                return struct.pack("!BBHII", 0x80, payload_type, sequence, 160 * sequence, 0x12345678) + bytes(media_bytes)
+
+            def rtcp(packet_type: int) -> bytes:
+                return struct.pack("!BBH", 0x80, packet_type, 1) + b"\x00\x00\x00\x01"
+
+            packets = [
+                run_b2bua_sipp_smoke.PcapPacket(1.0, "198.51.100.10", 5060, "203.0.113.20", 5062, sip("INVITE sip:1002@example.test SIP/2.0", "1 INVITE")),
+                run_b2bua_sipp_smoke.PcapPacket(1.001, "198.51.100.10", 5060, "10.244.0.20", 5062, sip("INVITE sip:1002@example.test SIP/2.0", "1 INVITE")),
+                run_b2bua_sipp_smoke.PcapPacket(1.1, "203.0.113.20", 5062, "198.51.100.10", 5060, sip("SIP/2.0 100 Trying", "1 INVITE")),
+                run_b2bua_sipp_smoke.PcapPacket(1.2, "203.0.113.20", 5062, "198.51.100.10", 5060, sip("SIP/2.0 180 Ringing", "1 INVITE")),
+                run_b2bua_sipp_smoke.PcapPacket(1.3, "203.0.113.20", 5062, "198.51.100.10", 5060, sip("SIP/2.0 200 OK", "1 INVITE")),
+                run_b2bua_sipp_smoke.PcapPacket(1.4, "198.51.100.10", 5060, "203.0.113.20", 5062, sip("ACK sip:1002@example.test SIP/2.0", "1 ACK")),
+                run_b2bua_sipp_smoke.PcapPacket(1.5, "203.0.113.20", 5062, "198.51.100.10", 5060, sip("SIP/2.0 200 OK", "1 INVITE")),
+                run_b2bua_sipp_smoke.PcapPacket(1.25, "198.51.100.10", 30000, "203.0.113.20", 30002, rtp(0, 1, 1)),
+                run_b2bua_sipp_smoke.PcapPacket(1.6, "198.51.100.10", 30000, "203.0.113.20", 30002, rtp(0, 160, 2)),
+                run_b2bua_sipp_smoke.PcapPacket(1.7, "203.0.113.20", 30002, "198.51.100.10", 30000, rtp(8, 160, 3)),
+                run_b2bua_sipp_smoke.PcapPacket(1.8, "198.51.100.10", 30001, "203.0.113.20", 30003, rtcp(201)),
+            ]
+            run_b2bua_sipp_smoke.write_udp_pcap(bundle / "capture.pcap", packets)
+            (bundle / "rtpengine-verdict.log").write_text(
+                "caller_to_callee=observed callee_to_caller=observed\n", encoding="utf-8"
+            )
+
+            evidence = real_device_evidence.write_evidence_bundle(bundle)
+
+            self.assertEqual(evidence["sip"]["canonical_events"], 5)
+            self.assertEqual(evidence["sip"]["capture_mirror_packets"], 1)
+            self.assertEqual(evidence["sip"]["retransmitted_packets"], 1)
+            self.assertEqual(
+                evidence["sip"]["retransmissions"][0]["classification"],
+                "expected_200_ok_retransmission_after_ack",
+            )
+            self.assertEqual(evidence["media"]["packet_counts"]["voice_rtp"], 2)
+            self.assertEqual(evidence["media"]["packet_counts"]["nat_probe_rtp"], 1)
+            self.assertEqual(evidence["media"]["rtcp_status"], "endpoint-limited")
+            self.assertTrue(evidence["media"]["bidirectional_rtp_proven"])
+            self.assertIn("CANONICAL SIP FLOW", (bundle / "sipmsg.log").read_text(encoding="utf-8"))
+            self.assertFalse((bundle / "canonical-sip.log").exists())
+            self.assertTrue((bundle / "media-evidence.json").exists())
+            self.assertTrue((bundle / "latest.html").exists())
+
+    def test_real_device_log_collection_uses_exact_capture_window(self):
+        args = run_real_device_capture.parse_args(["--duration", "120"])
+        started = run_real_device_capture.dt.datetime(2026, 8, 23, 10, 30, tzinfo=run_real_device_capture.dt.timezone.utc)
+        completed = subprocess.CompletedProcess(["kubectl"], 0, "", "")
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            run_real_device_capture, "run_command", return_value=completed
+        ) as command:
+            run_real_device_capture.collect_logs(args, Path(tmp), started)
+
+        flattened = [part for call in command.call_args_list for part in call.args[0]]
+        self.assertIn("--since-time=2026-08-23T10:30:00Z", flattened)
+        self.assertNotIn("--since=210s", flattened)
+
+    def test_tcp_tls_registration_profiles_are_registration_only_and_selectable(self):
+        for name, transport in (("register-auth-tcp", "tcp"), ("register-auth-tls", "tls")):
+            profile = run_b2bua_sipp_smoke.B2BUA_PROFILES[name]
+            self.assertEqual(profile["sip_transport"], transport)
+            self.assertFalse(profile["run_call"])
+            self.assertFalse(profile["start_uas"])
+            self.assertEqual(profile["registration_auth_expected"], "success")
+            self.assertIn(name, run_regression_suite.ALL_B2BUA_PROFILES)
+            self.assertIn(name, run_k8s_regression.AKS_PROFILES)
 
     def test_kubernetes_real_rasa_profile_is_selectable_and_rewrites_webhook(self):
         self.assertIn("ai-rasa-real-lab", run_k8s_regression.SELECTABLE_PROFILES)

@@ -43,6 +43,8 @@ ALL_B2BUA_PROFILES = (
     "registered-outbound",
     "register-auth-success",
     "register-auth-failure",
+    "register-auth-tcp",
+    "register-auth-tls",
     "dtmf-rfc4733",
     "ai-rasa-lab",
     "ai-rasa-rtpengine",

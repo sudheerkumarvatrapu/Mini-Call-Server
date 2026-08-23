@@ -12,7 +12,7 @@
   <img alt="G711 Transcoding" src="https://img.shields.io/badge/-G711u%20%7C%20G711a-9333EA?style=flat-square">
   <img alt="RTPengine" src="https://img.shields.io/badge/-RTPengine-0F766E?style=flat-square">
   <img alt="AI Rasa" src="https://img.shields.io/badge/-AI%20Rasa%20Gateway-BE185D?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/-v2.4.4-111827?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/-v2.5.0-111827?style=flat-square">
   <img alt="License MIT" src="https://img.shields.io/badge/-MIT%20License-F59E0B?style=flat-square">
 </p>
 
@@ -24,11 +24,11 @@ Local Kubernetes full regression defaults to an active-active PlaySBC/RTPengine 
 
 ## Status
 
-- Version: `2.4.4`
-- Local baseline: `v1.4.2` remains the frozen kind/minikube/local regression reference, and v2.x charts must continue to run the same kind regression path with locally built images.
+- Version: `2.5.0`
+- Local release lab: kind/minikube must track the current release (`v2.5.0` here), while the locally built-image path remains the required compatibility gate before publishing.
 - License: MIT
-- Release: <https://github.com/sudheerkumarvatrapu/PlaySBC/releases/tag/v2.4.4>
-- Images: `ghcr.io/sudheerkumarvatrapu/playsbc:2.4.4`, `ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:2.4.4`, `ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.4.4`, `ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.4.4`
+- Release: <https://github.com/sudheerkumarvatrapu/PlaySBC/releases/tag/v2.5.0>
+- Images: `ghcr.io/sudheerkumarvatrapu/playsbc:2.5.0`, `ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:2.5.0`, `ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.5.0`, `ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.5.0`
 - Security: CodeQL, Dependency Review, Trivy, and Checkov run in GitHub Actions.
 
 The Helm package contains Kubernetes manifests and configuration. Kubernetes pulls the PlaySBC, RTPengine, SIPp, and regression-runner images at deploy/test time.
@@ -196,21 +196,21 @@ Use this for the normal release path. Docker Desktop is not required if the clus
 The current release chart:
 
 ```text
-https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v2.4.4/playsbc-2.4.4.tgz
+https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v2.5.0/playsbc-2.5.0.tgz
 ```
 
 Published images:
 
 ```text
-ghcr.io/sudheerkumarvatrapu/playsbc:2.4.4
-ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:2.4.4
-ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.4.4
-ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.4.4
+ghcr.io/sudheerkumarvatrapu/playsbc:2.5.0
+ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:2.5.0
+ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.5.0
+ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.5.0
 ```
 
 The standard process is:
 
-1. Upgrade PlaySBC and RTPengine to `v2.4.4`.
+1. Upgrade PlaySBC and RTPengine to `v2.5.0`.
 2. Enable observability.
 3. Wait for PlaySBC, RTPengine, Prometheus, and Grafana rollouts.
 4. Run the full Kubernetes regression catalog with release images.
@@ -260,10 +260,10 @@ Full observability notes are in [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
 
 GitHub Actions publishes images automatically when `main` or a `v*` tag is pushed.
 
-The `v2.4.4` tag publishes:
+The `v2.5.0` tag publishes:
 
 ```text
-2.4.4
+2.5.0
 2.4
 latest
 ```

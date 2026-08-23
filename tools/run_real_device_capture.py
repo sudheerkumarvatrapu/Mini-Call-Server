@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import re
 import signal
@@ -16,8 +17,12 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from tools.real_device_evidence import write_evidence_bundle  # noqa: E402
+
+
 DEFAULT_OUTPUT_ROOT = ROOT / "logs" / "Real-Device-Lab"
 SIP_LOG_PATTERN = re.compile(
     r"SIP (?:INVITE|ACK|BYE|CANCEL)|SIP TX response|SIP response|INVITE ROUTE|"
@@ -305,8 +310,8 @@ def copy_capture(args: argparse.Namespace, capture: Capture, bundle: Path) -> bo
     return capture.local_path.exists() and capture.local_path.stat().st_size > 24
 
 
-def collect_logs(args: argparse.Namespace, bundle: Path) -> None:
-    since = f"{max(int(args.duration) + 90, 180)}s"
+def collect_logs(args: argparse.Namespace, bundle: Path, capture_started_at: dt.datetime) -> None:
+    since_time = capture_started_at.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
     playsbc = run_command(
         [
             args.kubectl_bin,
@@ -314,7 +319,8 @@ def collect_logs(args: argparse.Namespace, bundle: Path) -> None:
             args.namespace,
             "logs",
             f"deployment/{args.playsbc_deployment}",
-            f"--since={since}",
+            f"--since-time={since_time}",
+            "--timestamps=true",
         ],
         check=False,
     )
@@ -334,7 +340,8 @@ def collect_logs(args: argparse.Namespace, bundle: Path) -> None:
             args.namespace,
             "logs",
             f"deployment/{args.rtpengine_deployment}",
-            f"--since={since}",
+            f"--since-time={since_time}",
+            "--timestamps=true",
         ],
         check=False,
     )
@@ -422,10 +429,17 @@ def main(argv: list[str] | None = None) -> int:
     archive_path: Path | None = evidence_archive_path(args, bundle)
     archive_created = False
     archive_error = ""
+    capture_started_at = dt.datetime.now(dt.timezone.utc)
+    evidence_summary: dict[str, object] = {}
     try:
         collect_cluster_snapshot(args, bundle, "before")
         create_capture_pod(args, capture_pod, bundle)
         capture = start_capture(args, bundle, capture_pod)
+        capture_started_at = dt.datetime.now(dt.timezone.utc)
+        (bundle / "capture-window.log").write_text(
+            f"capture_started_at={capture_started_at.isoformat().replace('+00:00', 'Z')}\n",
+            encoding="utf-8",
+        )
         print(f"Capturing for {args.duration}s using pod/{capture_pod}. Run the real device call now.")
         deadline = time.monotonic() + args.duration
         while True:
@@ -459,7 +473,13 @@ def main(argv: list[str] | None = None) -> int:
                 copied = copy_capture(args, capture, bundle)
                 capture_bytes = capture.local_path.stat().st_size if copied else 0
             collect_cluster_snapshot(args, bundle, "after")
-            collect_logs(args, bundle)
+            collect_logs(args, bundle, capture_started_at)
+            if copied:
+                evidence_summary = write_evidence_bundle(
+                    bundle,
+                    rtp_min=args.rtp_min,
+                    rtp_max=args.rtp_max,
+                )
             delete_capture_pod(args, capture_pod, bundle)
         except Exception as exc:  # pragma: no cover - exercised against live AKS
             if not error:
@@ -491,6 +511,12 @@ def main(argv: list[str] | None = None) -> int:
                 f"capture_image={args.capture_image}\n"
                 f"capture_bytes={capture_bytes}\n"
                 f"single_combined_pcap={str(copied and capture_bytes > 24).lower()}\n"
+                f"canonical_sip_events={evidence_summary.get('sip', {}).get('canonical_events', 0)}\n"
+                f"capture_mirror_packets={evidence_summary.get('sip', {}).get('capture_mirror_packets', 0)}\n"
+                f"sip_retransmitted_packets={evidence_summary.get('sip', {}).get('retransmitted_packets', 0)}\n"
+                f"voice_rtp_packets={evidence_summary.get('media', {}).get('packet_counts', {}).get('voice_rtp', 0)}\n"
+                f"rtcp_status={evidence_summary.get('media', {}).get('rtcp_status', 'not-analyzed')}\n"
+                f"bidirectional_rtp_proven={str(evidence_summary.get('media', {}).get('bidirectional_rtp_proven', False)).lower()}\n"
                 f"interrupted={str(interrupted).lower()}\n"
                 f"cleanup_interrupt_count={cleanup_interrupt_count}\n"
                 f"error={error or 'none'}\n"

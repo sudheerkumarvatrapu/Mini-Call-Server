@@ -8,10 +8,10 @@ OBi1022 1001 -> Internet/NAT -> Azure LB UDP 5062 -> PlaySBC -> RTPengine -> Zoi
 
 ## 1. Upgrade AKS For Real Devices
 
-Run in Azure Cloud Shell after the `v2.4.4` release/images are published.
+Run in Azure Cloud Shell after the `v2.5.0` release/images are published.
 
 ```bash
-export PLAYSBC_VERSION=2.4.4
+export PLAYSBC_VERSION=2.5.0
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
@@ -152,7 +152,7 @@ Outbound proxy: blank
 
 ## 3A. TCP/TLS Hardphone Registration Track
 
-Target this in `v2.5.0` after the clean UDP SIP/RTP/RTCP evidence work. Keep the first TCP/TLS scope to registration only; do not change the working UDP/RTP media baseline until each transport proves stable.
+`v2.5.0` adds automated digest REGISTER-only profiles for TCP and TLS. The manual hardphone lane follows the same registration-first order. Keep the working UDP/RTP media baseline unchanged until each physical device transport proves stable.
 
 AKS exposure already supports the required listener shape:
 
@@ -183,7 +183,16 @@ TLS requirements:
 - The device must either trust the certificate chain or allow the lab certificate for testing.
 - Capture evidence should include TLS handshake success, SIP REGISTER over TLS, and the selected certificate/SNI behavior where visible.
 
-Monitor TCP/TLS registration:
+Run the automated profiles before configuring a physical phone:
+
+```bash
+PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache python3 tools/run_k8s_regression_job.py \
+  --profile register-auth-tcp \
+  --profile register-auth-tls \
+  --job-timeout 1800
+```
+
+Monitor TCP/TLS hardphone registration:
 
 ```bash
 kubectl -n playsbc logs deployment/playsbc-playsbc -f --since=10m \
@@ -274,6 +283,11 @@ The output is one flat compact bundle plus a downloadable archive next to it:
 logs/Real-Device-Lab/real-device-capture-<timestamp>/
   capture.pcap
   sipmsg.log
+  canonical-sip.json
+  media-evidence.log
+  media-evidence.json
+  latest.html
+  capture-window.log
   playsbc.log
   rtpengine.log
   rtpengine-verdict.log
@@ -287,7 +301,7 @@ logs/Real-Device-Lab/real-device-capture-<timestamp>/
 logs/Real-Device-Lab/real-device-capture-<timestamp>.tgz
 ```
 
-Open `capture.pcap` in Wireshark. It is the only PCAP produced for the manual real-device test and covers SIP signalling, RTP/RTCP media, RTPengine control, and AKS LoadBalancer/NodePort packet paths. Download the `.tgz` when you want to move the full logs and capture together. No `capture-playsbc` or `capture-rtpengine` folders are created.
+Open `capture.pcap` in Wireshark. It is the untouched wire record and the only PCAP produced for the manual real-device test. `sipmsg.log` is the canonical call ladder: near-simultaneous public-LB/pod-interface mirrors are collapsed, while genuine later UDP retransmissions are listed as annotations. `media-evidence.log` separates real PCMU/PCMA speech, RTCP, telephone events, and tiny NAT/probe RTP. `latest.html` presents the same clean summary. Download the `.tgz` to move the complete bundle. No `capture-playsbc` or `capture-rtpengine` folders are created.
 
 Press `Ctrl-C` once if the calls finish before the requested duration. The tool stops tcpdump, copies the merged `capture.pcap`, collects logs, deletes the temporary capture pod, and writes `summary.log` with `interrupted=true`. Avoid repeated `Ctrl-C`; if it happens, cleanup is deferred until evidence is saved.
 
@@ -314,10 +328,10 @@ Common symptoms:
 - Zoiper `Unparsable SDP`: route fallback/echo leaked into a real-device call. Keep `reject_unknown_routes=true` and re-register both endpoints after a pod restart.
 - `480 Temporarily Unavailable`: hardphone was not answered before `b2bua_invite_timeout`. Use `60.0`.
 - No or one-way audio: check the Azure RTP public LoadBalancer, `rtpengine.advertisedIP`, RTP ports `30000-30049`, and keep `rtpengine_g711_only=true`, `rtpengine_plain_rtp_sdp=true`, `rtpengine_explicit_rtcp=true`, `rtpengine_sip_source_address=true`, `rtpengine_media_handover=true`, and `rtpengine_nat_wait=true` for the baseline.
-- RTP packets visible immediately after `180 Ringing`: check whether `rtpengine_pierce_nat=true` is still inherited by Helm `--reuse-values`. Those packets are RTPengine pinhole probes, not voice. The clean v2.4.4 baseline sets `rtpengine_pierce_nat=false`; enable it only if a specific NAT still needs pre-answer pinhole traffic.
+- RTP packets visible immediately after `180 Ringing`: check `media-evidence.log`. v2.5.0 separates tiny NAT/probe packets from G.711 speech and reports any real pre-answer PCMU/PCMA packets explicitly. Keep `rtpengine_pierce_nat=false` unless a specific NAT needs it.
 - Keepalive noise: OBi/Zoiper may send CRLF or `keep-alive` UDP packets with no CSeq. PlaySBC logs them as `SIP KEEP-ALIVE` and ignores them; they should not create stack traces.
 
-## 8. What v2.4.x Hardens
+## 8. What v2.5.0 Hardens
 
 - Real-device SIP users: `1001` and `1002`.
 - Dynamic AKS SIP/RTP public IPs; no hard-coded public IPs.
@@ -335,13 +349,18 @@ Common symptoms:
 - Safe UDP NAT keepalive handling for hardphones and softphones.
 - Duplicate B2BUA BYE after teardown is answered with `200 OK` when the call ID was just finalized, avoiding noisy harmless `481` responses.
 - Manual OBi1022/Zoiper tests can generate one combined SIP/RTP/RTCP `capture.pcap`, `sipmsg.log`, RTPengine packet verdict evidence, and a downloadable `.tgz` bundle.
+- `sipmsg.log` shows one canonical call flow, collapses public-LB/pod-interface capture mirrors, and lists genuine SIP-over-UDP retransmissions, including repeated INVITE `200 OK` after ACK, once in an annotations section.
+- Real G.711 speech RTP is separated from tiny NAT probes, telephone events, RTCP, and unknown media packets by payload type and payload size.
+- RTP is green only with real voice packets plus a reverse PCAP flow or RTPengine's two-direction verdict. One-sided RTCP is reported as `endpoint-limited`, not silently passed as bidirectional.
+- PlaySBC and RTPengine logs use the exact capture start timestamp, preventing earlier calls from leaking into a later bundle.
+- Common regression now includes digest REGISTER-only profiles over TCP and TLS, including TLS certificate and transport evidence, while the working UDP/RTP call baseline stays unchanged.
 
 ## 9. Next Roadmap
 
-- Add the real-device capture bundle into the HTML report path instead of keeping it as a manual lab artifact.
+- Add MOS-style scoring and richer RTCP receiver-report analytics to the real-device HTML evidence.
 - Add real-device RTCP receiver-report, jitter, packet-loss, and MOS-style media-quality evidence.
 - Run longer OBi1022 and Zoiper soak calls with re-registration during active calls.
-- Validate hardphone SIP over TCP and SIP over TLS as registration-first tests, then add TCP/TLS signalling calls and SRTP only where the endpoint supports it.
+- Validate the automated TCP/TLS REGISTER profiles against Poly VVX600 and Yealink SIP-T33G, then add TCP/TLS signalling calls and SRTP where the endpoint supports it.
 - Add multi-device tests: two hardphones plus one softphone, multiple home NAT types, and SIP ALG detection notes.
 - Exercise real-device HA: PlaySBC pod restart, RTPengine pod restart, active-active routing, and shared registrar/dialog restore.
 - Add Azure production hardening: DNS/FQDN, NSG/firewall templates, dashboard panels for real devices, and cleanup/cost guardrails.
