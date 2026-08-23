@@ -13,7 +13,75 @@ playsbc-playsbc-rtpengine-1
 
 Always include `configs/kubernetes/active-active-values.yaml` for normal lab and regression runs. In single-node kind, this file keeps RTPengine on pod networking with `rtpengine.hostNetwork=false`, avoiding host-port collisions between RTPengine replicas.
 
-## kind
+## v2.5.0 Released-Image Lab
+
+This is the standard local kind upgrade and full-regression procedure. It keeps PlaySBC, paired RTPengine replicas, Prometheus, and Grafana on the same release workflow.
+
+```bash
+cd /Users/sudheerkumar/Documents/Codex/2026-05-18/Mini-Call-Server
+
+export PLAYSBC_VERSION=2.5.0
+
+kubectl config use-context kind-playsbc
+kubectl config set-context --current --namespace=playsbc
+
+helm upgrade --install playsbc \
+  "https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz" \
+  --namespace playsbc \
+  --create-namespace \
+  -f configs/kubernetes/active-active-values.yaml \
+  --set image.repository=ghcr.io/sudheerkumarvatrapu/playsbc \
+  --set-string image.tag="$PLAYSBC_VERSION" \
+  --set image.pullPolicy=Always \
+  --set rtpengine.enabled=true \
+  --set rtpengine.image.repository=ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine \
+  --set-string rtpengine.image.tag="$PLAYSBC_VERSION" \
+  --set rtpengine.image.pullPolicy=Always \
+  --set rtpengine.hostNetwork=false \
+  --set playsbc.config.media_backend=rtpengine \
+  --set-string playsbc.config.rtpengine_url=udp://playsbc-playsbc-rtpengine:2223 \
+  --set observability.enabled=true \
+  --set observability.prometheus.retention=31d \
+  --set observability.prometheus.persistence.size=5Gi \
+  --set observability.grafana.persistence.size=2Gi
+
+kubectl -n playsbc rollout status statefulset/playsbc-playsbc --timeout=180s
+kubectl -n playsbc rollout status statefulset/playsbc-playsbc-rtpengine --timeout=180s
+kubectl -n playsbc rollout status deployment/playsbc-playsbc-prometheus --timeout=180s
+kubectl -n playsbc rollout status deployment/playsbc-playsbc-grafana --timeout=180s
+kubectl -n playsbc get pods -o wide
+kubectl -n playsbc get statefulsets
+
+PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache python3 tools/run_k8s_regression_job.py \
+  --all-profiles \
+  --runner-image "ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:${PLAYSBC_VERSION}" \
+  --sipp-image "ghcr.io/sudheerkumarvatrapu/playsbc-sipp:${PLAYSBC_VERSION}" \
+  --playsbc-image "ghcr.io/sudheerkumarvatrapu/playsbc:${PLAYSBC_VERSION}" \
+  --rtpengine-image "ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:${PLAYSBC_VERSION}" \
+  --set-playsbc-image \
+  --set-rtpengine-image \
+  --no-load-playsbc-image \
+  --no-load-rtpengine-image \
+  --no-load-sipp-image \
+  --kind-cluster playsbc
+```
+
+The rollout commands verify all four continuously running components before regression begins. The regression runner temporarily creates its own runner and core/peer SIPp pods; those pods disappear as each profile completes.
+
+Optional observability access:
+
+```bash
+kubectl -n playsbc port-forward svc/playsbc-playsbc-grafana 3000:3000
+kubectl -n playsbc port-forward svc/playsbc-playsbc-prometheus 9090:9090
+```
+
+Open Grafana at `http://127.0.0.1:3000` and Prometheus at `http://127.0.0.1:9090`.
+
+## Release Maintenance Rule
+
+Every PlaySBC release must update the `PLAYSBC_VERSION` value in this playbook before the release is considered complete. The same release change must keep `README.md`, `docs/KUBERNETES_HELM_RUNBOOK.md`, `docs/AZURE_AKS.md`, `docs/REAL_DEVICE_LAB.md`, chart metadata, image examples, and release notes aligned. Local kind/minikube regression remains a required compatibility gate for every minor or major change.
+
+## Build Current Source In kind
 
 ```bash
 kind create cluster --name playsbc

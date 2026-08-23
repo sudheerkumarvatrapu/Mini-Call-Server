@@ -120,18 +120,17 @@ v2.4.0 closure work:
 - Duplicate teardown tolerance: duplicate B2BUA BYE after a recently finalized call receives `200 OK` instead of noisy harmless `481`, while truly unknown dialogs still fail normally.
 - NAT/media noise handling: small RTPengine error counters are acceptable only when both RTP directions are observed and the packet verdict proves media flow; pre-answer `pierce NAT` pinhole probes stay opt-in for difficult NATs.
 
-v2.5.0 real-device cleanup caveats:
+v2.5.0 closure work:
 
-- Clean SIP evidence: collapse expected UDP retransmissions into an annotations section so the main ladder shows one canonical call flow only: `INVITE`, `100 Trying`, `180 Ringing`, `200 OK`, `ACK`, `BYE`, and final `200 OK`.
-- Duplicate `200 OK` after `ACK`: treat callee retransmissions as expected SIP-over-UDP behavior when the ACK and dialog teardown are otherwise valid; do not make them look like separate call events.
-- Pre-answer/around-answer RTP: classify tiny 13-byte RTP/probe packets and any early endpoint/NAT-learning media separately from real G.711 speech RTP. The clean evidence view must identify real PCMU/PCMA voice packets by payload type and packet size.
-- Bidirectional RTP: keep the current green requirement that RTPengine verdict proves `caller_to_callee=observed` and `callee_to_caller=observed`, and show the matching PCAP flow counts.
-- Bidirectional RTCP: v2.4.4 advertises explicit RTCP targets correctly, but current OBi1022/Zoiper captures show RTCP receiver reports only from the Zoiper side. v2.5.0 should either enable/validate OBi RTCP if supported or report endpoint-limited RTCP clearly instead of marking the whole call dirty.
-- Log-window overlap: avoid pulling previous-call SIP/RTP verdict lines into a later real-device capture bundle, or clearly mark them as pre-capture context. Each manual capture should summarize only the calls made during that capture window.
-- TCP/TLS hardphone registration: validate SIP REGISTER over TCP `5062` and TLS `5061` as registration-only checks first. Keep Zoiper/OBi UDP media as the known-good baseline, then add TCP/TLS signalling calls and SRTP only after registration evidence is clean. Poly VVX600 and Yealink SIP-T33G are the preferred next devices for this lane; OBi1022 can be tested if its firmware exposes stable transport settings.
-- Final quality gate: the manual real-device bundle should contain one combined `capture.pcap`, one `sipmsg.log`, clean PlaySBC/RTPengine logs, a downloadable archive, canonical SIP flow, both-side RTP proof, and RTCP proof or a precise endpoint-limitation note.
+- Clean SIP evidence: `sipmsg.log` contains one canonical transaction flow, collapses near-simultaneous public-LB/pod-interface capture mirrors, and keeps a separate retransmission annotations section; repeated INVITE `200 OK` after ACK is classified as expected SIP-over-UDP behavior.
+- Media classification: PCMU/PCMA speech, tiny NAT probes, telephone events, RTCP, and unknown RTP are counted separately, including pre-answer packet classification.
+- Bidirectional RTP: the evidence gate requires real G.711 voice packets plus a reverse PCAP flow or RTPengine's `caller_to_callee=observed` and `callee_to_caller=observed` verdict.
+- Honest RTCP: bidirectional RTCP is proven only by reverse RTCP flows. A single endpoint's reports are labeled `endpoint-limited` rather than making the whole call appear dirty.
+- Exact log window: Kubernetes logs are collected using the capture start timestamp, so earlier calls cannot leak into a later manual bundle.
+- TCP/TLS registration: `register-auth-tcp` and `register-auth-tls` perform digest REGISTER-only checks over TCP `5062` and TLS `5061`, with the existing UDP/RTP real-device calls unchanged.
+- Final evidence: one raw `capture.pcap`, canonical `sipmsg.log`, JSON/text media evidence, compact `latest.html`, clean component logs, and one downloadable archive.
 
-v2.4.0 release validation gates:
+v2.5.0 release validation gates:
 
 - Run AKS regression profiles with current release images and confirm all profiles pass strict evidence validation.
 - Run local kind/minikube regression and confirm no real-device settings leak into default profile Helm values.

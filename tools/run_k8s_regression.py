@@ -59,6 +59,8 @@ RASA_PROFILES = (*RASA_B2BUA_PROFILES, *RASA_NLU_PROFILES)
 AKS_PROFILES = (
     "esbc-options-keepalive",
     "register-auth-success",
+    "register-auth-tcp",
+    "register-auth-tls",
     "registered-inbound",
     "rtpengine-media",
     "rtpengine-transcoding",

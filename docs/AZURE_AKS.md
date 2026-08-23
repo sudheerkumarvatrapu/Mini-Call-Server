@@ -56,6 +56,7 @@ Active-active, full media ranges, hardphones, and production-grade state are fut
 | `v2.4.2` | Real-device registrar NAT hotfix: route public Internet phones to the observed REGISTER source port when NAT remaps the Contact port. |
 | `v2.4.3` | Real-device evidence cleanup: graceful Ctrl-C capture finalization and clean RTPengine NAT defaults with pre-answer `pierce NAT` disabled unless explicitly needed. |
 | `v2.4.4` | Real-device RTCP/evidence hotfix: explicitly advertise RTCP as RTP+1 in RTPengine SDP and emit a downloadable real-device evidence archive. |
+| `v2.5.0` | Clean real-device evidence and transport foundation: canonical SIP ladders with retransmission annotations, G.711/probe/RTCP classification, exact capture log windows, compact HTML evidence, and digest REGISTER-only profiles over TCP and TLS. |
 
 ## Cost Guardrail
 
@@ -96,7 +97,7 @@ export SIP_PIP_NAME=playsbc-sip-pip
 export RTP_PIP_NAME=playsbc-rtp-pip
 export DNS_LABEL=playsbc-sip-lab-$RANDOM
 export RTP_DNS_LABEL=playsbc-rtp-lab-$RANDOM
-export PLAYSBC_VERSION=2.4.4
+export PLAYSBC_VERSION=2.5.0
 ```
 
 ## 3. Register Azure Providers
@@ -622,7 +623,7 @@ AKS-specific reminders:
 - Some Cloud Shell sessions returned `InvalidApiVersionParameter` for `az aks get-credentials`; the REST kubeconfig fallback in the next section avoids that CLI/API mismatch.
 - Internet phones need both SIP and RTP exposed. Enable the Azure RTP public LoadBalancer and keep its public UDP range aligned with RTPengine `rtpMin`/`rtpMax`.
 - AKS regression v2.2.2 and later waits for both SIP and RTP public LoadBalancer ingress, validates UDP `30000-30049`, and records RTPengine advertised-IP alignment in `aks-validation.json`.
-- Manual real-device PCAP capture uses one temporary host-network `netshoot` pod and writes a single flat `capture.pcap`. It also writes a `real-device-capture-<timestamp>.tgz` archive next to the bundle for download. PlaySBC and RTPengine containers do not need `tcpdump`.
+- Manual real-device PCAP capture uses one temporary host-network `netshoot` pod and writes one raw `capture.pcap`, a canonical `sipmsg.log`, classified RTP/RTCP evidence, a compact `latest.html`, and a `real-device-capture-<timestamp>.tgz` archive. PlaySBC and RTPengine containers do not need `tcpdump`.
 
 ## 16. Recover Kube Credentials
 
@@ -633,7 +634,7 @@ export LOCATION=eastus
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
-export PLAYSBC_VERSION=2.4.4
+export PLAYSBC_VERSION=2.5.0
 export ACR_NAME=$(az acr list --resource-group "$AKS_RG" --query "[0].name" -o tsv)
 ```
 

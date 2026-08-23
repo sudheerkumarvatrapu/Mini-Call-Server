@@ -65,6 +65,8 @@ kubectl get pods -A
 
 Use this as the normal repeatable process: upgrade PlaySBC/RTPengine to the release, enable active-active topology, enable observability, wait for all workloads, then run every Kubernetes regression profile with the release images.
 
+The canonical, release-maintained command is also kept in [KUBERNETES_LOCAL.md](KUBERNETES_LOCAL.md). Both playbooks must be updated on every release version bump.
+
 This is the standard PlaySBC Kubernetes architecture from `v1.4.2` onward:
 
 ```text
@@ -81,20 +83,22 @@ If you see only one PlaySBC pod and one RTPengine pod, active-active was not ena
 ```bash
 cd /Users/sudheerkumar/Documents/Codex/2026-05-18/Mini-Call-Server
 
+export PLAYSBC_VERSION=2.5.0
+
 kubectl config use-context kind-playsbc
 kubectl config set-context --current --namespace=playsbc
 
 helm upgrade --install playsbc \
-  https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v1.4.2/playsbc-1.4.2.tgz \
+  "https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz" \
   --namespace playsbc \
   --create-namespace \
   -f configs/kubernetes/active-active-values.yaml \
   --set image.repository=ghcr.io/sudheerkumarvatrapu/playsbc \
-  --set-string image.tag=1.4.2 \
+  --set-string image.tag="$PLAYSBC_VERSION" \
   --set image.pullPolicy=Always \
   --set rtpengine.enabled=true \
   --set rtpengine.image.repository=ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine \
-  --set-string rtpengine.image.tag=1.4.2 \
+  --set-string rtpengine.image.tag="$PLAYSBC_VERSION" \
   --set rtpengine.image.pullPolicy=Always \
   --set rtpengine.hostNetwork=false \
   --set playsbc.config.media_backend=rtpengine \
@@ -113,11 +117,14 @@ kubectl -n playsbc get statefulsets
 
 PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache python3 tools/run_k8s_regression_job.py \
   --all-profiles \
-  --runner-image ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:1.4.2 \
-  --sipp-image ghcr.io/sudheerkumarvatrapu/playsbc-sipp:1.4.2 \
-  --playsbc-image ghcr.io/sudheerkumarvatrapu/playsbc:1.4.2 \
+  --runner-image "ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:${PLAYSBC_VERSION}" \
+  --sipp-image "ghcr.io/sudheerkumarvatrapu/playsbc-sipp:${PLAYSBC_VERSION}" \
+  --playsbc-image "ghcr.io/sudheerkumarvatrapu/playsbc:${PLAYSBC_VERSION}" \
+  --rtpengine-image "ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:${PLAYSBC_VERSION}" \
   --set-playsbc-image \
+  --set-rtpengine-image \
   --no-load-playsbc-image \
+  --no-load-rtpengine-image \
   --no-load-sipp-image \
   --kind-cluster playsbc
 ```
@@ -140,17 +147,19 @@ kubectl -n playsbc port-forward svc/playsbc-playsbc-grafana 3000:3000
 Use active-active values for every normal Kubernetes deployment:
 
 ```bash
+export PLAYSBC_VERSION=2.5.0
+
 helm upgrade --install playsbc \
-  https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v1.4.2/playsbc-1.4.2.tgz \
+  "https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz" \
   --namespace playsbc \
   --create-namespace \
   -f configs/kubernetes/active-active-values.yaml \
   --set image.repository=ghcr.io/sudheerkumarvatrapu/playsbc \
-  --set-string image.tag=1.4.2 \
+  --set-string image.tag="$PLAYSBC_VERSION" \
   --set image.pullPolicy=Always \
   --set rtpengine.enabled=true \
   --set rtpengine.image.repository=ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine \
-  --set-string rtpengine.image.tag=1.4.2 \
+  --set-string rtpengine.image.tag="$PLAYSBC_VERSION" \
   --set rtpengine.image.pullPolicy=Always \
   --set rtpengine.hostNetwork=false \
   --set playsbc.config.media_backend=rtpengine \
@@ -247,13 +256,18 @@ This is also the current development safety gate. If you upgrade the local chart
 Use published release images:
 
 ```bash
+export PLAYSBC_VERSION=2.5.0
+
 PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache python3 tools/run_k8s_regression_job.py \
   --all-profiles \
-  --runner-image ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:1.4.2 \
-  --sipp-image ghcr.io/sudheerkumarvatrapu/playsbc-sipp:1.4.2 \
-  --playsbc-image ghcr.io/sudheerkumarvatrapu/playsbc:1.4.2 \
+  --runner-image "ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:${PLAYSBC_VERSION}" \
+  --sipp-image "ghcr.io/sudheerkumarvatrapu/playsbc-sipp:${PLAYSBC_VERSION}" \
+  --playsbc-image "ghcr.io/sudheerkumarvatrapu/playsbc:${PLAYSBC_VERSION}" \
+  --rtpengine-image "ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:${PLAYSBC_VERSION}" \
   --set-playsbc-image \
+  --set-rtpengine-image \
   --no-load-playsbc-image \
+  --no-load-rtpengine-image \
   --no-load-sipp-image \
   --kind-cluster playsbc
 ```
