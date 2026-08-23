@@ -1,4 +1,8 @@
+import base64
 import copy
+import hashlib
+import hmac
+import inspect
 import io
 import json
 import socket
@@ -24,6 +28,7 @@ from tools import run_k8s_regression
 from tools import run_k8s_regression_job
 from tools import run_real_device_capture
 from tools import real_device_evidence
+from tools import send_srtp_audio
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -2984,11 +2989,12 @@ class RealTopologyTests(unittest.TestCase):
             plain = Path(args.uas_scenario).read_text(encoding="ISO-8859-1")
 
         self.assertIn("RTP/SAVP", secure)
-        self.assertIn("cryptosuiteaescm128sha1801audio", secure)
-        self.assertIn("[rtpstream_audio_port]", secure)
+        self.assertIn("AES_CM_128_HMAC_SHA1_80", secure)
+        self.assertIn(run_b2bua_sipp_smoke.SRTP_TEST_MASTER_KEY_SALT, secure)
+        self.assertIn("[media_port]", secure)
         self.assertNotIn("play_pcap_audio", secure)
-        self.assertIn('rtp_echo="startaudio,0,PCMU/8000"', secure)
-        self.assertIn('rtp_echo="updateaudio,0,PCMU/8000"', secure)
+        self.assertIn("send_srtp_audio.py", secure)
+        self.assertNotIn("rtp_echo=", secure)
         self.assertIn("RTP/AVP", plain)
         self.assertIn("play_pcap_audio", plain)
 
@@ -3004,8 +3010,8 @@ class RealTopologyTests(unittest.TestCase):
 
                 self.assertIn("RTP/SAVP", secure)
                 self.assertIn("a=crypto:", secure)
-                self.assertIn('rtp_echo="startaudio,0,PCMU/8000"', secure)
-                self.assertIn('rtp_echo="updateaudio,0,PCMU/8000"', secure)
+                self.assertIn("send_srtp_audio.py", secure)
+                self.assertNotIn("rtp_echo=", secure)
                 self.assertNotIn("play_pcap_audio", secure)
                 self.assertIn("RTP/AVP", plain)
                 self.assertNotIn("a=crypto:", plain)
@@ -3038,6 +3044,11 @@ class RealTopologyTests(unittest.TestCase):
                 self.assertNotIn("-rtpcheck_debug", plain)
                 self.assertNotIn("-srtpcheck_debug", plain)
 
+    def test_kubernetes_trace_collection_includes_srtp_sender_and_debug_logs(self):
+        source = inspect.getsource(run_k8s_regression.K8sRegressionRunner.collect_sipp_traces)
+
+        self.assertIn("/tmp/*srtp*.log", source)
+
     def test_sipp_docker_image_is_built_with_tls_and_pcap(self):
         dockerfile = (ROOT / "docker" / "sipp.Dockerfile").read_text(encoding="utf-8")
 
@@ -3045,7 +3056,44 @@ class RealTopologyTests(unittest.TestCase):
         self.assertIn("-DUSE_SSL=1", dockerfile)
         self.assertIn("-DUSE_PCAP=1", dockerfile)
         self.assertIn("python3", dockerfile)
+        self.assertIn("openssl", dockerfile)
         self.assertIn("send_rtcp_reports.py", dockerfile)
+        self.assertIn("send_srtp_audio.py", dockerfile)
+
+    def test_srtp_sender_matches_rfc3711_session_key_vectors(self):
+        master_key_salt = bytes.fromhex(
+            "E1F97A0D3E018BE0D64FA32C06DE4139"
+            "0EC675AD498AFEEBB6960B3AABE6"
+        )
+        encryption_key, authentication_key, salt = send_srtp_audio.session_keys(master_key_salt)
+
+        self.assertEqual(encryption_key.hex().upper(), "C61E7A93744F39EE10734AFE3FF7A087")
+        self.assertEqual(authentication_key.hex().upper(), "CEBE321F6FF7716B6FD4AB49AF256A156D38BAA4")
+        self.assertEqual(salt.hex().upper(), "30CBBC08863D8C85D49DB34A9AE1")
+
+    def test_srtp_sender_builds_authenticated_pcmu_packet(self):
+        encryption_key, authentication_key, salt = send_srtp_audio.session_keys(
+            base64.b64decode(send_srtp_audio.DEFAULT_MASTER_KEY_SALT)
+        )
+        packet = send_srtp_audio.srtp_packet(
+            bytes([0xFF]) * 160,
+            sequence=1000,
+            timestamp=0,
+            ssrc=0x53525450,
+            encryption_key=encryption_key,
+            authentication_key=authentication_key,
+            session_salt=salt,
+        )
+
+        self.assertEqual(len(packet), 12 + 160 + 10)
+        self.assertEqual(packet[:2], b"\x80\x00")
+        self.assertNotEqual(packet[12:172], bytes([0xFF]) * 160)
+        expected_tag = hmac.new(
+            authentication_key,
+            packet[:-10] + struct.pack("!I", 0),
+            hashlib.sha1,
+        ).digest()[:10]
+        self.assertEqual(packet[-10:], expected_tag)
 
     def test_kubernetes_chart_has_health_secret_rtpengine_and_affinity_lab(self):
         chart = ROOT / "charts" / "playsbc"

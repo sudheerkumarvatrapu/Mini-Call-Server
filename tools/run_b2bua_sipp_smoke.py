@@ -2037,33 +2037,32 @@ def format_simple_yaml_scalar(value: object) -> str:
     return json.dumps(text)
 
 
+SRTP_TEST_MASTER_KEY_SALT = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwd"
+
+
 def render_srtp_media_scenario(text: str) -> str:
-    text = text.replace("[media_port]", "[rtpstream_audio_port]")
     text = text.replace(" RTP/AVP ", " RTP/SAVP ")
     text = text.replace(
         "      a=ptime:20",
         (
-            "      a=crypto:[cryptotag1audio] "
-            "[cryptosuiteaescm128sha1801audio] inline:[cryptokeyparams1audio]\n"
-            "      a=rtcp:[rtpstream_audio_port+1]\n"
+            "      a=crypto:1 AES_CM_128_HMAC_SHA1_80 "
+            f"inline:{SRTP_TEST_MASTER_KEY_SALT}\n"
+            "      a=rtcp:[media_port+1]\n"
             "      a=ptime:20"
         ),
     )
-    secure_actions = (
-        '<exec rtp_echo="startaudio,0,PCMU/8000"/>',
-        '<exec rtp_echo="updateaudio,0,PCMU/8000"/>',
+    secure_action = (
+        '<exec command="python3 /app/tools/send_srtp_audio.py '
+        '--bind-ip [media_ip] --port [media_port] '
+        f'--key {SRTP_TEST_MASTER_KEY_SALT} --duration 8 '
+        '&gt;/tmp/secure-srtp-sender.log 2&gt;&amp;1 &amp;"/>'
     )
     return re.sub(
         r"\n\s*<nop>\s*<action>\s*<exec play_pcap_audio=\"[^\"]+\"/>\s*</action>\s*</nop>\s*",
         (
             "\n  <nop>\n"
             "    <action>\n"
-            f"      {secure_actions[0]}\n"
-            "    </action>\n"
-            "  </nop>\n\n"
-            "  <nop>\n"
-            "    <action>\n"
-            f"      {secure_actions[1]}\n"
+            f"      {secure_action}\n"
             "    </action>\n"
             "  </nop>\n\n"
         ),
@@ -2117,8 +2116,8 @@ def prepare_media_scenarios(args: argparse.Namespace, run_dir: Path) -> None:
             getattr(args, "uac_srtp", False) if attr_name == "uac_scenario" else getattr(args, "uas_srtp", False)
         )
         if secure_leg:
-            # Start and then update SIPp's SRTP echo context after SDP exchange.
-            # The update step activates the negotiated receive/transmit keys.
+            # SIPp 3.7.7 can receive SRTP without returning packets from its
+            # echo action. Use a deterministic authenticated sender instead.
             text = render_srtp_media_scenario(text)
         destination.write_text(text, encoding="ISO-8859-1")
         setattr(args, attr_name, destination.resolve())

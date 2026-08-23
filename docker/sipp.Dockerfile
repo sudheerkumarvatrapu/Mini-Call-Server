@@ -33,6 +33,7 @@ RUN apt-get update \
         libssl3 \
         procps \
         python3 \
+        openssl \
         tar \
         tcpdump \
     && rm -rf /var/lib/apt/lists/*
@@ -41,6 +42,7 @@ COPY --from=builder /src/sipp/build/sipp /usr/local/bin/sipp
 COPY sipp/scenarios /scenarios
 COPY rtp /app/rtp
 COPY tools/send_rtcp_reports.py /app/tools/send_rtcp_reports.py
+COPY tools/send_srtp_audio.py /app/tools/send_srtp_audio.py
 
 ENV PYTHONPATH=/app
 

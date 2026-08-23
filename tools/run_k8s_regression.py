@@ -1660,7 +1660,7 @@ class K8sRegressionRunner:
             "-lc",
             (
                 "for f in /tmp/*_messages.log /tmp/*_errors.log /tmp/*_statistics.log "
-                "/tmp/*_counts.csv /tmp/*_logs.log; do "
+                "/tmp/*_counts.csv /tmp/*_logs.log /tmp/*srtp*.log; do "
                 "[ -e \"$f\" ] && echo \"===== $f =====\" && cat \"$f\"; "
                 "done"
             ),
