@@ -27,6 +27,7 @@ PlaySBC v2.5.0 makes real-device evidence easier to trust and begins the hardpho
 - Validate OPTIONS using request and CSeq lines, allowing a normal `Allow: REGISTER, OPTIONS, INVITE, ACK, BYE, CANCEL` response header.
 - Default AKS runner and SIPp images to `imagePullPolicy: Always`, preventing a rebuilt `2.5.0` tag from reusing stale node-cached regression code.
 - Replace SIPp's unreliable SRTP echo action with a deterministic RFC 3711 AES-CM/HMAC-SHA1-80 sender, and enable RTP/SRTP diagnostics only on the configured secure leg. This fixes the two mixed SRTP profiles where encrypted media reached SIPp but the endpoint returned no packets.
+- Pin the synthetic secure endpoint to its reserved local RTP/RTCP ports `6000-6001`; SIPp cannot safely expand contextual `[media_port]` tokens inside an external command action and otherwise aborts after ACK with exit code 255. Plain RTP scenarios retain dynamic SIPp media ports.
 - Keep the release and container tag at `2.5.0`; no chart value, real-device UDP/RTP, AI/Rasa, HA, or observability behavior changes.
 
 ## Compatibility Contract

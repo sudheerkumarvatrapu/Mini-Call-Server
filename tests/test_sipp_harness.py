@@ -2991,7 +2991,19 @@ class RealTopologyTests(unittest.TestCase):
         self.assertIn("RTP/SAVP", secure)
         self.assertIn("AES_CM_128_HMAC_SHA1_80", secure)
         self.assertIn(run_b2bua_sipp_smoke.SRTP_TEST_MASTER_KEY_SALT, secure)
-        self.assertIn("[media_port]", secure)
+        self.assertIn(
+            f"m=audio {run_b2bua_sipp_smoke.SRTP_TEST_MEDIA_PORT} RTP/SAVP",
+            secure,
+        )
+        self.assertIn(
+            f"a=rtcp:{run_b2bua_sipp_smoke.SRTP_TEST_RTCP_PORT}",
+            secure,
+        )
+        self.assertIn(
+            f"--port {run_b2bua_sipp_smoke.SRTP_TEST_MEDIA_PORT}",
+            secure,
+        )
+        self.assertNotIn("--port [media_port]", secure)
         self.assertNotIn("play_pcap_audio", secure)
         self.assertIn("send_srtp_audio.py", secure)
         self.assertNotIn("rtp_echo=", secure)
@@ -3011,9 +3023,15 @@ class RealTopologyTests(unittest.TestCase):
                 self.assertIn("RTP/SAVP", secure)
                 self.assertIn("a=crypto:", secure)
                 self.assertIn("send_srtp_audio.py", secure)
+                self.assertIn(
+                    f"m=audio {run_b2bua_sipp_smoke.SRTP_TEST_MEDIA_PORT} RTP/SAVP",
+                    secure,
+                )
+                self.assertNotIn("--port [media_port]", secure)
                 self.assertNotIn("rtp_echo=", secure)
                 self.assertNotIn("play_pcap_audio", secure)
                 self.assertIn("RTP/AVP", plain)
+                self.assertIn("m=audio [media_port] RTP/AVP", plain)
                 self.assertNotIn("a=crypto:", plain)
                 self.assertIn("play_pcap_audio", plain)
 

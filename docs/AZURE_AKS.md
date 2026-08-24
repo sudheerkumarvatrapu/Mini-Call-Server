@@ -341,6 +341,8 @@ AKS profile runs default both regression images to `imagePullPolicy: Always`. Th
 
 For the mixed `tls-srtp-to-udp-rtp` and `udp-rtp-to-tls-srtp` profiles, the secure SIPp leg uses `send_srtp_audio.py` instead of SIPp's unreliable SRTP echo action. The helper advertises a deterministic SDES key, learns RTPengine's source endpoint from the first received packet, and returns authenticated AES-CM/HMAC-SHA1-80 PCMU traffic. The runner also enables SIPp RTP/SRTP diagnostics on that secure leg only. If RTPengine shows encrypted packets delivered to the secure pod but zero returned, verify the runner image contains the helper and the SIPp image contains `/app/tools/send_srtp_audio.py` plus `openssl` before investigating Azure networking. This is regression-endpoint behavior and does not alter the real-device Helm media policy.
 
+The secure helper binds the reserved one-call profile ports `6000/UDP` for RTP and `6001/UDP` for RTCP. Keep those values explicit in its rendered SDP and command: SIPp's contextual `[media_port]` keyword is valid in SIP message templates but aborts with `Can not find beginning of a line for the media port!` when expanded from an external command action. Plain RTP profiles continue using SIPp's dynamic media-port allocation.
+
 Stop only regression resources:
 
 ```bash

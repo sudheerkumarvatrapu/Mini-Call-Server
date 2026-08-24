@@ -2038,22 +2038,28 @@ def format_simple_yaml_scalar(value: object) -> str:
 
 
 SRTP_TEST_MASTER_KEY_SALT = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwd"
+SRTP_TEST_MEDIA_PORT = 6000
+SRTP_TEST_RTCP_PORT = SRTP_TEST_MEDIA_PORT + 1
 
 
 def render_srtp_media_scenario(text: str) -> str:
     text = text.replace(" RTP/AVP ", " RTP/SAVP ")
     text = text.replace(
+        "m=audio [media_port] RTP/SAVP",
+        f"m=audio {SRTP_TEST_MEDIA_PORT} RTP/SAVP",
+    )
+    text = text.replace(
         "      a=ptime:20",
         (
             "      a=crypto:1 AES_CM_128_HMAC_SHA1_80 "
             f"inline:{SRTP_TEST_MASTER_KEY_SALT}\n"
-            "      a=rtcp:[media_port+1]\n"
+            f"      a=rtcp:{SRTP_TEST_RTCP_PORT}\n"
             "      a=ptime:20"
         ),
     )
     secure_action = (
         '<exec command="python3 /app/tools/send_srtp_audio.py '
-        '--bind-ip [media_ip] --port [media_port] '
+        f'--bind-ip [media_ip] --port {SRTP_TEST_MEDIA_PORT} '
         f'--key {SRTP_TEST_MASTER_KEY_SALT} --duration 8 '
         '&gt;/tmp/secure-srtp-sender.log 2&gt;&amp;1 &amp;"/>'
     )
