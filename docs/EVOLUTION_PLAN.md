@@ -32,9 +32,33 @@ PlaySBC is an enterprise-style SIP/RTP lab and regression platform. It is not ye
 - Prometheus/Grafana with node, realm, SIP, media, codec, transcoding, and AI metrics
 - AKS public SIP/RTP LoadBalancers and strict cloud readiness profiles
 
-## Next Implementation: Local Multi-Node HA Lab
+## v2.5.2 Immediate Scope
 
-This is the immediate priority. It moves expensive HA/failover iteration from AKS to a repeatable local environment.
+The next release starts with a local kind real-device lane so registration, calls, media, capture, and HA iteration do not require an expensive AKS session.
+
+### Priority 0: Local Kind Real Devices
+
+- Expose stable SIP UDP/TCP/TLS and RTP/RTCP ports from kind to the home LAN.
+- Register the OBi1022 and Zoiper through the local cluster before adding Poly/Yealink devices.
+- Prove both call directions with two-way RTP and RTCP, one combined PCAP, one canonical ladder, and a downloadable evidence archive.
+- Preserve the existing AKS real-device values and public-IP behavior; local settings must remain a separate profile.
+- Add repeatable create, upgrade, monitor, capture, regression, and cleanup commands to the Kubernetes and real-device runbooks.
+- Run the existing local Kubernetes, AKS, AI/Rasa, Docker, and real-device gates before release.
+
+### Evidence Caveats To Close
+
+- Remove non-fatal SIPp `SSL_ERROR_WANT_READ` and watchdog notices from final `stderr.log` while retaining raw diagnostics separately.
+- Stop requesting previous-container logs when no previous container exists, eliminating Kubernetes `BadRequest` text from pod evidence.
+- Collect and validate AKS advertised-IP evidence after each profile Helm rollout, not only before the profile transition.
+- Scope PlaySBC logs to the regression window and regression call IDs so unrelated public real-device REGISTER attempts do not enter profile evidence.
+- Make `archive-manifest.txt` either a complete checksum inventory or explicitly label its current 200-path preview, and reconcile pre-manifest versus archived file counts.
+- Keep the current strict requirement for one merged `capture.pcap`, one `sipmsg.log`, complete ladders, bidirectional media verdicts, and zero packet drops.
+
+The v2.5.1 AKS run `aks-regression-20260824-172526` passed all 12 profiles and every strict evidence validator. These items improve evidence clarity and timing; they are not signalling or media failures in that run.
+
+## Next Architecture: Local Multi-Node HA Lab
+
+This follows the local real-device baseline and moves expensive HA/failover iteration from AKS to a repeatable local environment.
 
 ```text
 kind control-plane

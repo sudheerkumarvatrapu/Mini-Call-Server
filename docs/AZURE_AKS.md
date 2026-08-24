@@ -290,7 +290,19 @@ Expected: `ready` and `playsbc_active_calls 0`.
 
 ## 5. Run AKS Regression
 
-The released `2.5.1` images remain immutable. Clone `main` for the current Cloud Shell launcher and post-release safety checks.
+Use the latest `main` checkout for the Cloud Shell launcher and post-release safety checks. Keep all four runtime images pinned to the immutable release tag; do not use a mutable `latest` image tag. This gives each run the newest launcher fixes without silently changing the tested PlaySBC, RTPengine, runner, or SIPp version.
+
+Refresh the launcher first. Cloning `main` creates a normal branch checkout and avoids the harmless detached-HEAD message produced when cloning a release tag:
+
+```bash
+cd ~
+rm -rf PlaySBC-main
+git clone --branch main --single-branch --depth 1 \
+  https://github.com/sudheerkumarvatrapu/PlaySBC.git \
+  PlaySBC-main
+cd PlaySBC-main
+git log --oneline -1
+```
 
 Run image import separately so a missing tag is obvious:
 
@@ -310,14 +322,9 @@ for IMAGE in playsbc playsbc-rtpengine playsbc-k8s-regression playsbc-sipp; do
 done
 ```
 
-Then clone and run:
+Then run from the refreshed checkout:
 
 ```bash
-cd ~
-rm -rf PlaySBC-main
-git clone --branch main --depth 1 \
-  https://github.com/sudheerkumarvatrapu/PlaySBC.git \
-  PlaySBC-main
 cd PlaySBC-main
 
 PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache \
@@ -334,6 +341,8 @@ python3 tools/run_k8s_regression_job.py \
   --aks-load-balancer-wait-timeout 1200 \
   --job-timeout 3600
 ```
+
+Expected startup output includes the latest `main` commit from `git log`, followed by `Launching Azure AKS Regression Job for 12 profiles.` The report command may still display release image tag `2.5.1`; that is intentional and proves the runtime remained pinned while the launcher came from current `main`.
 
 The `--aks-profiles` shortcut enforces Azure services, static SIP, public SIP/RTP ingress, UDP `30000-30049`, and single-workload topology. Image references are validated before Helm or Job mutation.
 
