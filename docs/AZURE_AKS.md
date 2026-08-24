@@ -375,24 +375,65 @@ Each single-call profile keeps one combined `capture.pcap`, one `sipmsg.log`, fo
 Try normal refresh first:
 
 ```bash
+export AKS_RG=playsbc-aks-rg
+export AKS_NAME=playsbc-aks
+
 az aks get-credentials -g "$AKS_RG" -n "$AKS_NAME" --overwrite-existing
 ```
 
-If Azure CLI returns `InvalidApiVersionParameter`, use the REST fallback:
+If Azure CLI returns `InvalidApiVersionParameter`, first verify that the active subscription contains the cluster:
 
 ```bash
-SUB_ID=$(az account show --query id -o tsv)
-mkdir -p ~/.kube
+az account show --query '{subscription:name,id:id}' -o table
+az aks list --query '[].{name:name,resourceGroup:resourceGroup}' -o table
+```
+
+If `playsbc-aks` is absent, select the subscription that owns it and list the clusters again:
+
+```bash
+az account list -o table
+az account set --subscription '<subscription-id-containing-playsbc-aks>'
+az aks list --query '[].{name:name,resourceGroup:resourceGroup}' -o table
+```
+
+Then use the guarded REST fallback. It discovers the resource group from Azure, rejects empty variables, and only replaces kubeconfig after Azure returns a non-empty credential. Do not redirect the REST response straight to `~/.kube/config`: an Azure error would truncate the working file.
+
+```bash
+set -euo pipefail
+
+export AKS_NAME=playsbc-aks
+export AKS_RG=$(az aks list \
+  --query "[?name=='playsbc-aks'].resourceGroup | [0]" \
+  -o tsv)
+export SUB_ID=$(az account show --query id -o tsv)
+
+: "${SUB_ID:?Subscription ID is empty}"
+: "${AKS_RG:?playsbc-aks was not found in the active subscription}"
+: "${AKS_NAME:?AKS name is empty}"
+
+echo "SUB_ID=$SUB_ID"
+echo "AKS_RG=$AKS_RG"
+echo "AKS_NAME=$AKS_NAME"
+
+TMP_KUBECONFIG=$(mktemp)
 
 az rest \
   --method post \
-  --url "https://management.azure.com/subscriptions/$SUB_ID/resourceGroups/$AKS_RG/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME/listClusterUserCredential?api-version=2025-04-01" \
+  --url "https://management.azure.com/subscriptions/${SUB_ID}/resourceGroups/${AKS_RG}/providers/Microsoft.ContainerService/managedClusters/${AKS_NAME}/listClusterUserCredential?api-version=2025-04-01" \
   --query 'kubeconfigs[0].value' \
-  -o tsv | base64 -d >~/.kube/config
+  -o tsv | base64 -d > "$TMP_KUBECONFIG"
 
+test -s "$TMP_KUBECONFIG"
+mkdir -p ~/.kube
+mv "$TMP_KUBECONFIG" ~/.kube/config
 chmod 600 ~/.kube/config
+
+kubectl config current-context
+kubectl get nodes
 kubectl get pods -n playsbc
 ```
+
+An error URL containing `resourceGroups/providers/.../managedClusters/listClusterUserCredential` means both `$AKS_RG` and `$AKS_NAME` were empty. Re-run the guarded block above; it stops before calling Azure when cluster discovery fails.
 
 ## 8. Cleanup
 
