@@ -1666,7 +1666,7 @@ Content-Length: 0
 
     def test_current_release_keeps_kind_regression_path(self):
         chart = ROOT / "charts" / "playsbc"
-        current_version = "2.5.0"
+        current_version = "2.5.1"
         version = (ROOT / "VERSION").read_text(encoding="utf-8")
         chart_yaml = (chart / "Chart.yaml").read_text(encoding="utf-8")
         values = (chart / "values.yaml").read_text(encoding="utf-8")
@@ -1690,8 +1690,8 @@ Content-Length: 0
         self.assertIn("--all-profiles", runbook)
         self.assertIn("--set-rtpengine-image", runbook)
         self.assertNotIn("playsbc-k8s-regression:1.4.2", runbook)
-        self.assertIn("Clean Real-Device Evidence", release_notes)
-        self.assertIn("register-auth-tls", release_notes)
+        self.assertIn("Root Cause", release_notes)
+        self.assertIn("Start `send_srtp_audio.py` explicitly", release_notes)
 
         args = run_k8s_regression_job.parse_args(
             [
@@ -2999,13 +2999,9 @@ class RealTopologyTests(unittest.TestCase):
             f"a=rtcp:{run_b2bua_sipp_smoke.SRTP_TEST_RTCP_PORT}",
             secure,
         )
-        self.assertIn(
-            f"--port {run_b2bua_sipp_smoke.SRTP_TEST_MEDIA_PORT}",
-            secure,
-        )
-        self.assertNotIn("--port [media_port]", secure)
         self.assertNotIn("play_pcap_audio", secure)
-        self.assertIn("send_srtp_audio.py", secure)
+        self.assertNotIn("send_srtp_audio.py", secure)
+        self.assertNotIn("<exec command=", secure)
         self.assertNotIn("rtp_echo=", secure)
         self.assertIn("RTP/AVP", plain)
         self.assertIn("play_pcap_audio", plain)
@@ -3022,12 +3018,12 @@ class RealTopologyTests(unittest.TestCase):
 
                 self.assertIn("RTP/SAVP", secure)
                 self.assertIn("a=crypto:", secure)
-                self.assertIn("send_srtp_audio.py", secure)
+                self.assertNotIn("send_srtp_audio.py", secure)
+                self.assertNotIn("<exec command=", secure)
                 self.assertIn(
                     f"m=audio {run_b2bua_sipp_smoke.SRTP_TEST_MEDIA_PORT} RTP/SAVP",
                     secure,
                 )
-                self.assertNotIn("--port [media_port]", secure)
                 self.assertNotIn("rtp_echo=", secure)
                 self.assertNotIn("play_pcap_audio", secure)
                 self.assertIn("RTP/AVP", plain)
@@ -3061,6 +3057,40 @@ class RealTopologyTests(unittest.TestCase):
                 self.assertIn("-srtpcheck_debug", secure)
                 self.assertNotIn("-rtpcheck_debug", plain)
                 self.assertNotIn("-srtpcheck_debug", plain)
+
+    def test_srtp_sender_command_is_runner_managed_without_shell_operators(self):
+        command = run_b2bua_sipp_smoke.srtp_sender_command("10.244.0.25")
+
+        self.assertEqual(command[:3], ["python3", "/app/tools/send_srtp_audio.py", "--bind-ip"])
+        self.assertEqual(command[3], "10.244.0.25")
+        self.assertEqual(
+            command[command.index("--port") + 1],
+            str(run_b2bua_sipp_smoke.SRTP_TEST_MEDIA_PORT),
+        )
+        self.assertEqual(command[command.index("--wait-timeout") + 1], "30")
+        self.assertFalse(any("&" in value or ">" in value for value in command))
+
+    def test_kubernetes_srtp_sender_runs_in_the_secure_endpoint_pod(self):
+        runner = object.__new__(run_k8s_regression.K8sRegressionRunner)
+        runner.args = SimpleNamespace(kubectl_bin="kubectl", namespace="playsbc")
+        process = mock.Mock()
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(run_k8s_regression.subprocess, "Popen", return_value=process) as popen, \
+                mock.patch.object(run_k8s_regression, "wait_for_process_log_marker", return_value=True):
+            sender = runner.start_srtp_sender(
+                SimpleNamespace(uac_srtp=False, uas_srtp=True),
+                "core-pod",
+                "10.244.0.10",
+                "peer-pod",
+                "10.244.0.11",
+                Path(tmp),
+            )
+            self.assertIsNotNone(sender)
+            command = popen.call_args.args[0]
+            self.assertEqual(command[:7], ["kubectl", "-n", "playsbc", "exec", "peer-pod", "--", "python3"])
+            self.assertEqual(command[command.index("--bind-ip") + 1], "10.244.0.11")
+            runner.close_process_files(process)
 
     def test_kubernetes_trace_collection_includes_srtp_sender_and_debug_logs(self):
         source = inspect.getsource(run_k8s_regression.K8sRegressionRunner.collect_sipp_traces)

@@ -2057,23 +2057,34 @@ def render_srtp_media_scenario(text: str) -> str:
             "      a=ptime:20"
         ),
     )
-    secure_action = (
-        '<exec command="python3 /app/tools/send_srtp_audio.py '
-        f'--bind-ip [media_ip] --port {SRTP_TEST_MEDIA_PORT} '
-        f'--key {SRTP_TEST_MASTER_KEY_SALT} --duration 8 '
-        '&gt;/tmp/secure-srtp-sender.log 2&gt;&amp;1 &amp;"/>'
-    )
     return re.sub(
         r"\n\s*<nop>\s*<action>\s*<exec play_pcap_audio=\"[^\"]+\"/>\s*</action>\s*</nop>\s*",
-        (
-            "\n  <nop>\n"
-            "    <action>\n"
-            f"      {secure_action}\n"
-            "    </action>\n"
-            "  </nop>\n\n"
-        ),
+        "\n",
         text,
     )
+
+
+def srtp_sender_command(
+    bind_ip: str,
+    *,
+    python: str = "python3",
+    sender: str = "/app/tools/send_srtp_audio.py",
+    wait_timeout: float = 30.0,
+) -> List[str]:
+    return [
+        python,
+        sender,
+        "--bind-ip",
+        bind_ip,
+        "--port",
+        str(SRTP_TEST_MEDIA_PORT),
+        "--key",
+        SRTP_TEST_MASTER_KEY_SALT,
+        "--duration",
+        "8",
+        "--wait-timeout",
+        f"{wait_timeout:g}",
+    ]
 
 
 def prepare_media_scenarios(args: argparse.Namespace, run_dir: Path) -> None:
@@ -2186,6 +2197,21 @@ def build_media_player_commands(args: argparse.Namespace) -> List[Tuple[str, Lis
     return [
         ("media-a-to-b2bua", base + ["--port", str(args.server_rtp_min)]),
         ("media-b-to-b2bua", base + ["--port", str(args.server_rtp_min + 2)]),
+    ]
+
+
+def build_srtp_sender_commands(args: argparse.Namespace) -> List[Tuple[str, List[str]]]:
+    if not (getattr(args, "uac_srtp", False) or getattr(args, "uas_srtp", False)):
+        return []
+    return [
+        (
+            "secure-srtp-sender",
+            srtp_sender_command(
+                args.host,
+                python=sys.executable,
+                sender=str(ROOT / "tools" / "send_srtp_audio.py"),
+            ),
+        )
     ]
 
 
@@ -2312,6 +2338,22 @@ def start_process(command: List[str], cwd: Path, stdout_path: Path) -> subproces
     process = subprocess.Popen(command, cwd=cwd, stdout=stdout, stderr=subprocess.STDOUT)
     process.stdout_file = stdout  # type: ignore[attr-defined]
     return process
+
+
+def wait_for_process_log_marker(
+    process: subprocess.Popen,
+    log_path: Path,
+    marker: str,
+    timeout: float = 5.0,
+) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if log_path.exists() and marker in log_path.read_text(encoding="utf-8", errors="replace"):
+            return True
+        if process.poll() is not None:
+            return False
+        time.sleep(0.050)
+    return False
 
 
 def stop_process(process: Optional[subprocess.Popen]) -> None:
@@ -4313,6 +4355,7 @@ def main() -> int:
         uas_command = build_uas_command(args, sipp)
         uac_command = build_uac_command(args, sipp)
         media_commands = build_media_player_commands(args)
+        srtp_sender_commands = build_srtp_sender_commands(args)
         callee_register_command = build_register_command(args, sipp, args.callee, args.uas_port, args.register_port)
         caller_register_command = (
             build_register_command(args, sipp, args.caller, args.uac_port, args.caller_register_port)
@@ -4329,6 +4372,7 @@ def main() -> int:
         if args.run_call:
             all_commands.append(("sipp-a-uac", uac_command))
             all_commands.extend(media_commands)
+            all_commands.extend(srtp_sender_commands)
 
         server_process: Optional[subprocess.Popen] = None
         uas_process: Optional[subprocess.Popen] = None
@@ -4346,7 +4390,7 @@ def main() -> int:
                     results.append(SmokeResult("registration-caller", caller_register_command, None, "dry-run", 0.0))
                 if args.run_call:
                     results.append(SmokeResult("sipp-a-uac", uac_command, None, "dry-run", 0.0))
-                    for name, command in media_commands:
+                    for name, command in [*media_commands, *srtp_sender_commands]:
                         results.append(SmokeResult(name, command, None, "dry-run", 0.0))
                 print(f"B2BUA SIPp logs: {log_dir}")
                 for result in results:
@@ -4394,6 +4438,13 @@ def main() -> int:
                 uac_stdout = (work_dir / "sipp-a-uac" / "stdout.log").open("w", encoding="utf-8")
                 uac_stderr = (work_dir / "sipp-a-uac" / "stderr.log").open("w", encoding="utf-8")
                 try:
+                    for name, command in srtp_sender_commands:
+                        media_started = time.monotonic()
+                        sender_log = work_dir / f"{name}.log"
+                        process = start_process(command, ROOT, sender_log)
+                        media_processes.append((name, command, process, media_started))
+                        if not wait_for_process_log_marker(process, sender_log, "SRTP sender ready"):
+                            raise RuntimeError(f"Secure SRTP sender did not become ready; see {sender_log}")
                     uac_process = subprocess.Popen(uac_command, cwd=work_dir / "sipp-a-uac", stdout=uac_stdout, stderr=uac_stderr, text=True)
                     if media_commands:
                         time.sleep(args.media_start_delay)

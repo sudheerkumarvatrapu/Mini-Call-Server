@@ -37,8 +37,10 @@ from tools.run_b2bua_sipp_smoke import (  # noqa: E402
     is_transcoding_profile,
     render_srtp_media_scenario,
     render_harness_config_templates,
+    srtp_sender_command,
     sipp_timeout_seconds,
     uas_media_codec,
+    wait_for_process_log_marker,
 )
 from tools.run_regression_suite import (  # noqa: E402
     ALL_B2BUA_PROFILES,
@@ -1629,6 +1631,80 @@ class K8sRegressionRunner:
         process._playsbc_step_dir = step_dir  # type: ignore[attr-defined]
         return process
 
+    def start_srtp_sender(
+        self,
+        profile: SimpleNamespace,
+        core_pod: str,
+        core_ip: str,
+        peer_pod: str,
+        peer_ip: str,
+        bundle: Path,
+    ) -> tuple[str, subprocess.Popen[str]] | None:
+        if getattr(profile, "uac_srtp", False):
+            role, pod, bind_ip = "core", core_pod, core_ip
+        elif getattr(profile, "uas_srtp", False):
+            role, pod, bind_ip = "peer", peer_pod, peer_ip
+        else:
+            return None
+
+        step_name = f"{role}-secure-srtp-sender"
+        command = [
+            self.args.kubectl_bin,
+            "-n",
+            self.args.namespace,
+            "exec",
+            pod,
+            "--",
+            *srtp_sender_command(bind_ip),
+        ]
+        step_dir = bundle / step_name
+        step_dir.mkdir(parents=True, exist_ok=True)
+        (step_dir / "command.txt").write_text(command_text(command) + "\n", encoding="utf-8")
+        stdout = (step_dir / "stdout.log").open("w", encoding="utf-8")
+        stderr = (step_dir / "stderr.log").open("w", encoding="utf-8")
+        self.write_log(bundle, "log.sipp", f"{step_name.upper()} COMMAND", command_text(command))
+        process = subprocess.Popen(command, cwd=ROOT, text=True, stdout=stdout, stderr=stderr)
+        process._playsbc_stdout = stdout  # type: ignore[attr-defined]
+        process._playsbc_stderr = stderr  # type: ignore[attr-defined]
+        process._playsbc_step_dir = step_dir  # type: ignore[attr-defined]
+        if not wait_for_process_log_marker(process, step_dir / "stdout.log", "SRTP sender ready"):
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+            self.close_process_files(process)
+            stdout_text = (step_dir / "stdout.log").read_text(encoding="utf-8", errors="replace")
+            stderr_text = (step_dir / "stderr.log").read_text(encoding="utf-8", errors="replace")
+            detail = "\n".join(value.strip() for value in (stdout_text, stderr_text) if value.strip())
+            raise RuntimeError(f"Secure SRTP sender did not become ready in {pod}: {detail or 'no output'}")
+        return step_name, process
+
+    def wait_for_srtp_sender(
+        self,
+        sender: tuple[str, subprocess.Popen[str]] | None,
+        bundle: Path,
+    ) -> int | None:
+        if sender is None:
+            return None
+        step_name, process = sender
+        try:
+            returncode = process.wait(timeout=45)
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+            returncode = 124
+        finally:
+            self.close_process_files(process)
+        self.write_log(bundle, "log.sipp", f"{step_name.upper()} RESULT", f"returncode={returncode}")
+        return int(returncode)
+
     def write_sipp_stderr(self, step_dir: Path, stderr_text: str) -> None:
         filtered, suppressed = normalize_sipp_stderr(stderr_text)
         if suppressed:
@@ -2786,6 +2862,7 @@ class K8sRegressionRunner:
         commands: list[str] = []
         processes: list[tuple[str, str, subprocess.Popen[str]]] = []
         rtcp_processes: list[tuple[str, subprocess.Popen[str]]] = []
+        srtp_sender: tuple[str, subprocess.Popen[str]] | None = None
         captures: list[CaptureProcess] = []
         capture_ok = True
 
@@ -2825,6 +2902,21 @@ class K8sRegressionRunner:
                 commands.append(command_text(result.command))
 
             if getattr(profile, "run_call", True):
+                srtp_sender = self.start_srtp_sender(
+                    profile,
+                    core_pod,
+                    core_ip,
+                    peer_pod,
+                    peer_ip,
+                    bundle,
+                )
+                if srtp_sender is not None:
+                    step_name, process = srtp_sender
+                    commands.append((bundle / step_name / "command.txt").read_text(encoding="utf-8").strip())
+                    if process.poll() is not None:
+                        sender_rc = self.wait_for_srtp_sender(srtp_sender, bundle)
+                        srtp_sender = None
+                        returncodes.append(int(sender_rc if sender_rc is not None else 1))
                 uac_args = self.b2bua_uac_args(profile, uac_scenario, core_ip)
                 profile_timeout = k8s_sipp_timeout_seconds(profile)
                 timeout = max(self.args.sipp_timeout, profile_timeout + 30)
@@ -2875,6 +2967,11 @@ class K8sRegressionRunner:
             returncodes.extend(self.wait_for_rtcp_processes(profile, rtcp_processes, bundle))
             rtcp_processes = []
 
+            sender_rc = self.wait_for_srtp_sender(srtp_sender, bundle)
+            srtp_sender = None
+            if sender_rc is not None:
+                returncodes.append(sender_rc)
+
             for step_name, pod, process in processes:
                 try:
                     rc = process.wait(timeout=max(30, min(k8s_sipp_timeout_seconds(profile), 180)))
@@ -2889,6 +2986,16 @@ class K8sRegressionRunner:
                 self.collect_sipp_traces(pod, bundle / step_name)
             self.run_ha_action(profile, bundle, phases, "postcall")
         finally:
+            if srtp_sender is not None:
+                _name, process = srtp_sender
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=5)
+                self.close_process_files(process)
             for _name, process in rtcp_processes:
                 if process.poll() is None:
                     process.terminate()

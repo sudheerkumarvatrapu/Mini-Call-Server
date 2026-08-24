@@ -55,8 +55,10 @@ from tools.run_b2bua_sipp_smoke import (  # noqa: E402
     sipp_timeout_seconds,
     sipp_trace_args,
     should_run_rtcp,
+    srtp_sender_command,
     uas_media_codec,
     wait_for_rtpengine_load_queries,
+    wait_for_process_log_marker,
 )
 from tools.run_real_topology import (  # noqa: E402
     CHART,
@@ -764,6 +766,33 @@ def start_rtcp_processes(
     return processes, commands
 
 
+def start_srtp_sender(
+    args: SimpleNamespace,
+    work_dir: Path,
+    env: dict[str, str],
+) -> tuple[str, list[str], subprocess.Popen[str], float] | None:
+    if args.uac_srtp:
+        service, bind_ip = "core-agent", CORE_UA_IP
+    elif args.uas_srtp:
+        service, bind_ip = "peer-agent", PEER_UA_IP
+    else:
+        return None
+    name = "secure-srtp-sender"
+    command = exec_command(service, "/app", srtp_sender_command(bind_ip))
+    started = time.monotonic()
+    stdout_path = work_dir / f"{name}.log"
+    process = start_process(
+        command,
+        env=env,
+        stdout_path=stdout_path,
+        stderr_path=work_dir / f"{name}.stderr.log",
+    )
+    if not wait_for_process_log_marker(process, stdout_path, "SRTP sender ready"):
+        stop_process(process)
+        raise RuntimeError(f"Secure SRTP sender did not become ready; see {stdout_path}")
+    return name, command, process, started
+
+
 def stop_captures(services: list[str], env: dict[str, str]) -> None:
     if services:
         run(compose_command("kill", "-s", "SIGINT", *services), env=env, check=False)
@@ -1022,6 +1051,7 @@ def main() -> int:
     uas_process: Optional[subprocess.Popen[str]] = None
     uac_process: Optional[subprocess.Popen[str]] = None
     rtcp_processes: list[tuple[str, list[str], subprocess.Popen[str], float]] = []
+    srtp_process: tuple[str, list[str], subprocess.Popen[str], float] | None = None
     captures: list[str] = []
     failure: Optional[BaseException] = None
     phase_records: list[dict[str, object]] = []
@@ -1120,6 +1150,9 @@ def main() -> int:
             results.append(SmokeResult("caller-registration", wrapped, rc, "passed" if rc == 0 else "failed", duration))
 
         if profile.run_call:
+            srtp_process = start_srtp_sender(profile, work_dir, env)
+            if srtp_process is not None:
+                commands.append((srtp_process[0], srtp_process[1]))
             command = uac_command(profile, uac_scenario)
             wrapped = exec_command("core-agent", "/output/work/sipp-a-uac", command)
             commands.append(("sipp-a-uac", wrapped))
@@ -1140,6 +1173,17 @@ def main() -> int:
             results.append(
                 SmokeResult("sipp-a-uac", wrapped, uac_rc, "passed" if uac_rc == 0 else "failed", time.monotonic() - uac_started)
             )
+
+        if srtp_process is not None:
+            name, command, process, started = srtp_process
+            try:
+                rc = process.wait(timeout=45)
+            except subprocess.TimeoutExpired:
+                stop_process(process)
+                rc = process.returncode if process.returncode is not None else 124
+            close_process_files(process)
+            srtp_process = None
+            results.append(SmokeResult(name, command, rc, "passed" if rc == 0 else "failed", time.monotonic() - started))
 
         for name, command, process, started in rtcp_processes:
             rc = process.wait(timeout=max(10, int(profile.hold_ms / 1000) + 15))
@@ -1189,6 +1233,8 @@ def main() -> int:
         try:
             stop_process(uac_process)
             stop_process(uas_process)
+            if srtp_process is not None:
+                stop_process(srtp_process[2])
             for _name, _command, process, _started in rtcp_processes:
                 stop_process(process)
             if env.get("PLAYSBC_TOPOLOGY_CONFIG"):

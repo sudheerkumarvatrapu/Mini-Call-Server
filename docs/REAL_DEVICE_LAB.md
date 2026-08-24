@@ -15,7 +15,7 @@ Validated baseline: SIP UDP `5062`, RTP/RTCP UDP `30000-30049`, PCMU/PCMA, diges
 Run in Cloud Shell after the base AKS services have public IPs:
 
 ```bash
-export PLAYSBC_VERSION=2.5.0
+export PLAYSBC_VERSION=2.5.1
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
@@ -162,7 +162,7 @@ Pass criteria:
 Use the released capture tool and one temporary host-network `netshoot` pod:
 
 ```bash
-export PLAYSBC_VERSION=2.5.0
+export PLAYSBC_VERSION=2.5.1
 
 cd ~
 rm -rf "PlaySBC-v$PLAYSBC_VERSION"

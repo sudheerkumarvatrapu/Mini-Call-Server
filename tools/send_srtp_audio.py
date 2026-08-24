@@ -95,37 +95,49 @@ def main() -> int:
     master_key_salt = base64.b64decode(args.key, validate=True)
     encryption_key, authentication_key, salt = session_keys(master_key_salt)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind((args.bind_ip, args.port))
-    sock.settimeout(args.wait_timeout)
     try:
-        _packet, peer = sock.recvfrom(4096)
-    except TimeoutError:
-        print(f"SRTP sender timed out waiting on {args.bind_ip}:{args.port}", flush=True)
-        return 2
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((args.bind_ip, args.port))
+        except OSError as exc:
+            print(f"SRTP sender could not bind {args.bind_ip}:{args.port}: {exc}", flush=True)
+            return 3
+        print(f"SRTP sender ready on {args.bind_ip}:{args.port}", flush=True)
+        sock.settimeout(args.wait_timeout)
+        try:
+            _packet, peer = sock.recvfrom(4096)
+        except TimeoutError:
+            print(f"SRTP sender timed out waiting on {args.bind_ip}:{args.port}", flush=True)
+            return 2
 
-    packet_interval = args.packet_ms / 1000.0
-    packet_count = max(int(args.duration / packet_interval), 1)
-    sequence = 1000
-    timestamp = 0
-    ssrc = 0x53525450
-    payload = bytes([0xFF]) * 160
-    deadline = time.monotonic()
-    for index in range(packet_count):
-        packet = srtp_packet(
-            payload,
-            sequence + index,
-            timestamp + (160 * index),
-            ssrc,
-            encryption_key,
-            authentication_key,
-            salt,
+        packet_interval = args.packet_ms / 1000.0
+        packet_count = max(int(args.duration / packet_interval), 1)
+        sequence = 1000
+        timestamp = 0
+        ssrc = 0x53525450
+        payload = bytes([0xFF]) * 160
+        deadline = time.monotonic()
+        for index in range(packet_count):
+            packet = srtp_packet(
+                payload,
+                sequence + index,
+                timestamp + (160 * index),
+                ssrc,
+                encryption_key,
+                authentication_key,
+                salt,
+            )
+            sock.sendto(packet, peer)
+            deadline += packet_interval
+            time.sleep(max(deadline - time.monotonic(), 0.0))
+        print(
+            f"SRTP sender sent {packet_count} packets from {args.bind_ip}:{args.port} "
+            f"to {peer[0]}:{peer[1]}",
+            flush=True,
         )
-        sock.sendto(packet, peer)
-        deadline += packet_interval
-        time.sleep(max(deadline - time.monotonic(), 0.0))
-    print(f"SRTP sender sent {packet_count} packets from {args.bind_ip}:{args.port} to {peer[0]}:{peer[1]}", flush=True)
-    return 0
+        return 0
+    finally:
+        sock.close()
 
 
 if __name__ == "__main__":

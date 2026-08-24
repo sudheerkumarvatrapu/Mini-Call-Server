@@ -2,7 +2,7 @@
 
 This is the canonical Azure guide for creating a small AKS lab, deploying PlaySBC/RTPengine, running AKS regression, downloading evidence, recovering credentials, and deleting the lab. Use [REAL_DEVICE_LAB.md](REAL_DEVICE_LAB.md) only after this base deployment is healthy.
 
-The Azure exposure track was introduced in `v1.5.0`, and `v2.4.0` added strict public-media evidence validation. Every runnable command below targets the current `v2.5.0` release.
+The Azure exposure track was introduced in `v1.5.0`, and `v2.4.0` added strict public-media evidence validation. Every runnable command below targets the current `v2.5.1` release.
 
 Keep AKS test windows short. Local kind is the normal lane for full regression and HA/failover iteration.
 
@@ -32,7 +32,7 @@ export SIP_PIP_NAME=playsbc-sip-pip
 export RTP_PIP_NAME=playsbc-rtp-pip
 export DNS_LABEL=playsbc-sip-lab-$RANDOM
 export RTP_DNS_LABEL=playsbc-rtp-lab-$RANDOM
-export PLAYSBC_VERSION=2.5.0
+export PLAYSBC_VERSION=2.5.1
 ```
 
 Cloud Shell variables are ephemeral. Re-export them after reconnecting. For an existing ACR, derive its name instead of generating a new one:
@@ -163,7 +163,7 @@ kubectl get nodes
 Re-export stable values in every new Cloud Shell session:
 
 ```bash
-export PLAYSBC_VERSION=2.5.0
+export PLAYSBC_VERSION=2.5.1
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
@@ -290,12 +290,12 @@ Expected: `ready` and `playsbc_active_calls 0`.
 
 ## 5. Run AKS Regression
 
-The released `2.5.0` images remain immutable. Clone `main` for the current Cloud Shell launcher and post-release safety checks.
+The released `2.5.1` images remain immutable. Clone `main` for the current Cloud Shell launcher and post-release safety checks.
 
 Run image import separately so a missing tag is obvious:
 
 ```bash
-export PLAYSBC_VERSION=2.5.0
+export PLAYSBC_VERSION=2.5.1
 export AKS_RG=playsbc-aks-rg
 export ACR_NAME=$(az acr list --resource-group "$AKS_RG" --query '[0].name' -o tsv)
 export ACR_LOGIN_SERVER=$(az acr show -g "$AKS_RG" -n "$ACR_NAME" --query loginServer -o tsv)
@@ -337,11 +337,11 @@ python3 tools/run_k8s_regression_job.py \
 
 The `--aks-profiles` shortcut enforces Azure services, static SIP, public SIP/RTP ingress, UDP `30000-30049`, and single-workload topology. Image references are validated before Helm or Job mutation.
 
-AKS profile runs default both regression images to `imagePullPolicy: Always`. This matters when a release tag such as `2.5.0` is rebuilt in place: `IfNotPresent` can silently reuse an older node-cached runner with stale scenarios and validators. Confirm the refreshed GHCR workflow and all four ACR imports completed before launching the Job.
+AKS profile runs default both regression images to `imagePullPolicy: Always`. Release tags are immutable; the pull policy protects explicit `main` compatibility runs from stale node-cached runner code. Confirm the GHCR workflow and all four ACR imports completed before launching the Job.
 
-For the mixed `tls-srtp-to-udp-rtp` and `udp-rtp-to-tls-srtp` profiles, the secure SIPp leg uses `send_srtp_audio.py` instead of SIPp's unreliable SRTP echo action. The helper advertises a deterministic SDES key, learns RTPengine's source endpoint from the first received packet, and returns authenticated AES-CM/HMAC-SHA1-80 PCMU traffic. The runner also enables SIPp RTP/SRTP diagnostics on that secure leg only. If RTPengine shows encrypted packets delivered to the secure pod but zero returned, verify the runner image contains the helper and the SIPp image contains `/app/tools/send_srtp_audio.py` plus `openssl` before investigating Azure networking. This is regression-endpoint behavior and does not alter the real-device Helm media policy.
+For the mixed `tls-srtp-to-udp-rtp` and `udp-rtp-to-tls-srtp` profiles, the runner starts `send_srtp_audio.py` as a separate, tracked process in the secure endpoint pod. The helper advertises a deterministic SDES key, binds before the call, learns RTPengine's source endpoint from the first received packet, and returns authenticated AES-CM/HMAC-SHA1-80 PCMU traffic. Its command, stdout, stderr, timeout, and exit status are first-class regression evidence. SIPp XML contains SDP only; it does not launch shell commands. This is synthetic regression-endpoint behavior and does not alter the real-device Helm media policy.
 
-The secure helper binds the reserved one-call profile ports `6000/UDP` for RTP and `6001/UDP` for RTCP. Keep those values explicit in its rendered SDP and command: SIPp's contextual `[media_port]` keyword is valid in SIP message templates but aborts with `Can not find beginning of a line for the media port!` when expanded from an external command action. Plain RTP profiles continue using SIPp's dynamic media-port allocation.
+The secure helper binds reserved one-call profile ports `6000/UDP` for RTP and `6001/UDP` for RTCP. The same values are explicit in rendered SDP and the runner command. Plain RTP profiles continue using SIPp's dynamic media-port allocation. If encrypted packets reach the secure pod but none return, inspect `core-secure-srtp-sender/` or `peer-secure-srtp-sender/` before investigating Azure networking.
 
 Stop only regression resources:
 

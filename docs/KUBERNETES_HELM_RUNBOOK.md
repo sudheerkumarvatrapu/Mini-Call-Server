@@ -91,7 +91,7 @@ Run from the repository on the Mac. This is the single maintained release-image 
 ```bash
 cd /Users/sudheerkumar/Documents/Codex/2026-05-18/Mini-Call-Server
 
-export PLAYSBC_VERSION=2.5.0
+export PLAYSBC_VERSION=2.5.1
 
 kubectl config use-context kind-playsbc
 kubectl config set-context --current --namespace=playsbc
