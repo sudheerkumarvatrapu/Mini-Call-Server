@@ -448,20 +448,67 @@ An error URL containing `resourceGroups/providers/.../managedClusters/listCluste
 
 ## 8. Cleanup
 
-Download evidence first, then delete both resource groups:
+Download the evidence archive first. Cloud Shell sessions can change tenants or subscriptions, so discover the active subscription and verify the exact PlaySBC groups before deleting anything:
 
 ```bash
-az group delete --name "$AKS_RG" --yes --no-wait
-az group delete --name "$NETWORK_RG" --yes --no-wait
+unset SUB_ID
+export SUB_ID=$(az account show --query id -o tsv)
+export AKS_RG=playsbc-aks-rg
+export NETWORK_RG=playsbc-network-rg
+
+: "${SUB_ID:?No active Azure subscription}"
+
+echo "SUB_ID=$SUB_ID"
+az account show -o table
+az group list \
+  --subscription "$SUB_ID" \
+  --query "[?name=='$AKS_RG' || name=='$NETWORK_RG'].{Name:name,Location:location}" \
+  -o table
 ```
 
-Monitor until both are `false`:
+Both named groups must appear in the table. If they do not, stop and select the subscription that owns the AKS lab with `az account list -o table` and `az account set --subscription <id>`.
+
+Submit both asynchronous deletions only after verification:
 
 ```bash
-watch -n 30 'echo "AKS_RG: $(az group exists --name playsbc-aks-rg)"; echo "NETWORK_RG: $(az group exists --name playsbc-network-rg)"'
+for RG in "$AKS_RG" "$NETWORK_RG"; do
+  EXISTS=$(az group exists \
+    --subscription "$SUB_ID" \
+    --name "$RG")
+
+  echo "$RG exists: $EXISTS"
+
+  if [ "$EXISTS" = "true" ]; then
+    az group delete \
+      --subscription "$SUB_ID" \
+      --name "$RG" \
+      --yes \
+      --no-wait
+  fi
+done
 ```
 
-The lab is not cost-stopped until both resource groups are gone.
+Monitor until both checks return `false`; the loop exits automatically:
+
+```bash
+while true; do
+  AKS_EXISTS=$(az group exists --subscription "$SUB_ID" --name "$AKS_RG")
+  NETWORK_EXISTS=$(az group exists --subscription "$SUB_ID" --name "$NETWORK_RG")
+
+  date
+  echo "AKS_RG exists: $AKS_EXISTS"
+  echo "NETWORK_RG exists: $NETWORK_EXISTS"
+
+  if [ "$AKS_EXISTS" = "false" ] && [ "$NETWORK_EXISTS" = "false" ]; then
+    echo "PlaySBC AKS lab deletion completed."
+    break
+  fi
+
+  sleep 30
+done
+```
+
+The AKS-managed `MC_playsbc-aks-rg_playsbc-aks_eastus` group should disappear with `playsbc-aks-rg`; do not delete it separately. Keep Azure-managed groups such as `NetworkWatcherRG`. The lab is not cost-stopped until both PlaySBC groups report `false`.
 
 ## Boundaries
 
