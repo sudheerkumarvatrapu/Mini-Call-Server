@@ -69,7 +69,7 @@ The next implementation adds:
 - shared registrar/dialog restoration
 - HA-specific Grafana panels and combined packet evidence
 
-See [EVOLUTION_PLAN.md](EVOLUTION_PLAN.md#next-implementation-local-multi-node-ha-lab).
+Track this backlog in the [evolution plan](EVOLUTION_PLAN.md); AI Voice Gateway work is the current primary delivery track.
 
 ## Local Real Devices
 
