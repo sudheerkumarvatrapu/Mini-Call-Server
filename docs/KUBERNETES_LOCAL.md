@@ -73,15 +73,18 @@ See [EVOLUTION_PLAN.md](EVOLUTION_PLAN.md#next-implementation-local-multi-node-h
 
 ## Local Real Devices
 
-OBi1022 and Zoiper can use a dedicated local kind cluster when both are on the same LAN. The cluster must expose these ports one-to-one through kind `extraPortMappings`:
+OBi1022 and Zoiper use the dedicated `playsbc-real-device` kind cluster when both are on the same LAN. This is intentionally separate from the active-active `playsbc` regression cluster and from AKS. The cluster exposes these ports one-to-one through kind `extraPortMappings`:
 
 - SIP `5062/UDP`, `5062/TCP`, and `5061/TCP`
 - RTP/RTCP `30000-30049/UDP`
 
-PlaySBC and RTPengine must advertise the Mac LAN IP. NodePort translation is not suitable for this RTP baseline. This validates local device behavior, but not Azure LoadBalancer, public NAT, or cloud firewall behavior.
+PlaySBC and RTPengine advertise the Mac LAN IP. NodePort translation is not used for this RTP baseline. The chart rejects blank/mismatched LAN addresses, Azure exposure, active-active mode, or a media range other than `30000-30049` in this profile.
+
+Use the maintained [dedicated local real-device commands](KUBERNETES_HELM_RUNBOOK.md#dedicated-local-real-device-lab). This validates LAN device behavior, but not Azure LoadBalancer, public NAT, managed identity, or cloud firewall behavior.
 
 ## Boundaries
 
 - `kubectl port-forward` is suitable for HTTP, Grafana, Prometheus, and TCP checks; it does not solve UDP SIP/RTP exposure.
 - Multi-node kind still runs on one Mac and cannot prove physical host or availability-zone failure.
 - AKS remains the milestone lane for Azure identity, ACR, public LoadBalancers, static IPs, and internet real-device calls.
+- The local real-device capture command must include `--context kind-playsbc-real-device`; the AKS capture must use its AKS context. Context isolation is part of the evidence contract.

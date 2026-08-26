@@ -61,7 +61,7 @@ image:
   # For direct deployments after image publishing, use:
   # repository: ghcr.io/sudheerkumarvatrapu/playsbc
   repository: playsbc
-  tag: "2.5.1"
+  tag: "2.5.2"
   pullPolicy: IfNotPresent
 
 service:
@@ -114,6 +114,12 @@ cloud:
         max: 30049
 
 hostNetwork: false
+
+# Dedicated LAN-facing kind profile guard. Leave disabled for AKS, the normal
+# kind/minikube regression lanes, and every other deployment model.
+localRealDevice:
+  enabled: false
+  lanIPv4: ""
 
 resources: {}
 

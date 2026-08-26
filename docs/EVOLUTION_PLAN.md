@@ -32,29 +32,29 @@ PlaySBC is an enterprise-style SIP/RTP lab and regression platform. It is not ye
 - Prometheus/Grafana with node, realm, SIP, media, codec, transcoding, and AI metrics
 - AKS public SIP/RTP LoadBalancers and strict cloud readiness profiles
 
-## v2.5.2 Immediate Scope
+## v2.5.2 Delivered Scope
 
-The next release starts with a local kind real-device lane so registration, calls, media, capture, and HA iteration do not require an expensive AKS session.
+The release adds an isolated local kind real-device lane so registration, calls, media, and capture iteration do not require an expensive AKS session.
 
 ### Priority 0: Local Kind Real Devices
 
-- Expose stable SIP UDP/TCP/TLS and RTP/RTCP ports from kind to the home LAN.
-- Register the OBi1022 and Zoiper through the local cluster before adding Poly/Yealink devices.
-- Prove both call directions with two-way RTP and RTCP, one combined PCAP, one canonical ladder, and a downloadable evidence archive.
-- Preserve the existing AKS real-device values and public-IP behavior; local settings must remain a separate profile.
-- Add repeatable create, upgrade, monitor, capture, regression, and cleanup commands to the Kubernetes and real-device runbooks.
-- Run the existing local Kubernetes, AKS, AI/Rasa, Docker, and real-device gates before release.
+- Added stable one-to-one SIP UDP/TCP/TLS and RTP/RTCP port mappings from a dedicated kind cluster to the home LAN.
+- Added a guarded single-workload values profile for OBi1022 `1001` and Zoiper `1002` registration and calls.
+- Reused the combined PCAP, canonical ladder, media verdict, HTML, and downloadable archive evidence contract.
+- Preserved AKS real-device values/public-IP behavior and the existing active-active `kind-playsbc` regression cluster.
+- Added repeatable create, upgrade, preflight, monitor, capture, and cleanup commands.
+- Added explicit kube-context pinning so local and AKS evidence tools cannot follow the wrong current context.
 
-### Evidence Caveats To Close
+### Evidence Caveats Closed
 
-- Remove non-fatal SIPp `SSL_ERROR_WANT_READ` and watchdog notices from final `stderr.log` while retaining raw diagnostics separately.
-- Stop requesting previous-container logs when no previous container exists, eliminating Kubernetes `BadRequest` text from pod evidence.
-- Collect and validate AKS advertised-IP evidence after each profile Helm rollout, not only before the profile transition.
-- Scope PlaySBC logs to the regression window and regression call IDs so unrelated public real-device REGISTER attempts do not enter profile evidence.
-- Make `archive-manifest.txt` either a complete checksum inventory or explicitly label its current 200-path preview, and reconcile pre-manifest versus archived file counts.
+- Non-fatal SIPp `SSL_ERROR_WANT_READ` and watchdog notices are removed from final `stderr.log`; raw diagnostics remain available.
+- Previous-container logs are requested only when Kubernetes reports a restart or terminated previous state.
+- AKS exposure and RTPengine advertised-IP validation runs again after each profile rollout.
+- PlaySBC evidence uses the exact profile start time and scopes call-ID lines to that profile; unfiltered text is retained only when needed as `playsbc.raw.log`.
+- `archive-manifest.txt` labels its 200-path preview and reconciles pre-manifest and archived member counts.
 - Keep the current strict requirement for one merged `capture.pcap`, one `sipmsg.log`, complete ladders, bidirectional media verdicts, and zero packet drops.
 
-The v2.5.1 AKS run `aks-regression-20260824-172526` passed all 12 profiles and every strict evidence validator. These items improve evidence clarity and timing; they are not signalling or media failures in that run.
+The v2.5.1 AKS run `aks-regression-20260824-172526` remains the 12-profile baseline. v2.5.2 changes evidence clarity and adds a separate local lane; it does not change the validated AKS signalling/media profile catalog.
 
 ## Next Architecture: Local Multi-Node HA Lab
 
@@ -113,6 +113,10 @@ Multi-node kind validates Kubernetes scheduling, pod/node disruption, shared sta
 - Add real model images for Whisper and Coqui.
 - Add action-server workflows, multi-turn state, DTMF hybrid IVR, transfer, and barge-in.
 - Add STT, Rasa, TTS, streaming, fallback, and action latency metrics.
+
+## v3.0.0 AI Voice Gateway Target
+
+After the v2.5.x local/AKS compatibility baseline, the main product focus moves to a production-oriented AI Voice Gateway. v3.0.0 targets multiple bot backends behind one provider interface, live bidirectional TTS/RTP, deterministic interruption and fallback behavior, stateful multi-turn calls, transfer/DTMF workflows, provider health/latency metrics, and complete SIP/media/AI evidence. Every AI change remains subject to the same Docker, kind, AKS, and real-device compatibility gates.
 
 ## Production Cloud Track
 

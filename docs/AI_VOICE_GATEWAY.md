@@ -99,10 +99,11 @@ ai_voice_gateway:
 
 Each voice profile should provide `sipmsg.log`, one merged `capture.pcap`, SIP/media/AI logs, an aligned ladder, and playable WAV evidence when speech is involved. Chat profiles provide an initially collapsed chat window, NLU verdict JSON, and an NLP ladder; old voice audio is not shown on chat-only reports.
 
-## Next Work
+## v3.0.0 Production Target
 
-- Feed generated TTS RTP into the live call for every provider path.
-- Package production Whisper and Coqui model images.
-- Add Rasa Action Server and stateful multi-turn workflows.
-- Add RFC 4733 DTMF, barge-in, transfer, conference, and bot-driven release.
-- Export STT, Rasa, TTS, fallback, streaming, and action latency metrics.
+- Support multiple bot integrations through a stable provider adapter instead of coupling call control to one bot.
+- Feed generated TTS RTP into live calls for every provider path and prove both media directions.
+- Package production model images and explicit health/readiness contracts for STT and TTS providers.
+- Add stateful multi-turn workflows, RFC 4733 DTMF, transfer, conference, fallback, and bot-driven release.
+- Export per-provider STT, bot, TTS, streaming, fallback, and action latency/error metrics.
+- Preserve canonical SIP/RTP/RTCP/AI evidence and all existing Docker, kind, AKS, and real-device gates.

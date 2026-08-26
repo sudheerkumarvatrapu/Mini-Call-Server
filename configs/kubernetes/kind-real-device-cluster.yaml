@@ -1,0 +1,217 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+    - containerPort: 5062
+      hostPort: 5062
+      listenAddress: "0.0.0.0"
+      protocol: TCP
+    - containerPort: 5062
+      hostPort: 5062
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 5061
+      hostPort: 5061
+      listenAddress: "0.0.0.0"
+      protocol: TCP
+    - containerPort: 30000
+      hostPort: 30000
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30001
+      hostPort: 30001
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30002
+      hostPort: 30002
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30003
+      hostPort: 30003
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30004
+      hostPort: 30004
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30005
+      hostPort: 30005
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30006
+      hostPort: 30006
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30007
+      hostPort: 30007
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30008
+      hostPort: 30008
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30009
+      hostPort: 30009
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30010
+      hostPort: 30010
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30011
+      hostPort: 30011
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30012
+      hostPort: 30012
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30013
+      hostPort: 30013
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30014
+      hostPort: 30014
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30015
+      hostPort: 30015
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30016
+      hostPort: 30016
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30017
+      hostPort: 30017
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30018
+      hostPort: 30018
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30019
+      hostPort: 30019
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30020
+      hostPort: 30020
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30021
+      hostPort: 30021
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30022
+      hostPort: 30022
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30023
+      hostPort: 30023
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30024
+      hostPort: 30024
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30025
+      hostPort: 30025
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30026
+      hostPort: 30026
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30027
+      hostPort: 30027
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30028
+      hostPort: 30028
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30029
+      hostPort: 30029
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30030
+      hostPort: 30030
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30031
+      hostPort: 30031
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30032
+      hostPort: 30032
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30033
+      hostPort: 30033
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30034
+      hostPort: 30034
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30035
+      hostPort: 30035
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30036
+      hostPort: 30036
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30037
+      hostPort: 30037
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30038
+      hostPort: 30038
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30039
+      hostPort: 30039
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30040
+      hostPort: 30040
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30041
+      hostPort: 30041
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30042
+      hostPort: 30042
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30043
+      hostPort: 30043
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30044
+      hostPort: 30044
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30045
+      hostPort: 30045
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30046
+      hostPort: 30046
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30047
+      hostPort: 30047
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30048
+      hostPort: 30048
+      listenAddress: "0.0.0.0"
+      protocol: UDP
+    - containerPort: 30049
+      hostPort: 30049
+      listenAddress: "0.0.0.0"
+      protocol: UDP

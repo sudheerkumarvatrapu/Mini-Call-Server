@@ -55,6 +55,7 @@ spec:
 {{- end }}
     spec:
       hostNetwork: {{ .Values.rtpengine.hostNetwork }}
+      dnsPolicy: {{ if .Values.rtpengine.hostNetwork }}ClusterFirstWithHostNet{{ else }}ClusterFirst{{ end }}
       containers:
         - name: rtpengine
           image: "{{ .Values.rtpengine.image.repository }}:{{ .Values.rtpengine.image.tag }}"

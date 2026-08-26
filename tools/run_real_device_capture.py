@@ -44,6 +44,14 @@ def command_text(command: list[str]) -> str:
     return " ".join(shlex.quote(part) for part in command)
 
 
+def kubectl_command(args: argparse.Namespace, *parts: str) -> list[str]:
+    command = [args.kubectl_bin]
+    if args.context:
+        command.extend(["--context", args.context])
+    command.extend(parts)
+    return command
+
+
 def run_command(command: list[str], *, timeout: int = 60, check: bool = True) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, timeout=timeout)
     if check and result.returncode != 0:
@@ -134,7 +142,7 @@ def create_capture_pod(args: argparse.Namespace, pod_name: str, bundle: Path) ->
     manifest = json.dumps(capture_pod_manifest(args, pod_name), indent=2)
     (bundle / "capture-pod.json").write_text(manifest + "\n", encoding="utf-8")
     result = run_command_with_input(
-        [args.kubectl_bin, "apply", "-f", "-"],
+        kubectl_command(args, "apply", "-f", "-"),
         manifest,
         check=False,
     )
@@ -142,22 +150,22 @@ def create_capture_pod(args: argparse.Namespace, pod_name: str, bundle: Path) ->
     if result.returncode != 0:
         raise RuntimeError(f"Could not create capture pod; see {bundle / 'capture-pod-apply.log'}")
     wait = run_command(
-        [
-            args.kubectl_bin,
+        kubectl_command(
+            args,
             "-n",
             args.namespace,
             "wait",
             f"pod/{pod_name}",
             "--for=condition=Ready",
             f"--timeout={args.capture_pod_ready_timeout}s",
-        ],
+        ),
         timeout=args.capture_pod_ready_timeout + 15,
         check=False,
     )
     (bundle / "capture-pod-ready.log").write_text(wait.stdout + wait.stderr, encoding="utf-8")
     if wait.returncode != 0:
         describe = run_command(
-            [args.kubectl_bin, "-n", args.namespace, "describe", "pod", pod_name],
+            kubectl_command(args, "-n", args.namespace, "describe", "pod", pod_name),
             check=False,
         )
         (bundle / "capture-pod-describe.log").write_text(describe.stdout + describe.stderr, encoding="utf-8")
@@ -171,8 +179,8 @@ def delete_capture_pod(args: argparse.Namespace, pod_name: str, bundle: Path) ->
     if args.keep_capture_pod:
         return
     result = run_command(
-        [
-            args.kubectl_bin,
+        kubectl_command(
+            args,
             "-n",
             args.namespace,
             "delete",
@@ -180,7 +188,7 @@ def delete_capture_pod(args: argparse.Namespace, pod_name: str, bundle: Path) ->
             pod_name,
             "--ignore-not-found=true",
             "--wait=false",
-        ],
+        ),
         check=False,
     )
     (bundle / "capture-pod-delete.log").write_text(result.stdout + result.stderr, encoding="utf-8")
@@ -188,9 +196,15 @@ def delete_capture_pod(args: argparse.Namespace, pod_name: str, bundle: Path) ->
 
 def collect_cluster_snapshot(args: argparse.Namespace, bundle: Path, suffix: str) -> None:
     snapshots = {
-        f"kubectl-pods-{suffix}.log": [args.kubectl_bin, "-n", args.namespace, "get", "pods", "-o", "wide"],
-        f"kubectl-services-{suffix}.log": [args.kubectl_bin, "-n", args.namespace, "get", "svc", "-o", "wide"],
-        f"kubectl-endpoints-{suffix}.log": [args.kubectl_bin, "-n", args.namespace, "get", "endpoints", "-o", "wide"],
+        f"kubectl-pods-{suffix}.log": kubectl_command(
+            args, "-n", args.namespace, "get", "pods", "-o", "wide"
+        ),
+        f"kubectl-services-{suffix}.log": kubectl_command(
+            args, "-n", args.namespace, "get", "svc", "-o", "wide"
+        ),
+        f"kubectl-endpoints-{suffix}.log": kubectl_command(
+            args, "-n", args.namespace, "get", "endpoints", "-o", "wide"
+        ),
     }
     for file_name, command in snapshots.items():
         result = run_command(command, check=False)
@@ -207,8 +221,8 @@ def start_capture(args: argparse.Namespace, bundle: Path, pod: str) -> Capture:
         f"rm -f {shlex.quote(remote_path)}; "
         f"tcpdump -i any -U -n -s 0 -w {shlex.quote(remote_path)} {shlex.quote(tcpdump_filter)}"
     )
-    command = [
-        args.kubectl_bin,
+    command = kubectl_command(
+        args,
         "-n",
         args.namespace,
         "exec",
@@ -219,7 +233,7 @@ def start_capture(args: argparse.Namespace, bundle: Path, pod: str) -> Capture:
         "sh",
         "-lc",
         shell_command,
-    ]
+    )
     (bundle / "tcpdump-command.txt").write_text(command_text(command) + "\n", encoding="utf-8")
     stdout = (bundle / "tcpdump.stdout.log").open("w", encoding="utf-8")
     stderr = (bundle / "tcpdump.stderr.log").open("w", encoding="utf-8")
@@ -244,8 +258,8 @@ def close_capture_files(process: subprocess.Popen[str]) -> None:
 def stop_capture(args: argparse.Namespace, capture: Capture) -> None:
     if capture.process.poll() is None:
         run_command(
-            [
-                args.kubectl_bin,
+            kubectl_command(
+                args,
                 "-n",
                 args.namespace,
                 "exec",
@@ -256,7 +270,7 @@ def stop_capture(args: argparse.Namespace, capture: Capture) -> None:
                 "sh",
                 "-lc",
                 "pkill -INT tcpdump || true",
-            ],
+            ),
             check=False,
         )
         capture.process.terminate()
@@ -270,8 +284,8 @@ def stop_capture(args: argparse.Namespace, capture: Capture) -> None:
 
 def copy_capture(args: argparse.Namespace, capture: Capture, bundle: Path) -> bool:
     result = run_command(
-        [
-            args.kubectl_bin,
+        kubectl_command(
+            args,
             "-n",
             args.namespace,
             "cp",
@@ -279,7 +293,7 @@ def copy_capture(args: argparse.Namespace, capture: Capture, bundle: Path) -> bo
             str(capture.local_path),
             "-c",
             capture.container,
-        ],
+        ),
         check=False,
     )
     (bundle / "capture-copy.log").write_text(result.stdout + result.stderr, encoding="utf-8")
@@ -287,8 +301,8 @@ def copy_capture(args: argparse.Namespace, capture: Capture, bundle: Path) -> bo
         return True
 
     fallback = run_binary_command(
-        [
-            args.kubectl_bin,
+        kubectl_command(
+            args,
             "-n",
             args.namespace,
             "exec",
@@ -298,7 +312,7 @@ def copy_capture(args: argparse.Namespace, capture: Capture, bundle: Path) -> bo
             "--",
             "cat",
             capture.remote_path,
-        ],
+        ),
         check=False,
     )
     (bundle / "capture-copy-fallback.log").write_text(
@@ -313,15 +327,15 @@ def copy_capture(args: argparse.Namespace, capture: Capture, bundle: Path) -> bo
 def collect_logs(args: argparse.Namespace, bundle: Path, capture_started_at: dt.datetime) -> None:
     since_time = capture_started_at.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
     playsbc = run_command(
-        [
-            args.kubectl_bin,
+        kubectl_command(
+            args,
             "-n",
             args.namespace,
             "logs",
             f"deployment/{args.playsbc_deployment}",
             f"--since-time={since_time}",
             "--timestamps=true",
-        ],
+        ),
         check=False,
     )
     playsbc_text = playsbc.stdout + playsbc.stderr
@@ -334,15 +348,15 @@ def collect_logs(args: argparse.Namespace, bundle: Path, capture_started_at: dt.
     verdict_lines = [line for line in playsbc_text.splitlines() if "RTPENGINE PACKET VERDICT" in line]
     (bundle / "rtpengine-verdict.log").write_text("\n".join(verdict_lines).rstrip() + "\n", encoding="utf-8")
     rtpengine = run_command(
-        [
-            args.kubectl_bin,
+        kubectl_command(
+            args,
             "-n",
             args.namespace,
             "logs",
             f"deployment/{args.rtpengine_deployment}",
             f"--since-time={since_time}",
             "--timestamps=true",
-        ],
+        ),
         check=False,
     )
     (bundle / "rtpengine.log").write_text(rtpengine.stdout + rtpengine.stderr, encoding="utf-8")
@@ -378,6 +392,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--namespace", default="playsbc")
     parser.add_argument("--kubectl-bin", default="kubectl")
+    parser.add_argument(
+        "--context",
+        default="",
+        help="Explicit kube context. Use this to keep AKS and kind captures isolated.",
+    )
     parser.add_argument("--duration", type=int, default=90)
     parser.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
     parser.add_argument("--archive-format", choices=("tgz", "zip", "none"), default="tgz")
@@ -413,6 +432,7 @@ def main(argv: list[str] | None = None) -> int:
         (
             "Place and clear the manual OBi1022 <-> Zoiper calls while this capture is running.\n"
             f"duration_seconds={args.duration}\n"
+            f"kube_context={args.context or 'current'}\n"
             f"capture_pod={capture_pod}\n"
             f"capture_image={args.capture_image}\n"
             f"filter={capture_filter(args)}\n"
@@ -507,6 +527,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"archive_error={archive_error or 'none'}\n"
                 f"capture_pcap={bundle / 'capture.pcap'}\n"
                 f"capture_source=single_host_network_capture_pod\n"
+                f"kube_context={args.context or 'current'}\n"
                 f"capture_pod={capture_pod}\n"
                 f"capture_image={args.capture_image}\n"
                 f"capture_bytes={capture_bytes}\n"
