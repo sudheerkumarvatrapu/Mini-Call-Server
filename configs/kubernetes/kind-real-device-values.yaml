@@ -1,0 +1,79 @@
+# Dedicated single-node kind profile for OBi1022/Zoiper LAN calls.
+# Set both advertised IP values to the Mac LAN IPv4 address at Helm runtime.
+
+localRealDevice:
+  enabled: true
+  lanIPv4: ""
+
+topology:
+  model: kind-real-device-single
+  activeActive:
+    enabled: false
+    useStatefulSet: false
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/sudheerkumarvatrapu/playsbc
+  tag: "2.5.2"
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  sipPort: 5062
+  tlsPort: 5061
+  healthPort: 8080
+  sessionAffinity: ClientIP
+
+hostNetwork: true
+
+authSecret:
+  enabled: true
+  users:
+    "1001": secret-password
+    "1002": secret-password
+
+tls:
+  enabled: true
+  existingSecret: ""
+
+rtpengine:
+  enabled: true
+  image:
+    repository: ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine
+    tag: "2.5.2"
+    pullPolicy: Always
+  replicas: 1
+  hostNetwork: true
+  sessionAffinity: ClientIP
+  rtpMin: 30000
+  rtpMax: 30049
+  advertisedIP: ""
+
+playsbc:
+  config:
+    sip_transport: udp,tcp,tls
+    sip_advertised_ip: ""
+    b2bua_advertised_ip: ""
+    rtp_min: 30000
+    rtp_max: 30049
+    default_codec: PCMU
+    media_backend: rtpengine
+    rtpengine_url: udp://playsbc-playsbc-rtpengine:2223
+    rtpengine_g711_only: true
+    rtpengine_plain_rtp_sdp: true
+    rtpengine_explicit_rtcp: true
+    rtpengine_sip_source_address: true
+    rtpengine_media_handover: true
+    rtpengine_nat_wait: true
+    rtpengine_pierce_nat: false
+    b2bua_invite_timeout: 60.0
+    reject_unknown_routes: true
+    route_policies:
+      - name: registered-endpoints
+        match: "*"
+        target: registration
+        priority: 10
+
+observability:
+  enabled: false

@@ -643,9 +643,14 @@ def create_aks_evidence_archive(args: argparse.Namespace, output_root: Path) -> 
                 f"run_id={args.run_id}",
                 f"archive={archive_path}",
                 f"source={output_root}",
-                f"files={len(file_paths)}",
+                f"files_before_manifest={len(file_paths)}",
+                f"files_in_archive={len(file_paths) + 1}",
+                "path_listing=preview",
+                f"listed_paths={min(len(file_paths), 200)}",
+                f"omitted_paths={max(0, len(file_paths) - 200)}",
                 "",
                 "Download this .tgz from Cloud Shell. Do not create a manual .tar from an unset RUN variable.",
+                "The path list below is capped at 200 entries; files_in_archive is verified from the completed archive.",
                 "",
             ]
             + [str(path.relative_to(output_root)) for path in file_paths[:200]]
@@ -660,8 +665,12 @@ def create_aks_evidence_archive(args: argparse.Namespace, output_root: Path) -> 
             archive.add(output_root, arcname=output_root.name)
         with tarfile.open(temp_path, "r:gz") as archive:
             member_count = sum(1 for member in archive.getmembers() if member.isfile())
-        if member_count <= 0:
-            raise RuntimeError(f"AKS evidence archive is empty after verification: {temp_path}")
+        expected_member_count = len(file_paths) + 1
+        if member_count != expected_member_count:
+            raise RuntimeError(
+                f"AKS evidence archive member mismatch: expected={expected_member_count} "
+                f"actual={member_count} archive={temp_path}"
+            )
         temp_path.replace(archive_path)
         return archive_path, member_count
     finally:

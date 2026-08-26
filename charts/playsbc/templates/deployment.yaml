@@ -50,6 +50,7 @@ spec:
 {{- end }}
     spec:
       hostNetwork: {{ .Values.hostNetwork }}
+      dnsPolicy: {{ if .Values.hostNetwork }}ClusterFirstWithHostNet{{ else }}ClusterFirst{{ end }}
       containers:
         - name: playsbc
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

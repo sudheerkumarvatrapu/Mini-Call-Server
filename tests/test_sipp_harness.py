@@ -29,6 +29,7 @@ from tools import run_k8s_regression_job
 from tools import run_real_device_capture
 from tools import real_device_evidence
 from tools import send_srtp_audio
+from tools import check_kind_real_device_lab
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1666,7 +1667,7 @@ Content-Length: 0
 
     def test_current_release_keeps_kind_regression_path(self):
         chart = ROOT / "charts" / "playsbc"
-        current_version = "2.5.1"
+        current_version = "2.5.2"
         version = (ROOT / "VERSION").read_text(encoding="utf-8")
         chart_yaml = (chart / "Chart.yaml").read_text(encoding="utf-8")
         values = (chart / "values.yaml").read_text(encoding="utf-8")
@@ -1690,8 +1691,10 @@ Content-Length: 0
         self.assertIn("--all-profiles", runbook)
         self.assertIn("--set-rtpengine-image", runbook)
         self.assertNotIn("playsbc-k8s-regression:1.4.2", runbook)
-        self.assertIn("Root Cause", release_notes)
-        self.assertIn("Start `send_srtp_audio.py` explicitly", release_notes)
+        self.assertIn("Local Real-Device Lab", release_notes)
+        self.assertIn("Evidence Hardening", release_notes)
+        self.assertIn("kind-playsbc", release_notes)
+        self.assertIn("AKS", release_notes)
 
         args = run_k8s_regression_job.parse_args(
             [
@@ -3564,6 +3567,57 @@ class RealTopologyTests(unittest.TestCase):
         self.assertIn("portrange 30000-32767", capture_filter)
         self.assertNotIn("port 53", capture_filter)
 
+    def test_real_device_capture_pins_explicit_kube_context(self):
+        args = run_real_device_capture.parse_args(
+            ["--context", "kind-playsbc-real-device", "--duration", "1"]
+        )
+
+        command = run_real_device_capture.kubectl_command(args, "-n", "playsbc", "get", "pods")
+
+        self.assertEqual(
+            command,
+            [
+                "kubectl",
+                "--context",
+                "kind-playsbc-real-device",
+                "-n",
+                "playsbc",
+                "get",
+                "pods",
+            ],
+        )
+
+    def test_kind_real_device_profile_is_isolated_and_maps_all_ports(self):
+        cluster = (ROOT / "configs" / "kubernetes" / "kind-real-device-cluster.yaml").read_text(
+            encoding="utf-8"
+        )
+        values = (ROOT / "configs" / "kubernetes" / "kind-real-device-values.yaml").read_text(
+            encoding="utf-8"
+        )
+        validation = (ROOT / "charts" / "playsbc" / "templates" / "validation.yaml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertEqual(cluster.count("hostPort:"), 53)
+        self.assertEqual(len(check_kind_real_device_lab.required_bindings(30000, 30049)), 53)
+        self.assertIn("localRealDevice:\n  enabled: true", values)
+        self.assertIn("activeActive:\n    enabled: false", values)
+        self.assertIn("hostNetwork: true", values)
+        self.assertNotIn("provider: azure", values)
+        self.assertIn("cannot enable Azure cloud exposure", validation)
+        self.assertIn("requires exactly one PlaySBC and one RTPengine replica", validation)
+
+    def test_kind_real_device_binding_parser_preserves_protocol(self):
+        published = check_kind_real_device_lab.published_bindings(
+            {
+                "5062/tcp": [{"HostIp": "0.0.0.0", "HostPort": "5062"}],
+                "5062/udp": [{"HostIp": "0.0.0.0", "HostPort": "5062"}],
+                "30000/udp": [{"HostIp": "0.0.0.0", "HostPort": "30000"}],
+            }
+        )
+
+        self.assertEqual(published, {(5062, "tcp"), (5062, "udp"), (30000, "udp")})
+
     def test_real_device_capture_uses_host_network_tcpdump_pod(self):
         args = run_real_device_capture.parse_args(
             ["--duration", "1", "--capture-image", "example.test/netshoot:lab"]
@@ -3677,7 +3731,9 @@ class RealTopologyTests(unittest.TestCase):
             self.assertTrue((bundle / "latest.html").exists())
 
     def test_real_device_log_collection_uses_exact_capture_window(self):
-        args = run_real_device_capture.parse_args(["--duration", "120"])
+        args = run_real_device_capture.parse_args(
+            ["--duration", "120", "--context", "kind-playsbc-real-device"]
+        )
         started = run_real_device_capture.dt.datetime(2026, 8, 23, 10, 30, tzinfo=run_real_device_capture.dt.timezone.utc)
         completed = subprocess.CompletedProcess(["kubectl"], 0, "", "")
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
@@ -3687,6 +3743,7 @@ class RealTopologyTests(unittest.TestCase):
 
         flattened = [part for call in command.call_args_list for part in call.args[0]]
         self.assertIn("--since-time=2026-08-23T10:30:00Z", flattened)
+        self.assertIn("kind-playsbc-real-device", flattened)
         self.assertNotIn("--since=210s", flattened)
 
     def test_tcp_tls_registration_profiles_are_registration_only_and_selectable(self):
@@ -4011,8 +4068,14 @@ class RealTopologyTests(unittest.TestCase):
             self.assertIsNotNone(archive_result)
             archive_path, member_count = archive_result or (Path(), 0)
             self.assertEqual(archive_path, root / "latest-aks-regression.tgz")
-            self.assertGreaterEqual(member_count, 4)
+            self.assertEqual(member_count, 4)
             self.assertTrue((output_root / "archive-manifest.txt").exists())
+            manifest = (output_root / "archive-manifest.txt").read_text(encoding="utf-8")
+            self.assertIn("files_before_manifest=3", manifest)
+            self.assertIn("files_in_archive=4", manifest)
+            self.assertIn("path_listing=preview", manifest)
+            self.assertIn("listed_paths=3", manifest)
+            self.assertIn("omitted_paths=0", manifest)
             with tarfile.open(archive_path, "r:gz") as archive:
                 names = archive.getnames()
             self.assertIn("aks-regression-unit/AKS-reports/latest.html", names)
@@ -4242,16 +4305,56 @@ a=rtcp:25101
         self.assertEqual(target.target_ip, "10.244.0.12")
         self.assertEqual(target.target_port, 25101)
 
-    def test_kubernetes_sipp_tls_retry_noise_is_summarized(self):
+    def test_kubernetes_sipp_tls_retry_noise_is_removed_from_final_stderr(self):
         filtered, count = run_k8s_regression.normalize_sipp_stderr(
-            "first line\nSSL_ERROR_WANT_READ temporary retry\nlast line\n"
+            "first line\nSSL_ERROR_WANT_READ temporary retry\n"
+            "Overload warning: the minor watchdog timer\n"
+            "There were more errors, see '/tmp/errors.log'\nlast line\n"
         )
 
-        self.assertEqual(count, 1)
+        self.assertEqual(count, 3)
         self.assertIn("first line", filtered)
         self.assertIn("last line", filtered)
-        self.assertIn("suppressed 1 non-fatal", filtered)
+        self.assertNotIn("suppressed", filtered)
         self.assertNotIn("temporary retry", filtered)
+        self.assertNotIn("watchdog", filtered)
+        self.assertNotIn("more errors", filtered)
+
+    def test_kubernetes_evidence_scopes_playsbc_logs_to_profile_call_ids(self):
+        text = (
+            "SERVER CONFIG media_backend=rtpengine\n"
+            "SIP INVITE call_id=profile-call@example.test\n"
+            "SIP ACK call_id=profile-call@example.test..\n"
+            "SIP INVITE call_id=unrelated-call@example.test\n"
+        )
+
+        scoped, removed = run_k8s_regression.scope_playsbc_log(
+            text, {"profile-call@example.test"}
+        )
+
+        self.assertEqual(removed, 1)
+        self.assertIn("SERVER CONFIG", scoped)
+        self.assertIn("profile-call", scoped)
+        self.assertNotIn("unrelated-call", scoped)
+
+    def test_kubernetes_previous_logs_require_a_real_restart(self):
+        fresh = {"status": {"containerStatuses": [{"name": "playsbc", "restartCount": 0}]}}
+        restarted = {"status": {"containerStatuses": [{"name": "playsbc", "restartCount": 1}]}}
+        terminated = {
+            "status": {
+                "containerStatuses": [
+                    {
+                        "name": "playsbc",
+                        "restartCount": 0,
+                        "lastState": {"terminated": {"exitCode": 1}},
+                    }
+                ]
+            }
+        }
+
+        self.assertFalse(run_k8s_regression.pod_has_previous_container_logs(fresh, "playsbc"))
+        self.assertTrue(run_k8s_regression.pod_has_previous_container_logs(restarted, "playsbc"))
+        self.assertTrue(run_k8s_regression.pod_has_previous_container_logs(terminated, "playsbc"))
 
     def test_topology_pcaps_merge_in_timestamp_order(self):
         with tempfile.TemporaryDirectory() as tmp:

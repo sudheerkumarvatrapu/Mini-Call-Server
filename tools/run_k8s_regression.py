@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import datetime as dt
 import json
 import re
 import shlex
@@ -605,18 +606,70 @@ def should_expect_rtcp_reply(profile: SimpleNamespace) -> bool:
 
 
 def normalize_sipp_stderr(text: str) -> tuple[str, int]:
+    non_fatal_patterns = (
+        "SSL_ERROR_WANT_READ",
+        "Overload warning: the minor watchdog timer",
+    )
+    has_non_fatal_notice = any(pattern in line for line in text.splitlines() for pattern in non_fatal_patterns)
     filtered: list[str] = []
     suppressed = 0
     for line in text.splitlines():
-        if "SSL_ERROR_WANT_READ" in line:
+        if any(pattern in line for pattern in non_fatal_patterns):
+            suppressed += 1
+            continue
+        if has_non_fatal_notice and "There were more errors, see '" in line:
             suppressed += 1
             continue
         filtered.append(line)
-    if suppressed:
-        filtered.append(
-            f"[playsbc] suppressed {suppressed} non-fatal SIPp TLS SSL_ERROR_WANT_READ retry notice(s)"
-        )
     return ("\n".join(filtered) + ("\n" if filtered else "")), suppressed
+
+
+def kubectl_since_time(started_at: dt.datetime) -> str:
+    return started_at.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def evidence_call_ids(bundle: Path) -> set[str]:
+    call_ids: set[str] = set()
+    for trace in bundle.rglob("sipp-traces.log"):
+        text = trace.read_text(encoding="utf-8", errors="replace")
+        call_ids.update(match.group(1).strip() for match in SIP_CALL_ID_PATTERN.finditer(text))
+    return {call_id for call_id in call_ids if call_id}
+
+
+def scope_playsbc_log(text: str, call_ids: set[str]) -> tuple[str, int]:
+    if not call_ids:
+        return text, 0
+    kept: list[str] = []
+    removed = 0
+    for line in text.splitlines():
+        match = re.search(r"\bcall_id=([^\s|]+)", line, re.IGNORECASE)
+        if not match:
+            kept.append(line)
+            continue
+        observed = match.group(1).strip().rstrip(".")
+        if any(call_id.startswith(observed) or observed.startswith(call_id) for call_id in call_ids):
+            kept.append(line)
+        else:
+            removed += 1
+    return "\n".join(kept) + ("\n" if kept else ""), removed
+
+
+def pod_has_previous_container_logs(pod: dict[str, Any], container_name: str) -> bool:
+    statuses = pod.get("status", {}).get("containerStatuses", [])
+    if not isinstance(statuses, list):
+        return False
+    for status in statuses:
+        if not isinstance(status, dict) or str(status.get("name", "")) != container_name:
+            continue
+        try:
+            if int(status.get("restartCount", 0) or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            pass
+        last_state = status.get("lastState", {})
+        if isinstance(last_state, dict) and bool(last_state.get("terminated")):
+            return True
+    return False
 
 
 def sdp_rtcp_target_from_block(block: str) -> Optional[RtcpTarget]:
@@ -1329,7 +1382,11 @@ class K8sRegressionRunner:
         manifest = scenario_configmap_manifest(self.args.configmap)
         result = self.kubectl("apply", "-f", "-", input_text=json.dumps(manifest), check=True)
         self.write_log(bundle, "log.platform", "K8S REGRESSION PREPARED", result.stdout or "scenario configmap applied")
-        aks_detail = self.validate_aks_exposure(bundle) if getattr(self.args, "aks_mode", False) else "aks_mode=false"
+        aks_detail = (
+            self.validate_aks_exposure(bundle, stage="pre-profile", require_rtpengine_match=False)
+            if getattr(self.args, "aks_mode", False)
+            else "aks_mode=false"
+        )
         phases.append(
             "Setup Preparation",
             "passed",
@@ -1341,14 +1398,24 @@ class K8sRegressionRunner:
             ),
         )
 
-    def validate_aks_exposure(self, bundle: Path) -> str:
+    def validate_aks_exposure(
+        self,
+        bundle: Path,
+        *,
+        stage: str = "post-profile",
+        require_rtpengine_match: bool = False,
+    ) -> str:
+        suffix = "" if stage == "post-profile" else f"-{stage}"
         selector = getattr(self.args, "aks_services_selector", "playsbc.io/cloud=azure")
         result = self.kubectl("get", "svc", "-l", selector, "-o", "json", check=False)
-        (bundle / "aks-services.json").write_text(result.stdout + result.stderr, encoding="utf-8")
+        (bundle / f"aks-services{suffix}.json").write_text(result.stdout + result.stderr, encoding="utf-8")
         wide = self.kubectl("get", "svc", "-l", selector, "-o", "wide", check=False)
-        (bundle / "aks-services-wide.log").write_text(wide.stdout + wide.stderr, encoding="utf-8")
+        (bundle / f"aks-services-wide{suffix}.log").write_text(wide.stdout + wide.stderr, encoding="utf-8")
         described = self.kubectl("describe", "svc", "-l", selector, check=False)
-        (bundle / "aks-services-describe.log").write_text(described.stdout + described.stderr, encoding="utf-8")
+        (bundle / f"aks-services-describe{suffix}.log").write_text(
+            described.stdout + described.stderr,
+            encoding="utf-8",
+        )
 
         issues: list[str] = []
         items: list[dict[str, Any]] = []
@@ -1464,7 +1531,7 @@ class K8sRegressionRunner:
             "json",
             check=False,
         )
-        (bundle / "aks-rtpengine-pods.json").write_text(
+        (bundle / f"aks-rtpengine-pods{suffix}.json").write_text(
             rtpengine_pod_result.stdout + rtpengine_pod_result.stderr,
             encoding="utf-8",
         )
@@ -1485,11 +1552,11 @@ class K8sRegressionRunner:
                         advertised_matches.append(f"{pod_name}:{ingress_ip}")
         except json.JSONDecodeError as exc:
             issues.append(f"invalid_rtpengine_pod_json={exc}")
-        if getattr(self.args, "aks_require_public_rtp_ingress", False) and rtp_public_ingress and rtpengine_pods:
-            if not advertised_matches:
-                issues.append(f"rtpengine_advertised_ip_mismatch_expected_{rtp_public_ingress[0]}")
+        if require_rtpengine_match and rtp_public_ingress and not advertised_matches:
+            issues.append(f"rtpengine_advertised_ip_mismatch_expected_{rtp_public_ingress[0]}")
 
         summary = {
+            "stage": stage,
             "selector": selector,
             "services": [service_name(item) for item in items],
             "sip_public": [service_name(item) for item in sip_public],
@@ -1499,6 +1566,7 @@ class K8sRegressionRunner:
             "rtp_public_ingress": rtp_public_ingress,
             "rtpengine_pods": rtpengine_pods,
             "rtpengine_advertised_ip_matches": advertised_matches,
+            "require_rtpengine_match": require_rtpengine_match,
             "require_azure_services": bool(getattr(self.args, "aks_require_azure_services", False)),
             "require_static_sip": bool(getattr(self.args, "aks_require_static_sip", False)),
             "require_public_sip_ingress": bool(getattr(self.args, "aks_require_public_sip_ingress", False)),
@@ -1510,9 +1578,12 @@ class K8sRegressionRunner:
             },
             "issues": issues,
         }
-        (bundle / "aks-validation.json").write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
+        (bundle / f"aks-validation{suffix}.json").write_text(
+            json.dumps(summary, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
         detail = (
-            f"AKS exposure validation services={','.join(summary['services']) or 'none'} "
+            f"AKS exposure validation stage={stage} services={','.join(summary['services']) or 'none'} "
             f"sip_public={','.join(summary['sip_public']) or 'none'} "
             f"sip_public_ingress={','.join(summary['sip_public_ingress']) or 'none'} "
             f"sip_private={','.join(summary['sip_private']) or 'none'} "
@@ -1521,7 +1592,7 @@ class K8sRegressionRunner:
             f"rtpengine_advertised_ip_matches={','.join(summary['rtpengine_advertised_ip_matches']) or 'none'} "
             f"issues={','.join(issues) or 'none'}"
         )
-        self.write_log(bundle, "log.platform", "AKS AZURE EXPOSURE VALIDATION", detail)
+        self.write_log(bundle, "log.platform", f"AKS AZURE EXPOSURE VALIDATION {stage.upper()}", detail)
         if issues and (
             getattr(self.args, "aks_require_azure_services", False)
             or getattr(self.args, "aks_require_static_sip", False)
@@ -1744,9 +1815,16 @@ class K8sRegressionRunner:
         result = run_command(trace_command, timeout=20)
         (step_dir / "sipp-traces.log").write_text(result.stdout + result.stderr, encoding="utf-8")
 
-    def collect_k8s_evidence(self, bundle: Path, profile_name: str) -> None:
+    def collect_k8s_evidence(
+        self,
+        bundle: Path,
+        profile_name: str,
+        profile_started_at: dt.datetime,
+    ) -> None:
         include_rtpengine = False
         include_rasa = False
+        since_time = kubectl_since_time(profile_started_at)
+        call_ids = evidence_call_ids(bundle)
         if profile_name in CATALOG_PROFILES:
             profile = profile_values(profile_name, self.run_id)
             include_rtpengine = profile_enables_rtpengine_deployment(profile, self.args)
@@ -1764,6 +1842,7 @@ class K8sRegressionRunner:
                 f"app.kubernetes.io/name=playsbc,app.kubernetes.io/instance={self.args.helm_release}",
                 "--all-containers=true",
                 "--prefix=true",
+                f"--since-time={since_time}",
                 f"--tail={self.args.deployment_log_tail}",
             ],
         }
@@ -1774,6 +1853,7 @@ class K8sRegressionRunner:
                 f"app.kubernetes.io/name=playsbc-rtpengine,app.kubernetes.io/instance={self.args.helm_release}",
                 "--all-containers=true",
                 "--prefix=true",
+                f"--since-time={since_time}",
                 f"--tail={self.args.deployment_log_tail}",
             ]
         else:
@@ -1782,7 +1862,12 @@ class K8sRegressionRunner:
                 encoding="utf-8",
             )
         if include_rasa:
-            commands["rasa.log"] = ["logs", f"deployment/{self.args.service}-rasa", f"--tail={self.args.deployment_log_tail}"]
+            commands["rasa.log"] = [
+                "logs",
+                f"deployment/{self.args.service}-rasa",
+                f"--since-time={since_time}",
+                f"--tail={self.args.deployment_log_tail}",
+            ]
         else:
             (bundle / "rasa.log").write_text(
                 f"Real Rasa evidence not applicable for profile={profile_name}; deployment not expected for this profile.\n",
@@ -1790,8 +1875,20 @@ class K8sRegressionRunner:
             )
         for filename, parts in commands.items():
             result = self.kubectl(*parts, check=False)
-            (bundle / filename).write_text(result.stdout + result.stderr, encoding="utf-8")
-        self.collect_playsbc_pod_evidence(bundle)
+            text = result.stdout + result.stderr
+            if filename == "playsbc.log":
+                scoped, removed = scope_playsbc_log(text, call_ids)
+                if removed:
+                    (bundle / "playsbc.raw.log").write_text(text, encoding="utf-8")
+                    self.write_log(
+                        bundle,
+                        "log.platform",
+                        "PLAY SBC LOG SCOPE",
+                        f"since_time={since_time} call_ids={len(call_ids)} unrelated_call_lines_removed={removed} raw=playsbc.raw.log",
+                    )
+                text = scoped
+            (bundle / filename).write_text(text, encoding="utf-8")
+        self.collect_playsbc_pod_evidence(bundle, profile_started_at)
         if profile_name in RASA_NLU_PROFILES:
             self.write_log(
                 bundle,
@@ -1802,7 +1899,7 @@ class K8sRegressionRunner:
         else:
             self.collect_playsbc_persistent_logs(bundle)
         if include_rasa:
-            self.collect_rasa_pod_evidence(bundle)
+            self.collect_rasa_pod_evidence(bundle, profile_started_at)
 
     def start_packet_captures(
         self,
@@ -2053,9 +2150,10 @@ class K8sRegressionRunner:
         )
         return returncodes
 
-    def collect_playsbc_pod_evidence(self, bundle: Path) -> None:
+    def collect_playsbc_pod_evidence(self, bundle: Path, profile_started_at: dt.datetime) -> None:
         result = self.kubectl("get", "pods", "-l", "app.kubernetes.io/name=playsbc", "-o", "json", check=False)
         evidence: list[str] = []
+        since_time = kubectl_since_time(profile_started_at)
         try:
             pods = json.loads(result.stdout or "{}").get("items", [])
         except json.JSONDecodeError:
@@ -2069,10 +2167,16 @@ class K8sRegressionRunner:
             evidence.append(f"===== describe pod/{name} =====")
             described = self.kubectl("describe", "pod", str(name), check=False)
             evidence.append(described.stdout + described.stderr)
-            for previous in (False, True):
+            previous_values = (False, True) if pod_has_previous_container_logs(pod, "playsbc") else (False,)
+            for previous in previous_values:
                 title = f"logs pod/{name}" + (" --previous" if previous else "")
                 evidence.append(f"===== {title} =====")
-                command = ["logs", f"pod/{name}", f"--tail={self.args.deployment_log_tail}"]
+                command = [
+                    "logs",
+                    f"pod/{name}",
+                    f"--since-time={since_time}",
+                    f"--tail={self.args.deployment_log_tail}",
+                ]
                 if previous:
                     command.append("--previous")
                 logs = self.kubectl(*command, check=False)
@@ -2119,10 +2223,11 @@ class K8sRegressionRunner:
                     handle.write(source.read_text(encoding="utf-8", errors="replace").rstrip() + "\n")
         (copy_root / "copy.log").write_text("\n".join(copy_log) + ("\n" if copy_log else ""), encoding="utf-8")
 
-    def collect_rasa_pod_evidence(self, bundle: Path) -> None:
+    def collect_rasa_pod_evidence(self, bundle: Path, profile_started_at: dt.datetime) -> None:
         selector = f"app.kubernetes.io/name=playsbc-rasa,app.kubernetes.io/instance={self.args.helm_release}"
         result = self.kubectl("get", "pods", "-l", selector, "-o", "json", check=False)
         evidence: list[str] = []
+        since_time = kubectl_since_time(profile_started_at)
         try:
             pods = json.loads(result.stdout or "{}").get("items", [])
         except json.JSONDecodeError:
@@ -2136,10 +2241,18 @@ class K8sRegressionRunner:
             evidence.append(f"===== describe pod/{name} =====")
             described = self.kubectl("describe", "pod", str(name), check=False)
             evidence.append(described.stdout + described.stderr)
-            for previous in (False, True):
+            previous_values = (False, True) if pod_has_previous_container_logs(pod, "rasa") else (False,)
+            for previous in previous_values:
                 title = f"logs pod/{name}" + (" --previous" if previous else "")
                 evidence.append(f"===== {title} =====")
-                command = ["logs", f"pod/{name}", "-c", "rasa", f"--tail={self.args.deployment_log_tail}"]
+                command = [
+                    "logs",
+                    f"pod/{name}",
+                    "-c",
+                    "rasa",
+                    f"--since-time={since_time}",
+                    f"--tail={self.args.deployment_log_tail}",
+                ]
                 if previous:
                     command.append("--previous")
                 logs = self.kubectl(*command, check=False)
@@ -2469,6 +2582,13 @@ class K8sRegressionRunner:
             )
             rasa_detail = f"{rasa_deployment} ready in {time.monotonic() - rasa_started:.3f}s"
             self.write_log(bundle, "log.platform", "RASA ROLLOUT READY", rasa_rollout.stdout + rasa_rollout.stderr)
+        aks_post_detail = "not-required"
+        if getattr(self.args, "aks_mode", False):
+            aks_post_detail = self.validate_aks_exposure(
+                bundle,
+                stage="post-profile",
+                require_rtpengine_match=profile_enables_rtpengine_deployment(profile, self.args),
+            )
         phases.append(
             "Configuration",
             "passed",
@@ -2479,6 +2599,7 @@ class K8sRegressionRunner:
                 f"advertised_ip={advertised_ip}; tls_secret={self.args.tls_secret_name if profile_uses_tls(profile) else 'not-required'}; "
                 f"helm_upgrade_seconds={helm_seconds:.3f}; rollout_seconds={rollout_seconds:.3f}; "
                 f"rtpengine={rtpengine_detail}; rasa={rasa_detail}; "
+                f"aks_post_validation={aks_post_detail}; "
                 f"topology={'active-active' if self.active_active_enabled() else 'single-workload'}; "
                 f"core_realm=172.28.0.0/24 peer_realm=192.168.28.0/24 multus={'enabled' if getattr(self.args, 'multus_enabled', False) else 'logical'}."
             ),
@@ -2585,6 +2706,7 @@ class K8sRegressionRunner:
         command_lines: list[str] = []
         returncodes: list[int] = []
         started_profile = time.monotonic()
+        profile_started_at = dt.datetime.now(dt.timezone.utc)
         status = "failed"
         detail = ""
         sip_ladder = ""
@@ -2640,7 +2762,7 @@ class K8sRegressionRunner:
                     f"Waited {settle_seconds:.3f}s before evidence collection and next profile rollout.",
                 )
             evidence_started = time.monotonic()
-            self.collect_k8s_evidence(bundle, profile)
+            self.collect_k8s_evidence(bundle, profile, profile_started_at)
             sipmsg_sections = write_combined_sipmsg_log(bundle, profile)
             self.write_log(
                 bundle,

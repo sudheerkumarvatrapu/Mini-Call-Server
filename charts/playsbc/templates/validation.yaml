@@ -7,6 +7,7 @@
 {{- if not (get $portRange "enabled" | default false) -}}
 {{- fail "Azure public RTP media requires cloud.azure.media.public.portRange.enabled=true for the locked PlaySBC real-device baseline." -}}
 {{- end -}}
+
 {{- $rangeMin := int (get $portRange "min" | default 30000) -}}
 {{- $rangeMax := int (get $portRange "max" | default 30049) -}}
 {{- $rtpMin := int .Values.rtpengine.rtpMin -}}
@@ -24,5 +25,35 @@
 {{- $publicIPv4 := get $mediaPublic "publicIPv4" | default "" -}}
 {{- if and $publicIPv4 (ne $advertisedIP $publicIPv4) -}}
 {{- fail (printf "rtpengine.advertisedIP (%s) must match cloud.azure.media.public.publicIPv4 (%s)." $advertisedIP $publicIPv4) -}}
+{{- end -}}
+{{- end -}}
+
+{{- $localRealDevice := .Values.localRealDevice | default dict -}}
+{{- if (get $localRealDevice "enabled" | default false) -}}
+{{- $lanIPv4 := get $localRealDevice "lanIPv4" | default "" -}}
+{{- if eq $lanIPv4 "" -}}
+{{- fail "The kind real-device profile requires localRealDevice.lanIPv4 to be the Mac LAN IPv4 address." -}}
+{{- end -}}
+{{- if (get $azure "enabled" | default false) -}}
+{{- fail "The kind real-device profile cannot enable Azure cloud exposure." -}}
+{{- end -}}
+{{- if .Values.topology.activeActive.enabled -}}
+{{- fail "The kind real-device profile is a dedicated single-workload lane; active-active must remain disabled." -}}
+{{- end -}}
+{{- if or (ne (int .Values.replicaCount) 1) (ne (int .Values.rtpengine.replicas) 1) -}}
+{{- fail "The kind real-device profile requires exactly one PlaySBC and one RTPengine replica." -}}
+{{- end -}}
+{{- if or (not .Values.hostNetwork) (not .Values.rtpengine.hostNetwork) -}}
+{{- fail "The kind real-device profile requires hostNetwork=true for PlaySBC and RTPengine." -}}
+{{- end -}}
+{{- if or (ne (int .Values.rtpengine.rtpMin) 30000) (ne (int .Values.rtpengine.rtpMax) 30049) -}}
+{{- fail "The kind real-device profile requires the mapped RTP range 30000-30049/UDP." -}}
+{{- end -}}
+{{- $config := .Values.playsbc.config | default dict -}}
+{{- if or (ne (get $config "sip_advertised_ip" | default "") $lanIPv4) (ne (get $config "b2bua_advertised_ip" | default "") $lanIPv4) -}}
+{{- fail "The kind real-device PlaySBC advertised SIP addresses must equal localRealDevice.lanIPv4." -}}
+{{- end -}}
+{{- if ne (.Values.rtpengine.advertisedIP | default "") $lanIPv4 -}}
+{{- fail "The kind real-device RTPengine advertisedIP must equal localRealDevice.lanIPv4." -}}
 {{- end -}}
 {{- end -}}

@@ -84,6 +84,124 @@ kubectl config set-context --current --namespace=playsbc
 
 Do not run `kind delete cluster` as a restart step; deletion removes the local Kubernetes workloads and requires a fresh Helm deployment.
 
+## Dedicated Local Real-Device Lab
+
+This lane is separate from both `kind-playsbc` regression and AKS:
+
+| Purpose | Cluster | Context | Topology |
+| --- | --- | --- | --- |
+| Full local regression | `playsbc` | `kind-playsbc` | Active-active |
+| LAN OBi/Zoiper calls | `playsbc-real-device` | `kind-playsbc-real-device` | One PlaySBC + one RTPengine |
+| Azure validation | `playsbc-aks` | AKS context | Azure values and LoadBalancers |
+
+Start Docker, discover the Mac LAN address, and create the dedicated cluster once. The port mappings are fixed when kind creates the node, so an older cluster with the same name must be recreated.
+
+```bash
+cd /Users/sudheerkumar/Documents/Codex/2026-05-18/Mini-Call-Server
+
+export PLAYSBC_VERSION=2.5.2
+export REAL_DEVICE_CLUSTER=playsbc-real-device
+export REAL_DEVICE_CONTEXT=kind-playsbc-real-device
+export LAN_IF=$(route -n get default | awk '/interface:/{print $2; exit}')
+export LAN_IP=$(ipconfig getifaddr "$LAN_IF")
+: "${LAN_IP:?Could not determine the Mac LAN IPv4 address}"
+
+open -a Docker
+until docker info >/dev/null 2>&1; do sleep 5; done
+
+if ! kind get clusters | grep -qx "$REAL_DEVICE_CLUSTER"; then
+  kind create cluster \
+    --name "$REAL_DEVICE_CLUSTER" \
+    --config configs/kubernetes/kind-real-device-cluster.yaml \
+    --wait 180s
+fi
+
+kubectl --context "$REAL_DEVICE_CONTEXT" create namespace playsbc \
+  --dry-run=client -o yaml | kubectl --context "$REAL_DEVICE_CONTEXT" apply -f -
+```
+
+Create a short-lived lab TLS secret. UDP and TCP calls do not require the phone to trust this certificate; a hardphone TLS test must import or trust the generated CA/certificate.
+
+```bash
+TLS_DIR=$(mktemp -d)
+cat >"$TLS_DIR/openssl.cnf" <<EOF
+[req]
+distinguished_name=dn
+x509_extensions=ext
+prompt=no
+[dn]
+CN=$LAN_IP
+[ext]
+subjectAltName=IP:$LAN_IP,DNS:playsbc.local
+keyUsage=digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+EOF
+
+openssl req -x509 -newkey rsa:2048 -nodes -days 30 -sha256 \
+  -config "$TLS_DIR/openssl.cnf" \
+  -keyout "$TLS_DIR/tls.key" \
+  -out "$TLS_DIR/tls.crt"
+
+kubectl --context "$REAL_DEVICE_CONTEXT" -n playsbc create secret tls playsbc-real-device-tls \
+  --cert "$TLS_DIR/tls.crt" \
+  --key "$TLS_DIR/tls.key" \
+  --dry-run=client -o yaml \
+  | kubectl --context "$REAL_DEVICE_CONTEXT" apply -f -
+```
+
+Install the isolated values profile and advertise the Mac LAN IP on both signalling and media:
+
+```bash
+helm upgrade --install playsbc \
+  "https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz" \
+  --kube-context "$REAL_DEVICE_CONTEXT" \
+  --namespace playsbc \
+  --create-namespace \
+  --atomic --wait --timeout 10m \
+  -f configs/kubernetes/kind-real-device-values.yaml \
+  --set-string localRealDevice.lanIPv4="$LAN_IP" \
+  --set-string playsbc.config.sip_advertised_ip="$LAN_IP" \
+  --set-string playsbc.config.b2bua_advertised_ip="$LAN_IP" \
+  --set-string rtpengine.advertisedIP="$LAN_IP" \
+  --set-string tls.existingSecret=playsbc-real-device-tls \
+  --set-string image.tag="$PLAYSBC_VERSION" \
+  --set-string rtpengine.image.tag="$PLAYSBC_VERSION"
+
+kubectl --context "$REAL_DEVICE_CONTEXT" -n playsbc rollout status \
+  deployment/playsbc-playsbc --timeout=240s
+kubectl --context "$REAL_DEVICE_CONTEXT" -n playsbc rollout status \
+  deployment/playsbc-playsbc-rtpengine --timeout=240s
+
+python3 tools/check_kind_real_device_lab.py \
+  --context "$REAL_DEVICE_CONTEXT" \
+  --cluster "$REAL_DEVICE_CLUSTER" \
+  --lan-ip "$LAN_IP" \
+  --expected-version "$PLAYSBC_VERSION"
+```
+
+Configure both devices with `$LAN_IP`, SIP port `5062`, users `1001` and `1002`, and password `secret-password`. Monitor and capture without changing the current kube context:
+
+```bash
+kubectl --context "$REAL_DEVICE_CONTEXT" -n playsbc logs -f \
+  -l app.kubernetes.io/instance=playsbc \
+  --all-containers=true --prefix --max-log-requests=10 --since=10m \
+  | grep -aE 'REGISTER|SIP (INVITE|ACK|BYE|CANCEL)|SIP TX response|SIP response|SDP SUMMARY|RTPENGINE|RTP packet|RTCP|1001|1002'
+
+PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache \
+python3 tools/run_real_device_capture.py \
+  --context "$REAL_DEVICE_CONTEXT" \
+  --namespace playsbc \
+  --duration 120 \
+  --capture-image nicolaka/netshoot:latest
+```
+
+The capture produces one combined `capture.pcap`, one `sipmsg.log`, an HTML report, and one `.tgz`. Stop this lane without touching `kind-playsbc` or AKS:
+
+```bash
+helm --kube-context "$REAL_DEVICE_CONTEXT" -n playsbc uninstall playsbc
+kind delete cluster --name "$REAL_DEVICE_CLUSTER"
+```
+
 ## Release Upgrade And Full Regression
 
 Run from the repository on the Mac. This is the single maintained release-image workflow.
@@ -91,7 +209,7 @@ Run from the repository on the Mac. This is the single maintained release-image 
 ```bash
 cd /Users/sudheerkumar/Documents/Codex/2026-05-18/Mini-Call-Server
 
-export PLAYSBC_VERSION=2.5.1
+export PLAYSBC_VERSION=2.5.2
 
 kubectl config use-context kind-playsbc
 kubectl config set-context --current --namespace=playsbc

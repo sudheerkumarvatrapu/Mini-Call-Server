@@ -1,6 +1,6 @@
 # PlaySBC Real-Device Lab
 
-This guide covers the validated OBi1022 `1001` and Zoiper `1002` call flow. Build the AKS base first with [AZURE_AKS.md](AZURE_AKS.md).
+This guide covers the validated OBi1022 `1001` and Zoiper `1002` call flow in AKS and the local LAN lane. Build the AKS base with [AZURE_AKS.md](AZURE_AKS.md), or use the separate [kind real-device procedure](KUBERNETES_HELM_RUNBOOK.md#dedicated-local-real-device-lab).
 
 ```text
 OBi1022 1001
@@ -10,12 +10,19 @@ OBi1022 1001
 
 Validated baseline: SIP UDP `5062`, RTP/RTCP UDP `30000-30049`, PCMU/PCMA, digest REGISTER, and two-way RTPengine-anchored audio.
 
+| Lane | SIP/RTP advertised address | Kube context | What it proves |
+| --- | --- | --- | --- |
+| AKS | Azure SIP and RTP public IPs | AKS context | Public LB, NAT, ACR, internet devices |
+| Local kind | Mac LAN IPv4 | `kind-playsbc-real-device` | LAN registration, calls, media, capture |
+
+Do not reuse the local values file in AKS or the AKS values file locally. The capture tool accepts `--context` so evidence collection cannot silently follow whichever context was selected last.
+
 ## 1. Apply Real-Device Values
 
 Run in Cloud Shell after the base AKS services have public IPs:
 
 ```bash
-export PLAYSBC_VERSION=2.5.1
+export PLAYSBC_VERSION=2.5.2
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
@@ -153,7 +160,7 @@ Pass criteria:
 - both devices register after a `401` challenge
 - INVITE routes to the registered peer
 - INVITE/100/180/200/ACK and BYE/200 complete
-- SDP advertises the Azure RTP IP and ports inside `30000-30049`
+- SDP advertises the configured RTP public/LAN IP and ports inside `30000-30049`
 - RTPengine reports `caller_to_callee=observed` and `callee_to_caller=observed`
 - audio is heard in both directions
 
@@ -162,7 +169,9 @@ Pass criteria:
 Use the released capture tool and one temporary host-network `netshoot` pod:
 
 ```bash
-export PLAYSBC_VERSION=2.5.1
+export PLAYSBC_VERSION=2.5.2
+
+export AKS_CONTEXT=$(kubectl config current-context)
 
 cd ~
 rm -rf "PlaySBC-v$PLAYSBC_VERSION"
@@ -173,6 +182,7 @@ cd "PlaySBC-v$PLAYSBC_VERSION"
 
 PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache \
 python3 tools/run_real_device_capture.py \
+  --context "$AKS_CONTEXT" \
   --namespace playsbc \
   --duration 120 \
   --capture-image nicolaka/netshoot:latest
@@ -189,6 +199,7 @@ az acr import \
 
 PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache \
 python3 tools/run_real_device_capture.py \
+  --context "$AKS_CONTEXT" \
   --namespace playsbc \
   --duration 120 \
   --capture-image "$ACR_LOGIN_SERVER/netshoot:latest"
@@ -253,7 +264,7 @@ The `2026-08-23` v2.5.0 run passed OBi1022-to-Zoiper and Zoiper-to-OBi1022 signa
 
 Next real-device work:
 
-- local-LAN testing through the planned dedicated kind cluster
+- repeatable local-LAN testing through the dedicated kind cluster
 - Poly VVX600 and Yealink SIP-T33G TCP/TLS registration
 - longer calls, re-registration, multiple devices, and SIP ALG detection
 - richer RTCP loss/jitter and MOS-style evidence
