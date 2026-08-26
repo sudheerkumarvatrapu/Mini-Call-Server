@@ -2,6 +2,8 @@
 {{- $activeActiveCfg := get $topology "activeActive" | default dict -}}
 {{- $activeActive := get $activeActiveCfg "enabled" | default false -}}
 {{- $useStatefulSet := and $activeActive (get $activeActiveCfg "useStatefulSet" | default true) -}}
+{{- $localRealDevice := .Values.localRealDevice | default dict -}}
+{{- $localRealDeviceEnabled := get $localRealDevice "enabled" | default false -}}
 {{- $replicas := int .Values.replicaCount -}}
 {{- if $activeActive -}}
 {{- $replicas = int (get $activeActiveCfg "playsbcReplicas" | default 2) -}}
@@ -27,6 +29,9 @@ metadata:
 spec:
 {{- if $useStatefulSet }}
   serviceName: {{ include "playsbc.fullname" . }}-headless
+{{- else if $localRealDeviceEnabled }}
+  strategy:
+    type: Recreate
 {{- end }}
   replicas: {{ $replicas }}
   selector:

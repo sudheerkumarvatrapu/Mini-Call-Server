@@ -10,7 +10,7 @@
   <img alt="SIPp" src="https://img.shields.io/badge/-SIPp%20Regression-16A34A?style=flat-square">
   <img alt="RTPengine" src="https://img.shields.io/badge/-RTPengine-0F766E?style=flat-square">
   <img alt="Rasa" src="https://img.shields.io/badge/-AI%20Rasa%20Gateway-BE185D?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/-v2.5.3-111827?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/-v2.5.4-111827?style=flat-square">
   <img alt="License" src="https://img.shields.io/badge/-MIT-F59E0B?style=flat-square">
 </p>
 
@@ -32,13 +32,13 @@ PlaySBC is a Python SIP/RTP lab for B2BUA routing, G.711 media, RTPengine, HA ex
 
 ## Current Release
 
-- Version: `2.5.3`
-- Release: <https://github.com/sudheerkumarvatrapu/PlaySBC/releases/tag/v2.5.3>
-- Helm: `playsbc-2.5.3.tgz`
+- Version: `2.5.4`
+- Release: <https://github.com/sudheerkumarvatrapu/PlaySBC/releases/tag/v2.5.4>
+- Helm: `playsbc-2.5.4.tgz`
 - Images: `playsbc`, `playsbc-rtpengine`, `playsbc-k8s-regression`, and `playsbc-sipp` under `ghcr.io/sudheerkumarvatrapu`
 - Security: CodeQL, Dependency Review, Trivy, and Checkov in GitHub Actions
 
-Local kind/minikube must track the current release (`v2.5.3`) unless a compatibility run intentionally pins an older version.
+Local kind/minikube must track the current release (`v2.5.4`) unless a compatibility run intentionally pins an older version.
 
 ## Architecture
 

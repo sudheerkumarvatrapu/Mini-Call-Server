@@ -1671,7 +1671,7 @@ Content-Length: 0
 
     def test_current_release_keeps_kind_regression_path(self):
         chart = ROOT / "charts" / "playsbc"
-        current_version = "2.5.3"
+        current_version = "2.5.4"
         version = (ROOT / "VERSION").read_text(encoding="utf-8")
         chart_yaml = (chart / "Chart.yaml").read_text(encoding="utf-8")
         values = (chart / "values.yaml").read_text(encoding="utf-8")
@@ -3598,6 +3598,9 @@ class RealTopologyTests(unittest.TestCase):
         values = (ROOT / "configs" / "kubernetes" / "kind-real-device-values.yaml").read_text(
             encoding="utf-8"
         )
+        deployment = (ROOT / "charts" / "playsbc" / "templates" / "deployment.yaml").read_text(
+            encoding="utf-8"
+        )
         validation = (ROOT / "charts" / "playsbc" / "templates" / "validation.yaml").read_text(
             encoding="utf-8"
         )
@@ -3608,6 +3611,9 @@ class RealTopologyTests(unittest.TestCase):
         self.assertIn("activeActive:\n    enabled: false", values)
         self.assertIn("hostNetwork: true", values)
         self.assertNotIn("provider: azure", values)
+        self.assertIn('$localRealDeviceEnabled := get $localRealDevice "enabled"', deployment)
+        self.assertIn("else if $localRealDeviceEnabled", deployment)
+        self.assertIn("type: Recreate", deployment)
         self.assertIn("cannot enable Azure cloud exposure", validation)
         self.assertIn("requires exactly one PlaySBC and one RTPengine replica", validation)
 

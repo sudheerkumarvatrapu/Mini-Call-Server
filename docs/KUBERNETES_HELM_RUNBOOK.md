@@ -99,7 +99,7 @@ Start Docker, discover the Mac LAN address, and create the dedicated cluster onc
 ```bash
 cd /Users/sudheerkumar/Documents/Codex/2026-05-18/Mini-Call-Server
 
-export PLAYSBC_VERSION=2.5.3
+export PLAYSBC_VERSION=2.5.4
 export REAL_DEVICE_CLUSTER=playsbc-real-device
 export REAL_DEVICE_CONTEXT=kind-playsbc-real-device
 export LAN_IF=$(route -n get default | awk '/interface:/{print $2; exit}')
@@ -154,6 +154,10 @@ The local lab disables peer certificate verification, so this standard TLS Secre
 `playsbc.config.tls_verify_peer=true`.
 
 Install the isolated values profile and advertise the Mac LAN IP on both signalling and media:
+
+The local profile uses a `Recreate` rollout because both revisions cannot own the same fixed host
+ports on one kind node. A short signalling interruption during an upgrade is expected; Helm waits
+for the replacement pod and avoids a host-port scheduling deadlock.
 
 ```bash
 helm upgrade --install playsbc \
@@ -213,7 +217,7 @@ Run from the repository on the Mac. This is the single maintained release-image 
 ```bash
 cd /Users/sudheerkumar/Documents/Codex/2026-05-18/Mini-Call-Server
 
-export PLAYSBC_VERSION=2.5.3
+export PLAYSBC_VERSION=2.5.4
 
 kubectl config use-context kind-playsbc
 kubectl config set-context --current --namespace=playsbc

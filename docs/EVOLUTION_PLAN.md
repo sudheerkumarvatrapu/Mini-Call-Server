@@ -32,6 +32,12 @@ PlaySBC is an enterprise-style SIP/RTP lab and regression platform. It is not ye
 - Prometheus/Grafana with node, realm, SIP, media, codec, transcoding, and AI metrics
 - AKS public SIP/RTP LoadBalancers and strict cloud readiness profiles
 
+## v2.5.4 Local Upgrade Hotfix
+
+- Use a local-only Recreate rollout so the old pod releases fixed SIP host ports before its replacement is scheduled.
+- Preserve RollingUpdate for AKS and standard Deployment models and preserve StatefulSet behavior for active-active topology.
+- Remove the single-node `FailedScheduling: didn't have free ports` upgrade deadlock without changing signalling or media behavior.
+
 ## v2.5.3 TLS Startup Hotfix
 
 - Make the CA bundle optional when the local real-device lab disables TLS peer verification.

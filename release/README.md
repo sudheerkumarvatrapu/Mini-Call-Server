@@ -6,19 +6,19 @@ This directory contains immutable release notes and packaged Helm charts. Deploy
 
 | Item | Value |
 | --- | --- |
-| Version | `2.5.3` |
-| Chart | `helm/playsbc-2.5.3.tgz` |
-| Checksum | `helm/playsbc-2.5.3.tgz.sha256` |
-| Notes | `RELEASE_NOTES_2.5.3.md` |
+| Version | `2.5.4` |
+| Chart | `helm/playsbc-2.5.4.tgz` |
+| Checksum | `helm/playsbc-2.5.4.tgz.sha256` |
+| Notes | `RELEASE_NOTES_2.5.4.md` |
 | License | MIT |
 
 Published images:
 
 ```text
-ghcr.io/sudheerkumarvatrapu/playsbc:2.5.3
-ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:2.5.3
-ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.5.3
-ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.5.3
+ghcr.io/sudheerkumarvatrapu/playsbc:2.5.4
+ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:2.5.4
+ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.5.4
+ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.5.4
 ```
 
 The chart contains Kubernetes manifests and configuration, not image layers.
@@ -36,8 +36,8 @@ The chart contains Kubernetes manifests and configuration, not image layers.
 
 ```bash
 helm package charts/playsbc --destination release/helm
-shasum -a 256 release/helm/playsbc-2.5.3.tgz \
-  > release/helm/playsbc-2.5.3.tgz.sha256
+shasum -a 256 release/helm/playsbc-2.5.4.tgz \
+  > release/helm/playsbc-2.5.4.tgz.sha256
 ```
 
 ## Release Gate
