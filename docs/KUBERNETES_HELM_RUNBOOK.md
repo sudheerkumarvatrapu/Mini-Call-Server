@@ -165,7 +165,7 @@ helm upgrade --install playsbc \
   --kube-context "$REAL_DEVICE_CONTEXT" \
   --namespace playsbc \
   --create-namespace \
-  --atomic --wait --timeout 10m \
+  --atomic --wait --timeout 5m \
   -f configs/kubernetes/kind-real-device-values.yaml \
   --set-string localRealDevice.lanIPv4="$LAN_IP" \
   --set-string playsbc.config.sip_advertised_ip="$LAN_IP" \
