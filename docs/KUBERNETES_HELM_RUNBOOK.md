@@ -99,7 +99,7 @@ Start Docker, discover the Mac LAN address, and create the dedicated cluster onc
 ```bash
 cd /Users/sudheerkumar/Documents/Codex/2026-05-18/Mini-Call-Server
 
-export PLAYSBC_VERSION=2.5.2
+export PLAYSBC_VERSION=2.5.3
 export REAL_DEVICE_CLUSTER=playsbc-real-device
 export REAL_DEVICE_CONTEXT=kind-playsbc-real-device
 export LAN_IF=$(route -n get default | awk '/interface:/{print $2; exit}')
@@ -148,6 +148,10 @@ kubectl --context "$REAL_DEVICE_CONTEXT" -n playsbc create secret tls playsbc-re
   --dry-run=client -o yaml \
   | kubectl --context "$REAL_DEVICE_CONTEXT" apply -f -
 ```
+
+The local lab disables peer certificate verification, so this standard TLS Secret only needs
+`tls.crt` and `tls.key`. A `ca.crt` entry is required only when
+`playsbc.config.tls_verify_peer=true`.
 
 Install the isolated values profile and advertise the Mac LAN IP on both signalling and media:
 
@@ -209,7 +213,7 @@ Run from the repository on the Mac. This is the single maintained release-image 
 ```bash
 cd /Users/sudheerkumar/Documents/Codex/2026-05-18/Mini-Call-Server
 
-export PLAYSBC_VERSION=2.5.2
+export PLAYSBC_VERSION=2.5.3
 
 kubectl config use-context kind-playsbc
 kubectl config set-context --current --namespace=playsbc

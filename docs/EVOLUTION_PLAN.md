@@ -32,6 +32,13 @@ PlaySBC is an enterprise-style SIP/RTP lab and regression platform. It is not ye
 - Prometheus/Grafana with node, realm, SIP, media, codec, transcoding, and AI metrics
 - AKS public SIP/RTP LoadBalancers and strict cloud readiness profiles
 
+## v2.5.3 TLS Startup Hotfix
+
+- Make the CA bundle optional when the local real-device lab disables TLS peer verification.
+- Preserve strict certificate and private-key requirements for SIP TLS listeners.
+- Validate the dedicated kind deployment live with both workloads ready, all 53 host mappings present, and LAN SIP/RTP advertisement aligned.
+- Keep AKS, active-active kind, Docker, regression, media, and AI Voice Gateway behavior unchanged.
+
 ## v2.5.2 Delivered Scope
 
 The release adds an isolated local kind real-device lane so registration, calls, media, and capture iteration do not require an expensive AKS session.

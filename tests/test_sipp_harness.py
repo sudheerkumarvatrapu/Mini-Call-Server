@@ -1573,6 +1573,10 @@ Content-Length: 0
         self.assertIn("route_policies:", values)
         self.assertIn("server.yaml: |", configmap)
         self.assertIn("deepCopy .Values.playsbc.config", configmap)
+        self.assertIn(
+            'if and (get $config "tls_verify_peer") (not (get $config "tls_cafile"))',
+            configmap,
+        )
         self.assertIn("toYaml $config", configmap)
         self.assertIn("/etc/playsbc/server.yaml", deployment)
 
@@ -1667,7 +1671,7 @@ Content-Length: 0
 
     def test_current_release_keeps_kind_regression_path(self):
         chart = ROOT / "charts" / "playsbc"
-        current_version = "2.5.2"
+        current_version = "2.5.3"
         version = (ROOT / "VERSION").read_text(encoding="utf-8")
         chart_yaml = (chart / "Chart.yaml").read_text(encoding="utf-8")
         values = (chart / "values.yaml").read_text(encoding="utf-8")

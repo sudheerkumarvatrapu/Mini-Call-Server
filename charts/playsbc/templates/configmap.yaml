@@ -5,7 +5,9 @@
 {{- if .Values.tls.enabled -}}
 {{- $_ := set $config "tls_certfile" "/etc/playsbc-tls/tls.crt" -}}
 {{- $_ := set $config "tls_keyfile" "/etc/playsbc-tls/tls.key" -}}
+{{- if and (get $config "tls_verify_peer") (not (get $config "tls_cafile")) -}}
 {{- $_ := set $config "tls_cafile" "/etc/playsbc-tls/ca.crt" -}}
+{{- end -}}
 {{- end -}}
 {{- if .Values.rtpengine.enabled -}}
 {{- $_ := set $config "media_backend" "rtpengine" -}}
