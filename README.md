@@ -28,6 +28,7 @@ PlaySBC is a Python SIP/RTP lab for B2BUA routing, G.711 media, RTPengine, HA ex
 | Run Rasa voice/chat profiles | [AI Voice Gateway](docs/AI_VOICE_GATEWAY.md) |
 | Use Grafana and Prometheus | [Observability](docs/OBSERVABILITY.md) |
 | Review planned work | [Evolution plan](docs/EVOLUTION_PLAN.md) |
+| Review the commercial Voice AI and v3 Enterprise SBC track | [v2.6+ commercial and v3 playbook](docs/ENTERPRISE_SBC_V3_PLAYBOOK.md) |
 | Inspect release artifacts | [Release index](release/README.md) |
 
 ## Current Release
@@ -105,6 +106,8 @@ Every applicable regression profile should produce:
 ## Production Status
 
 PlaySBC has strong lab coverage, but large-scale production claims require external shared state, carrier-grade load balancing, security hardening, multi-node and multi-zone failure proof, long soak tests, and measured capacity baselines. See the [evolution plan](docs/EVOLUTION_PLAN.md).
+
+PlaySBC v2.5.5 is the final public MIT feature release. Published source and releases through v2.5.5 remain under their existing MIT terms; newly developed Voice AI and Enterprise SBC capabilities beginning with v2.6.0 are planned for private distribution under a separate paid commercial license. See the [v2.6+ commercial and v3 Enterprise SBC playbook](docs/ENTERPRISE_SBC_V3_PLAYBOOK.md). This plan does not alter rights already granted for MIT code.
 
 ## Cleanup
 

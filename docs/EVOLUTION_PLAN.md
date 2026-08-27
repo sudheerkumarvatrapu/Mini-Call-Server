@@ -25,7 +25,7 @@ The audited v2.5.4 run had 63 passing profiles and two reported failures. All re
 
 ## Primary Track: Production AI Voice Gateway
 
-AI Voice Gateway work is the main product focus from v2.6.0 toward v3.0.0. Version 2.5.5 delivered regression scaffolding for Rasa, STT, TTS, DTMF, and scripted AI flows; it did not deliver generated TTS as live RTP or the production streaming contract below.
+AI Voice Gateway work is the main product focus from v2.6.0 toward v3.0.0. Version 2.5.5 is the final public MIT feature release: it delivered regression scaffolding for Rasa, STT, TTS, DTMF, and scripted AI flows, but it did not deliver generated TTS as live RTP or the production streaming contract below. New v2.6.0 and later Voice AI and Enterprise SBC product capabilities are planned for private distribution under a separate paid commercial license.
 
 ### v2.6.0 Streaming Foundation
 
@@ -54,6 +54,8 @@ The v2.6.0 foundation is complete only when live bidirectional speech and genera
 - Call state and fallback behavior are deterministic under provider failures
 - Every AI call has complete signalling, media, transcript, model, action, and latency evidence
 - Security, privacy, retention, secret rotation, overload, and operational runbooks are validated
+
+The commercial Voice AI work beginning with v2.6.0 and the enterprise SIP, HA, security, scale, and operational work leading into v3.0.0 are governed by the [commercial and v3 Enterprise SBC playbook](ENTERPRISE_SBC_V3_PLAYBOOK.md). Existing MIT releases through v2.5.5 retain their published MIT terms; newly developed v2.6+ product modules are planned for separate private distribution under a paid commercial license.
 
 ## Secondary Track: RFC 5359 Business Calling Services
 

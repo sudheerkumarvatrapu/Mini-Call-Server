@@ -16,6 +16,7 @@ Use one canonical page for each task. Supporting pages explain design and eviden
 | Rasa voice and chat regression | [AI Voice Gateway](AI_VOICE_GATEWAY.md) | Docker/Kubernetes |
 | Grafana, Prometheus, and metrics | [Observability](OBSERVABILITY.md) | Kubernetes |
 | Roadmap and production gates | [Evolution plan](EVOLUTION_PLAN.md) | all |
+| Commercial Voice AI and v3 Enterprise SBC delivery | [v2.6+ commercial and v3 playbook](ENTERPRISE_SBC_V3_PLAYBOOK.md) | private/commercial |
 | Release assets and historical notes | [Release index](../release/README.md) | GitHub |
 
 ## Default Test Strategy
