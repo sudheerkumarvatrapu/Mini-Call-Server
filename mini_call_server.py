@@ -1464,6 +1464,7 @@ class B2BUACall:
     inbound_cseq: int = 1
     inbound_answer_sdp: str = ""
     local_reinvite_cseqs: set[int] = field(default_factory=set)
+    reinvite_pending: bool = False
     inbound_bye_sent: bool = False
     finalized: bool = False
 
@@ -4070,65 +4071,179 @@ class SipServerProtocol(asyncio.DatagramProtocol):
         self.save_b2bua_call_state(b2bua_call)
 
     async def handle_b2bua_inbound_reinvite(self, message: SipMessage, b2bua_call: B2BUACall) -> None:
-        """Locally accept caller-leg in-dialog media refreshes from real SIP devices."""
+        """Propagate a caller-leg dialog refresh and update the existing media session."""
         call_id = message.header("call-id")
         cseq_number = parse_cseq_number(message.header("cseq"))
-        answer_sdp = b2bua_call.inbound_answer_sdp
-        if not answer_sdp:
-            session = self.media.get_session(call_id)
-            if session:
-                answer_sdp = make_sdp(
-                    self.sip_advertised_ip,
-                    session.local_port,
-                    session.preferred_payload,
-                    dtmf_payload_type=parse_dtmf_payload_type(message.body),
-                )
-                b2bua_call.inbound_answer_sdp = answer_sdp
+        state = sdp_session_state(message.body)
 
         b2bua_call.flow_log.sip("SIPp A", "B2BUA", "re-INVITE", f"cseq={message.header('cseq')}")
         self.logger.sip(
             "B2BUA INBOUND REINVITE",
             (
                 f"source={message.source[0]}:{message.source[1]} cseq={message.header('cseq')} "
-                f"body_bytes={len(message.body.encode('utf-8'))} action=local_answer"
+                f"body_bytes={len(message.body.encode('utf-8'))} state={state} action=propagate"
             ),
             call_id=call_id,
         )
 
-        if not answer_sdp:
+        if not cseq_number or cseq_number <= b2bua_call.inbound_cseq:
             self.logger.sip(
                 "B2BUA INBOUND REINVITE REJECTED",
-                "reason=no_cached_caller_sdp_answer",
+                f"reason=non_monotonic_cseq received={cseq_number} current={b2bua_call.inbound_cseq}",
                 call_id=call_id,
             )
+            self.send_response(message, 500, "Server Internal Error", to_header=message.header("to"))
+            b2bua_call.flow_log.sip("B2BUA", "SIPp A", "500 Server Internal Error", "re-INVITE")
+            return
+        if b2bua_call.reinvite_pending:
+            self.send_response(message, 491, "Request Pending", to_header=message.header("to"))
+            b2bua_call.flow_log.sip("B2BUA", "SIPp A", "491 Request Pending", "re-INVITE")
+            return
+        if not message.body or "m=audio" not in message.body:
             self.send_response(message, 488, "Not Acceptable Here", to_header=message.header("to"))
             b2bua_call.flow_log.sip("B2BUA", "SIPp A", "488 Not Acceptable Here", "re-INVITE")
             return
 
+        b2bua_call.reinvite_pending = True
         self.send_response(message, 100, "Trying", to_header=message.header("to"))
-        self.send_response(
-            message,
-            200,
-            "OK",
-            body=answer_sdp,
-            to_header=message.header("to"),
-            extra_headers={
-                "Contact": f"<{self.inbound_contact_uri(b2bua_call.target_user, message.transport)}>",
-                "Content-Type": "application/sdp",
-            },
-        )
-        if cseq_number:
+        response_queue: asyncio.Queue = asyncio.Queue()
+        self.pending_outbound_responses[b2bua_call.outbound_call_id] = response_queue
+        try:
+            outbound_offer = message.body
+            if b2bua_call.media_backend == "rtpengine":
+                if not self.rtpengine_client:
+                    raise RtpengineError("RTPengine is not configured for dialog refresh")
+                remote_payloads = parse_sdp_payloads(message.body)
+                codec_policy = rtpengine_codec_policy(remote_payloads, self.default_payload)
+                offer_transport = self.rtpengine_offer_transport_protocol or (
+                    "RTP/AVP" if self.rtpengine_plain_rtp_sdp else ""
+                )
+                offer_sdp = normalize_plain_rtp_sdp(message.body, remote_payloads) if self.rtpengine_plain_rtp_sdp else message.body
+                offer_response = await retry_rtpengine_control(
+                    "REINVITE OFFER",
+                    lambda: self.rtpengine_client.offer(
+                        call_id=b2bua_call.rtpengine_call_id or call_id,
+                        from_tag=b2bua_call.rtpengine_from_tag,
+                        sdp=offer_sdp,
+                        codec=codec_policy,
+                        direction=self.rtpengine_directions,
+                        transport_protocol=offer_transport,
+                        sdes=self.rtpengine_sdes,
+                        dtls=self.rtpengine_dtls,
+                        ice="remove" if self.rtpengine_plain_rtp_sdp else "",
+                        sip_source_address=self.rtpengine_sip_source_address,
+                        received_from=message.source[0] if self.rtpengine_sip_source_address else "",
+                        media_handover=self.rtpengine_media_handover,
+                        nat_wait=self.rtpengine_nat_wait,
+                        pierce_nat=self.rtpengine_pierce_nat,
+                    ),
+                    b2bua_call.flow_log,
+                )
+                outbound_offer = str(offer_response.get("sdp") or "")
+                if not outbound_offer:
+                    raise RtpengineError("RTPengine re-INVITE offer response did not include SDP")
+                self.logger.media(
+                    "RTPENGINE REINVITE OFFER",
+                    f"state={state} cseq={cseq_number} rewritten_sdp_bytes={len(outbound_offer.encode('utf-8'))}",
+                    call_id=call_id,
+                )
+
+            b2bua_call.outbound_cseq += 1
+            self.send_outbound_invite(b2bua_call, outbound_offer, in_dialog=True)
+            final_response = await self.wait_for_outbound_invite(
+                response_queue,
+                message,
+                message.header("to"),
+                None,
+                b2bua_call,
+                timeout=self.b2bua_invite_timeout,
+            )
+            status = final_response.status_code
+            reason = final_response.reason_phrase or "Upstream Response"
+            b2bua_call.outbound_to_header = final_response.header("to") or b2bua_call.outbound_to_header
+            b2bua_call.outbound_contact_uri = (
+                extract_sip_uri(final_response.header("contact")) or b2bua_call.outbound_contact_uri
+            )
+            if status < 200 or status >= 300:
+                self.send_outbound_ack(b2bua_call, invite_transaction=True)
+                self.send_response(message, status, reason, to_header=message.header("to"))
+                b2bua_call.flow_log.sip("B2BUA", "SIPp A", f"{status} {reason}", "re-INVITE")
+                return
+
+            answer_sdp = final_response.body
+            if b2bua_call.media_backend == "rtpengine":
+                answer_payloads = parse_sdp_payloads(answer_sdp)
+                answer_transport = self.rtpengine_answer_transport_protocol or (
+                    "RTP/AVP" if self.rtpengine_plain_rtp_sdp else ""
+                )
+                answer_body = normalize_plain_rtp_sdp(answer_sdp, answer_payloads) if self.rtpengine_plain_rtp_sdp else answer_sdp
+                answer_response = await retry_rtpengine_control(
+                    "REINVITE ANSWER",
+                    lambda: self.rtpengine_client.answer(
+                        call_id=b2bua_call.rtpengine_call_id or call_id,
+                        from_tag=b2bua_call.rtpengine_from_tag,
+                        to_tag=b2bua_call.rtpengine_to_tag,
+                        sdp=answer_body,
+                        codec=rtpengine_codec_policy(answer_payloads, self.default_payload),
+                        transport_protocol=answer_transport,
+                        sdes=self.rtpengine_sdes,
+                        dtls=self.rtpengine_dtls,
+                        ice="remove" if self.rtpengine_plain_rtp_sdp else "",
+                        sip_source_address=self.rtpengine_sip_source_address,
+                        received_from=final_response.source[0] if self.rtpengine_sip_source_address else "",
+                        media_handover=self.rtpengine_media_handover,
+                        nat_wait=self.rtpengine_nat_wait,
+                        pierce_nat=self.rtpengine_pierce_nat,
+                    ),
+                    b2bua_call.flow_log,
+                )
+                answer_sdp = str(answer_response.get("sdp") or "")
+                if not answer_sdp:
+                    raise RtpengineError("RTPengine re-INVITE answer response did not include SDP")
+                self.logger.media(
+                    "RTPENGINE REINVITE ANSWER",
+                    f"state={state} cseq={cseq_number} rewritten_sdp_bytes={len(answer_sdp.encode('utf-8'))}",
+                    call_id=call_id,
+                )
+            elif b2bua_call.inbound_answer_sdp:
+                answer_sdp = replace_sdp_session_state(
+                    b2bua_call.inbound_answer_sdp,
+                    sdp_session_state(final_response.body, answer=True),
+                )
+
+            if not answer_sdp:
+                raise RtpengineError("peer re-INVITE response did not include SDP")
+            self.send_outbound_ack(b2bua_call)
+            self.send_response(
+                message,
+                200,
+                "OK",
+                body=answer_sdp,
+                to_header=message.header("to"),
+                extra_headers={
+                    "Contact": f"<{self.inbound_contact_uri(b2bua_call.target_user, message.transport)}>",
+                    "Content-Type": "application/sdp",
+                },
+            )
+            b2bua_call.inbound_cseq = cseq_number
+            b2bua_call.inbound_answer_sdp = answer_sdp
             b2bua_call.local_reinvite_cseqs.add(cseq_number)
-        self.save_b2bua_call_state(b2bua_call)
-        self.logger.sip(
-            "B2BUA INBOUND REINVITE ANSWERED",
-            (
-                f"cseq={message.header('cseq')} cached_sdp_bytes={len(answer_sdp.encode('utf-8'))} "
-                "ack_policy=consume_local_ack"
-            ),
-            call_id=call_id,
-        )
-        b2bua_call.flow_log.sip("B2BUA", "SIPp A", "200 OK", "re-INVITE")
+            self.save_b2bua_call_state(b2bua_call)
+            self.logger.sip(
+                "B2BUA INBOUND REINVITE ANSWERED",
+                f"cseq={message.header('cseq')} state={state} ack_policy=consume_inbound_ack",
+                call_id=call_id,
+            )
+            b2bua_call.flow_log.sip("B2BUA", "SIPp A", "200 OK", f"re-INVITE state={state}")
+        except asyncio.TimeoutError:
+            self.send_response(message, 504, "Server Time-out", to_header=message.header("to"))
+            self.logger.sip("B2BUA INBOUND REINVITE FAILED", f"state={state} reason=peer_timeout", call_id=call_id)
+        except (OSError, RtpengineError) as exc:
+            self.send_response(message, 488, "Not Acceptable Here", to_header=message.header("to"))
+            self.logger.sip("B2BUA INBOUND REINVITE FAILED", f"state={state} reason={exc}", call_id=call_id)
+        finally:
+            self.pending_outbound_responses.pop(b2bua_call.outbound_call_id, None)
+            b2bua_call.reinvite_pending = False
 
     async def wait_for_outbound_invite(
         self,
@@ -4164,14 +4279,19 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                 continue
             return response
 
-    def send_outbound_invite(self, b2bua_call: B2BUACall, body: str) -> None:
+    def send_outbound_invite(self, b2bua_call: B2BUACall, body: str, in_dialog: bool = False) -> None:
         transport_name = b2bua_call.outbound_target.transport
         via_header = self.make_via_header(transport_name)
         b2bua_call.outbound_invite_via_header = via_header
+        request_uri = (
+            b2bua_call.outbound_contact_uri or b2bua_call.outbound_target.uri
+            if in_dialog
+            else b2bua_call.outbound_target.uri
+        )
         headers = {
             "Via": via_header,
             "From": b2bua_call.outbound_from_header,
-            "To": f"<{b2bua_call.outbound_target.uri}>",
+            "To": b2bua_call.outbound_to_header if in_dialog else f"<{b2bua_call.outbound_target.uri}>",
             "Call-ID": b2bua_call.outbound_call_id,
             "CSeq": f"{b2bua_call.outbound_cseq} INVITE",
             "Contact": f"<{self.local_contact_uri(transport_name)}>",
@@ -4190,7 +4310,7 @@ class SipServerProtocol(asyncio.DatagramProtocol):
                 ),
                 call_id=b2bua_call.inbound_call_id,
             )
-        packet = build_sip_request("INVITE", b2bua_call.outbound_target.uri, headers, body)
+        packet = build_sip_request("INVITE", request_uri, headers, body)
         self.observe_sip_request("INVITE", transport_name, "tx", "peer")
         destination = self.outbound_destination(b2bua_call)
         self._send_packet(packet, destination, transport_name=transport_name)
@@ -5508,11 +5628,28 @@ def parse_dtmf_payload_type(sdp: str) -> Optional[int]:
     return None
 
 
+def sdp_session_state(sdp: str, answer: bool = False) -> str:
+    match = re.search(r"^a=(sendrecv|sendonly|recvonly|inactive)\r?$", sdp or "", re.MULTILINE | re.IGNORECASE)
+    direction = match.group(1).lower() if match else "sendrecv"
+    if answer:
+        return direction
+    return "hold" if direction in {"sendonly", "inactive"} else "resume"
+
+
+def replace_sdp_session_state(sdp: str, direction: str) -> str:
+    normalized = direction if direction in {"sendrecv", "sendonly", "recvonly", "inactive"} else "sendrecv"
+    pattern = re.compile(r"^a=(sendrecv|sendonly|recvonly|inactive)\r?$", re.MULTILINE | re.IGNORECASE)
+    if pattern.search(sdp):
+        return pattern.sub(f"a={normalized}\r", sdp, count=1)
+    suffix = "" if sdp.endswith(CRLF) else CRLF
+    return f"{sdp}{suffix}a={normalized}{CRLF}"
+
+
 def sdp_audio_summary(stage: str, sdp: str, fallback_ip: str = "") -> str:
     rtp_addr = parse_sdp_remote_addr(sdp, fallback_ip)
     rtcp_addr = parse_sdp_remote_rtcp_addr(sdp, rtp_addr) if rtp_addr else None
     media_match = re.search(r"^m=audio\s+\d+\s+(\S+)\s+", sdp, re.MULTILINE | re.IGNORECASE)
-    direction_match = re.search(r"^a=(sendrecv|sendonly|recvonly|inactive)$", sdp, re.MULTILINE | re.IGNORECASE)
+    direction_match = re.search(r"^a=(sendrecv|sendonly|recvonly|inactive)\r?$", sdp, re.MULTILINE | re.IGNORECASE)
     dtmf_payload = parse_dtmf_payload_type(sdp)
     return (
         f"stage={stage} "
@@ -5720,11 +5857,6 @@ def normalize_plain_rtp_sdp(sdp: str, allowed_payloads: Tuple[int, ...] = ()) ->
 
         attr_match = re.match(r"^a=(?:rtpmap|fmtp|rtcp-fb):(\d+)\b", line, re.IGNORECASE)
         if attr_match and allowed and attr_match.group(1) not in allowed:
-            changed = True
-            continue
-
-        if lower in {"a=sendonly", "a=recvonly", "a=inactive"}:
-            normalized_lines.append("a=sendrecv")
             changed = True
             continue
 

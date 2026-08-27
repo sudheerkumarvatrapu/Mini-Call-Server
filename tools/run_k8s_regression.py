@@ -7,6 +7,7 @@ import argparse
 import copy
 import datetime as dt
 import json
+import os
 import re
 import shlex
 import shutil
@@ -15,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -897,12 +899,27 @@ def validate_k8s_profile_evidence(profile_name: str, bundle: Path) -> list[str]:
 
     if "options" in profile_name and sipmsg.exists():
         options_text = sipmsg.read_text(encoding="utf-8", errors="replace")
-        if (
-            not OPTIONS_REQUEST_PATTERN.search(options_text)
-            or not OPTIONS_ALLOWED_CSEQ_PATTERN.search(options_text)
-            or OPTIONS_OTHER_CSEQ_PATTERN.search(options_text)
-        ):
-            failures.append("OPTIONS evidence contains non-OPTIONS SIP/Rasa traffic")
+        if not OPTIONS_REQUEST_PATTERN.search(options_text):
+            failures.append("OPTIONS evidence is missing an OPTIONS request")
+        elif not OPTIONS_ALLOWED_CSEQ_PATTERN.search(options_text):
+            failures.append("OPTIONS evidence is missing an OPTIONS CSeq")
+        elif OPTIONS_OTHER_CSEQ_PATTERN.search(options_text):
+            failures.append("OPTIONS evidence contains non-OPTIONS SIP traffic")
+
+    if profile_name.startswith("rfc5359-call-hold-resume") and sipmsg.exists():
+        hold_text = sipmsg.read_text(encoding="utf-8", errors="replace")
+        required_patterns = {
+            "initial INVITE": r"(?im)^CSeq:\s*1\s+INVITE\s*$",
+            "hold re-INVITE": r"(?im)^CSeq:\s*2\s+INVITE\s*$",
+            "hold ACK": r"(?im)^CSeq:\s*2\s+ACK\s*$",
+            "resume re-INVITE": r"(?im)^CSeq:\s*3\s+INVITE\s*$",
+            "resume ACK": r"(?im)^CSeq:\s*3\s+ACK\s*$",
+            "sendonly hold SDP": r"(?im)^a=sendonly\s*$",
+            "sendrecv resume SDP": r"(?im)^a=sendrecv\s*$",
+        }
+        for label, pattern in required_patterns.items():
+            if not re.search(pattern, hold_text):
+                failures.append(f"RFC 5359 evidence is missing {label}")
 
     if profile_name in STRICT_SRTP_PROFILES:
         call_ids = sipmsg_call_ids(bundle)
@@ -917,6 +934,17 @@ def validate_k8s_profile_evidence(profile_name: str, bundle: Path) -> list[str]:
             failures.append("SRTP/RTPengine crypto negotiation error evidence present")
         if not rtpengine_two_way_verdict_observed(bundle, call_ids):
             failures.append("RTPengine packet verdict did not prove both RTP directions observed")
+
+    if profile_name in {"ai-rasa-lab", "ai-rasa-rtpengine"}:
+        ai_text = read_bundle_evidence_text(bundle, ("log.ai",))
+        if "RASA REST ERROR" in ai_text or "fallback_used=true" in ai_text:
+            failures.append("mock Rasa webhook used fallback instead of deterministic REST evidence")
+        if "fallback_used=false" not in ai_text:
+            failures.append("mock Rasa evidence is missing fallback_used=false")
+        if profile_name == "ai-rasa-rtpengine" and (
+            "AI BOT ACTION" not in ai_text or "AI BOT TRANSFER" not in ai_text
+        ):
+            failures.append("mock Rasa RTPengine evidence is missing bot transfer action")
 
     return failures
 
@@ -1007,6 +1035,64 @@ class K8sRegressionRunner:
         self.image_prepared = False
         self.original_values: Optional[dict[str, Any]] = None
         self.tls_secret_prepared = False
+        self.mock_rasa_process: Optional[subprocess.Popen[str]] = None
+        self.mock_rasa_log_handle: Any = None
+
+    def start_mock_rasa(self, profile: SimpleNamespace, bundle: Path) -> str:
+        runner_ip = os.environ.get("PLAYSBC_REGRESSION_RUNNER_IP", "").strip()
+        if not runner_ip:
+            raise RuntimeError(
+                "PLAYSBC_REGRESSION_RUNNER_IP is required for Kubernetes mock Rasa profiles; "
+                "launch through tools/run_k8s_regression_job.py"
+            )
+        log_path = bundle / "mock-rasa.log"
+        self.mock_rasa_log_handle = log_path.open("w", encoding="utf-8")
+        command = [
+            sys.executable,
+            str(ROOT / "tools" / "mock_rasa_server.py"),
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "5005",
+            "--response-count",
+            str(int(getattr(profile, "rasa_mock_response_count", 1))),
+            "--action",
+            str(getattr(profile, "rasa_mock_action", "")),
+            "--action-target",
+            str(getattr(profile, "rasa_mock_action_target", "")),
+        ]
+        self.mock_rasa_process = subprocess.Popen(
+            command,
+            cwd=ROOT,
+            stdout=self.mock_rasa_log_handle,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            if self.mock_rasa_process.poll() is not None:
+                raise RuntimeError(f"mock Rasa exited early; see {log_path}")
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:5005/healthz", timeout=0.5) as response:
+                    if response.status == 200:
+                        return f"http://{runner_ip}:5005/webhooks/rest/webhook"
+            except OSError:
+                time.sleep(0.1)
+        raise RuntimeError(f"mock Rasa did not become ready; see {log_path}")
+
+    def stop_mock_rasa(self) -> None:
+        process = self.mock_rasa_process
+        if process and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=3)
+        self.mock_rasa_process = None
+        if self.mock_rasa_log_handle:
+            self.mock_rasa_log_handle.close()
+        self.mock_rasa_log_handle = None
 
     def active_active_enabled(self) -> bool:
         value = getattr(self.args, "active_active_topology", True)
@@ -1217,6 +1303,7 @@ class K8sRegressionRunner:
 
         if operation == "delete-pod":
             pod_name = self.workload_pod_name(target, pod_index)
+            self.snapshot_ha_target_logs(target, pod_name, bundle, phase)
             previous_uid = self.pod_uid(pod_name)
             delete_result = self.kubectl("delete", "pod", pod_name, "--wait=false", check=False, timeout=30)
             detail_lines.append(f"deleted_pod={pod_name} returncode={delete_result.returncode}")
@@ -1251,6 +1338,33 @@ class K8sRegressionRunner:
             started,
             "; ".join(line.strip() for line in detail_lines if line.strip()),
         )
+
+    def snapshot_ha_target_logs(self, target: str, pod_name: str, bundle: Path, phase: str) -> None:
+        """Retain pre-fault evidence before Kubernetes permanently removes a target pod."""
+        if target != "playsbc":
+            logs = self.kubectl("logs", f"pod/{pod_name}", f"--tail={self.args.deployment_log_tail}", check=False)
+            (bundle / f"ha-prefault-{target}-{phase}.log").write_text(
+                logs.stdout + logs.stderr,
+                encoding="utf-8",
+            )
+            return
+        for filename in B2BUA_LOG_FILES:
+            result = self.kubectl(
+                "exec",
+                pod_name,
+                "-c",
+                "playsbc",
+                "--",
+                "cat",
+                f"/tmp/playsbc-logs/{filename}",
+                check=False,
+                timeout=15,
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                continue
+            with (bundle / filename).open("a", encoding="utf-8") as handle:
+                handle.write(f"\n===== pre-fault pod/{pod_name} phase={phase} {filename} =====\n")
+                handle.write(result.stdout.rstrip() + "\n")
 
     def kubectl(self, *parts: str, timeout: Optional[int] = None, input_text: Optional[str] = None, check: bool = False) -> CommandResult:
         command = [self.args.kubectl_bin]
@@ -2532,6 +2646,15 @@ class K8sRegressionRunner:
         values.setdefault("playsbc", {})["config"] = self.profile_config(profile)
         self.apply_profile_auth_secret_values(values, profile)
         values.setdefault("rtpengine", {})["enabled"] = profile_enables_rtpengine_deployment(profile, self.args)
+        rtpengine_rtp_min = getattr(profile, "rtpengine_rtp_min", None)
+        rtpengine_rtp_max = getattr(profile, "rtpengine_rtp_max", None)
+        if rtpengine_rtp_min is not None or rtpengine_rtp_max is not None:
+            if rtpengine_rtp_min is None or rtpengine_rtp_max is None:
+                raise RuntimeError("profile RTPengine range requires both rtpengine_rtp_min and rtpengine_rtp_max")
+            if int(rtpengine_rtp_min) > int(rtpengine_rtp_max):
+                raise RuntimeError("profile RTPengine range minimum exceeds maximum")
+            values["rtpengine"]["rtpMin"] = int(rtpengine_rtp_min)
+            values["rtpengine"]["rtpMax"] = int(rtpengine_rtp_max)
         self.apply_active_active_values(values, profile)
         if profile_uses_tls(profile):
             self.ensure_tls_secret(bundle)
@@ -2736,6 +2859,7 @@ class K8sRegressionRunner:
             detail = f"{type(exc).__name__}: {exc}"
             self.write_log(bundle, "log.platform", "K8S REGRESSION FAILED", detail)
         finally:
+            self.stop_mock_rasa()
             teardown_started = time.monotonic()
             if not self.args.keep_pods:
                 self.delete_run_pods(bundle)
@@ -2962,6 +3086,10 @@ class K8sRegressionRunner:
             ai_config = dict(getattr(profile, "ai_voice_gateway", {}) or {})
             ai_config["rasa_webhook_url"] = f"http://{self.args.service}-rasa:5005/webhooks/rest/webhook"
             profile.ai_voice_gateway = ai_config
+        elif profile_name in {"ai-rasa-lab", "ai-rasa-rtpengine"}:
+            ai_config = dict(getattr(profile, "ai_voice_gateway", {}) or {})
+            ai_config["rasa_webhook_url"] = self.start_mock_rasa(profile, bundle)
+            profile.ai_voice_gateway = ai_config
         phases.append(
             "Test Setup",
             "passed",
@@ -3150,7 +3278,7 @@ class K8sRegressionRunner:
                 f"description={PROFILE_DESCRIPTIONS.get(profile_name, 'special real-topology profile')}"
             ),
         )
-        ladder = "" if is_load_profile(profile) else self.dual_realm_ladder(profile)
+        ladder = "" if int(getattr(profile, "calls", 1)) >= 20 else self.dual_realm_ladder(profile)
         return returncodes or [0], commands, ladder
 
     def dual_realm_ladder(self, profile: SimpleNamespace) -> str:
@@ -3410,6 +3538,31 @@ class K8sRegressionRunner:
         flow.sip(sbc, "Core SIPp A", "200 OK")
         flow.sip("Core SIPp A", sbc, "ACK")
         flow.sip(sbc, "Peer SIPp B", "ACK")
+        if str(getattr(profile, "profile", "")).startswith("rfc5359-call-hold-resume"):
+            flow.sip("Core SIPp A", sbc, "re-INVITE (sendonly hold)")
+            if profile_uses_rtpengine(profile):
+                flow.sip(sbc, rtpe, "UPDATE OFFER (hold)")
+                flow.sip(rtpe, sbc, "ok OFFER")
+            flow.sip(sbc, "Peer SIPp B", "re-INVITE (sendonly hold)")
+            flow.sip("Peer SIPp B", sbc, "200 OK (recvonly)")
+            if profile_uses_rtpengine(profile):
+                flow.sip(sbc, rtpe, "UPDATE ANSWER (hold)")
+                flow.sip(rtpe, sbc, "ok ANSWER")
+            flow.sip(sbc, "Core SIPp A", "200 OK (recvonly)")
+            flow.sip("Core SIPp A", sbc, "ACK")
+            flow.sip(sbc, "Peer SIPp B", "ACK")
+            flow.sip("Core SIPp A", sbc, "re-INVITE (sendrecv resume)")
+            if profile_uses_rtpengine(profile):
+                flow.sip(sbc, rtpe, "UPDATE OFFER (resume)")
+                flow.sip(rtpe, sbc, "ok OFFER")
+            flow.sip(sbc, "Peer SIPp B", "re-INVITE (sendrecv resume)")
+            flow.sip("Peer SIPp B", sbc, "200 OK (sendrecv)")
+            if profile_uses_rtpengine(profile):
+                flow.sip(sbc, rtpe, "UPDATE ANSWER (resume)")
+                flow.sip(rtpe, sbc, "ok ANSWER")
+            flow.sip(sbc, "Core SIPp A", "200 OK (sendrecv)")
+            flow.sip("Core SIPp A", sbc, "ACK")
+            flow.sip(sbc, "Peer SIPp B", "ACK")
         if isinstance(action, dict) and action.get("phase") == "midcall" and "K8s HA" in flow.participants:
             if action.get("operation") == "drain-all":
                 flow.sip("K8s HA", sbc, "runtime drain all")

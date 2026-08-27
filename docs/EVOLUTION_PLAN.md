@@ -2,7 +2,7 @@
 
 PlaySBC is an enterprise-style SIP/RTP and AI voice lab. It is not yet a production-certified SBC. Historical delivery detail belongs in the [release notes](../release/README.md); this page tracks only the current baseline and forward work.
 
-## Current Baseline: v2.5.4
+## Current Baseline: v2.5.5
 
 - SIP UDP/TCP/TLS registration and B2BUA calls through local kind and Azure AKS
 - RTPengine anchoring, G.711 transcoding, RTP/RTCP, SRTP interworking, NAT learning, and media evidence
@@ -11,6 +11,17 @@ PlaySBC is an enterprise-style SIP/RTP and AI voice lab. It is not yet a product
 - One combined PCAP, canonical SIP ladder, `sipmsg.log`, media verdicts, and HTML/archive evidence
 - Isolated `kind-playsbc-real-device` lane with guarded LAN advertisement, optional TLS CA verification, and deadlock-free local upgrades
 - Rasa, STT, TTS, DTMF, and scripted AI Voice Gateway regression foundations
+- RFC 5359 call hold/resume propagation across both B2BUA legs over UDP, TCP, TLS, and RTPengine
+
+### v2.5.5 Regression Closure
+
+- `ha-options-health-recovery` now produces an actual OPTIONS exchange and OPTIONS-only `sipmsg.log` evidence.
+- `load-5cps-60s-rtpengine-transcoding` uses a profile-scoped `30000-31999` RTP range, sufficient for the 300-call media load. AKS and real-device media remain fixed at `30000-30049`.
+- Mock Rasa profiles run a reachable in-job webhook and fail when fallback is used; fallback is no longer accepted as successful bot evidence.
+- Small multi-call and active-active profiles retain readable unified ladders; high-volume load profiles remain intentionally compact.
+- Pre-fault PlaySBC logs are retained before pod deletion so media and dialog evidence is not lost with the pod.
+
+The audited v2.5.4 run had 63 passing profiles and two reported failures. All retained PCAPs were readable, SIP evidence was present for every signalling profile, strict SRTP profiles proved negotiated security and both observed RTP directions, and no traceback, invalid CSeq, index error, or SIP parser failure was found. These are regression-evidence results, not blanket protocol certification.
 
 ## Primary Track: Production AI Voice Gateway
 
@@ -46,7 +57,7 @@ AI Voice Gateway work is the main product focus from v2.5.5 toward v3.0.0.
 
 [RFC 5359](https://www.rfc-editor.org/info/rfc5359/) is a Best Current Practice containing SIP service examples. It does not make a device or SBC compliant by itself. Most examples are user-agent features; some require proxy assistance, and PlaySBC can implement the network side as a B2BUA.
 
-Current PlaySBC behavior is only a foundation: it locally answers an in-dialog re-INVITE from a real device. It does not yet propagate the changed SDP to the opposite leg or update RTPengine media direction, so end-to-end hold/resume is not currently claimed.
+PlaySBC now propagates an in-dialog re-INVITE to the opposite B2BUA leg, preserves dialog routing and CSeq ordering, and updates an existing RTPengine session. Synthetic UDP, TCP, TLS, and RTPengine profiles validate the signalling sequence. Real-device hold/resume remains an acceptance gate before the feature is described as production-ready.
 
 ### v2.5.5 Priority: Hold And Resume
 
@@ -59,15 +70,20 @@ Current PlaySBC behavior is only a foundation: it locally answers an in-dialog r
 - Handle BYE, CANCEL-equivalent race conditions, timeout, failed re-INVITE, and repeated hold/resume safely
 - Validate both OBi1022-to-Zoiper and Zoiper-to-OBi1022 over UDP first, then TCP/TLS where the device supports it
 
-Planned regression profiles:
+Synthetic regression profiles:
 
 - `rfc5359-call-hold-resume`
 - `rfc5359-call-hold-resume-rtpengine`
 - `rfc5359-call-hold-resume-tcp`
 - `rfc5359-call-hold-resume-tls`
-- `rfc5359-call-hold-resume-real-device`
+
+Planned real-device acceptance profile: `rfc5359-call-hold-resume-real-device`.
 
 Evidence must prove the initial two-way media period, hold SDP and media suppression, resume SDP and restored bidirectional RTP/RTCP, clean teardown, and no leaked RTPengine session.
+
+### Remaining HA Evidence Caveat
+
+The current mid-call PlaySBC pod-delete profiles use Kubernetes' normal termination grace period. They prove call continuity during replacement and now preserve pre-fault logs, but they do not yet prove an abrupt process crash followed by shared-dialog restoration on a surviving node. A future HA gate must force termination, identify the serving node before the fault, prove restoration on a different node, and verify uninterrupted or bounded-loss RTP.
 
 ### v2.6.x Service Sequence
 

@@ -559,6 +559,8 @@ Content-Length: 0
         self.assertGreaterEqual(run_b2bua_sipp_smoke.B2BUA_PROFILES["load-5cps-60s"]["server_rtp_max"], 26500)
         rtpengine_load = run_b2bua_sipp_smoke.B2BUA_PROFILES["load-5cps-60s-rtpengine-transcoding"]
         self.assertEqual(rtpengine_load["rtpengine_timeout"], 8.0)
+        self.assertEqual(rtpengine_load["rtpengine_rtp_min"], 30000)
+        self.assertEqual(rtpengine_load["rtpengine_rtp_max"], 31999)
         self.assertEqual(rtpengine_load["media_delivery_threshold_percent"], 99.5)
         self.assertEqual(rtpengine_load["media_per_call_threshold_percent"], 99.0)
 
@@ -1671,7 +1673,7 @@ Content-Length: 0
 
     def test_current_release_keeps_kind_regression_path(self):
         chart = ROOT / "charts" / "playsbc"
-        current_version = "2.5.4"
+        current_version = "2.5.5"
         version = (ROOT / "VERSION").read_text(encoding="utf-8")
         chart_yaml = (chart / "Chart.yaml").read_text(encoding="utf-8")
         values = (chart / "values.yaml").read_text(encoding="utf-8")
@@ -2946,8 +2948,9 @@ class RealTopologyTests(unittest.TestCase):
         self.assertIn("HA RTPENGINE PAIR SELECTED", args.expected_log_markers["log.platform"])
 
         probe = run_dual_realm_profile.profile_args("ha-options-health-recovery", "ha-probe", "b2bua-Regression")
-        self.assertFalse(probe.run_call)
+        self.assertTrue(probe.run_call)
         self.assertFalse(probe.start_uas)
+        self.assertEqual(probe.uac_scenario, "options.xml")
         self.assertTrue(probe.ha["enabled"])
         self.assertTrue(probe.trunk_groups[0]["members"][0]["options_probe"]["enabled"])
         self.assertEqual(probe.trunk_groups[0]["members"][0]["options_probe"]["recovery_successes"], 1)
@@ -3347,7 +3350,7 @@ class RealTopologyTests(unittest.TestCase):
             "register-auth-failure": ("peer",),
             "ai-rasa-lab": ("core",),
             "unknown-route": ("core",),
-            "ha-options-health-recovery": (),
+            "ha-options-health-recovery": ("core",),
             "load-5cps-60s": (),
         }
 
@@ -3545,13 +3548,71 @@ class RealTopologyTests(unittest.TestCase):
                 [],
             )
 
+    def test_rfc5359_profiles_and_evidence_cover_hold_resume_transports(self):
+        expected = {
+            "rfc5359-call-hold-resume",
+            "rfc5359-call-hold-resume-rtpengine",
+            "rfc5359-call-hold-resume-tcp",
+            "rfc5359-call-hold-resume-tls",
+        }
+        self.assertTrue(expected.issubset(run_regression_suite.ALL_B2BUA_PROFILES))
+        self.assertIn("rfc5359-call-hold-resume-rtpengine", run_regression_suite.RTPENGINE_B2BUA_PROFILES)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp)
+            write_test_pcap(bundle / "capture.pcap", 1.0, b"hold", linktype=1)
+            (bundle / "sipmsg.log").write_text(
+                (
+                    "INVITE sip:hold-b@example.test SIP/2.0\nCSeq: 1 INVITE\n"
+                    "INVITE sip:hold-b@example.test SIP/2.0\nCSeq: 2 INVITE\na=sendonly\n"
+                    "ACK sip:hold-b@example.test SIP/2.0\nCSeq: 2 ACK\n"
+                    "INVITE sip:hold-b@example.test SIP/2.0\nCSeq: 3 INVITE\na=sendrecv\n"
+                    "ACK sip:hold-b@example.test SIP/2.0\nCSeq: 3 ACK\n"
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                run_k8s_regression.validate_k8s_profile_evidence("rfc5359-call-hold-resume", bundle),
+                [],
+            )
+
+    def test_kubernetes_mock_rasa_evidence_rejects_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp)
+            write_test_pcap(bundle / "capture.pcap", 1.0, b"rasa", linktype=1)
+            (bundle / "sipmsg.log").write_text(
+                "INVITE sip:rasa@example.test SIP/2.0\nCSeq: 1 INVITE\n",
+                encoding="utf-8",
+            )
+            (bundle / "log.ai").write_text(
+                "RASA REST RESPONSE fallback_used=true\nRASA REST ERROR connection refused\n",
+                encoding="utf-8",
+            )
+
+            failures = run_k8s_regression.validate_k8s_profile_evidence("ai-rasa-lab", bundle)
+
+            self.assertTrue(any("fallback" in failure for failure in failures))
+
+            (bundle / "log.ai").write_text(
+                "RASA REST RESPONSE fallback_used=false\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                run_k8s_regression.validate_k8s_profile_evidence("ai-rasa-lab", bundle),
+                [],
+            )
+
     def test_kubernetes_evidence_validation_rejects_options_noise_and_split_pcaps(self):
         with tempfile.TemporaryDirectory() as tmp:
             bundle = Path(tmp)
             write_test_pcap(bundle / "capture.pcap", 1.0, b"options", linktype=1)
             write_test_pcap(bundle / "capture-core.pcap", 2.0, b"stale", linktype=1)
             (bundle / "sipmsg.log").write_text(
-                "OPTIONS sip:playsbc@example.test SIP/2.0\nINVITE sip:1002@example.test SIP/2.0\n",
+                (
+                    "OPTIONS sip:playsbc@example.test SIP/2.0\nCSeq: 1 OPTIONS\n"
+                    "INVITE sip:1002@example.test SIP/2.0\nCSeq: 2 INVITE\n"
+                ),
                 encoding="utf-8",
             )
 
@@ -4016,6 +4077,11 @@ class RealTopologyTests(unittest.TestCase):
         manifest = run_k8s_regression_job.job_manifest(job_args)
         containers = manifest["spec"]["template"]["spec"]["containers"]
         self.assertEqual([container["imagePullPolicy"] for container in containers], ["Always", "Always"])
+        runner_env = {entry["name"]: entry for entry in containers[0]["env"]}
+        self.assertEqual(
+            runner_env["PLAYSBC_REGRESSION_RUNNER_IP"]["valueFrom"]["fieldRef"]["fieldPath"],
+            "status.podIP",
+        )
         self.assertIn("--aks-profiles", command)
         self.assertIn("--aks-mode", command)
         self.assertIn("--no-active-active-topology", command)

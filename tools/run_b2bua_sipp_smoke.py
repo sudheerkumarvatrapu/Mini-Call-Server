@@ -844,6 +844,8 @@ B2BUA_PROFILES = {
         "server_codec": "PCMA",
         "media_backend": "rtpengine",
         "rtpengine_timeout": 8.0,
+        "rtpengine_rtp_min": 30000,
+        "rtpengine_rtp_max": 31999,
         "media_delivery_threshold_percent": 99.5,
         "media_per_call_threshold_percent": 99.0,
         "ladder": False,
@@ -1024,7 +1026,8 @@ B2BUA_PROFILES = {
         "callee": "ha-probe-b",
         "register_callee": False,
         "start_uas": False,
-        "run_call": False,
+        "run_call": True,
+        "uac_scenario": "options.xml",
         "route_policies": [
             {"name": "ha-probed-trunk", "match": "*", "target": "trunk-group:ha-probe", "priority": 10}
         ],
@@ -1056,6 +1059,52 @@ B2BUA_PROFILES = {
         "expected_log_markers": {
             "log.platform": ["TRUNK OPTIONS PROBING STARTED", "HA NODE STARTED"],
             "log.call": ["TRUNK OPTIONS PROBE", "trunk=recovering-peer", "health=up"],
+        },
+    },
+    "rfc5359-call-hold-resume": {
+        "caller": "hold-a",
+        "callee": "hold-b",
+        "uac_scenario": "b2bua_uac_hold_resume.xml",
+        "uas_scenario": "b2bua_uas_hold_resume.xml",
+        "expected_log_markers": {
+            "log.sip": ["B2BUA INBOUND REINVITE", "state=hold", "state=resume"],
+        },
+    },
+    "rfc5359-call-hold-resume-rtpengine": {
+        "caller": "hold-rtpe-a",
+        "callee": "hold-rtpe-b",
+        "uac_scenario": "b2bua_uac_hold_resume.xml",
+        "uas_scenario": "b2bua_uas_hold_resume.xml",
+        "media_backend": "rtpengine",
+        "expected_log_markers": {
+            "log.sip": ["B2BUA INBOUND REINVITE", "state=hold", "state=resume"],
+            "log.media": ["RTPENGINE REINVITE OFFER", "RTPENGINE REINVITE ANSWER"],
+        },
+    },
+    "rfc5359-call-hold-resume-tcp": {
+        "caller": "hold-tcp-a",
+        "callee": "hold-tcp-b",
+        "uac_scenario": "b2bua_uac_hold_resume.xml",
+        "uas_scenario": "b2bua_uas_hold_resume.xml",
+        "sip_transport": "tcp",
+        "uac_transport": "tcp",
+        "uas_transport": "tcp",
+        "expected_log_markers": {
+            "log.sip": ["B2BUA INBOUND REINVITE", "state=hold", "state=resume"],
+            "log.tcp": ["TCP RX", "TCP TX"],
+        },
+    },
+    "rfc5359-call-hold-resume-tls": {
+        "caller": "hold-tls-a",
+        "callee": "hold-tls-b",
+        "uac_scenario": "b2bua_uac_hold_resume.xml",
+        "uas_scenario": "b2bua_uas_hold_resume.xml",
+        "sip_transport": "tls",
+        "uac_transport": "tls",
+        "uas_transport": "tls",
+        "expected_log_markers": {
+            "log.sip": ["B2BUA INBOUND REINVITE", "state=hold", "state=resume"],
+            "log.tls": ["TLS CONNECTED", "TLS RX", "TLS TX"],
         },
     },
     "ha-node-draining": {
@@ -1481,6 +1530,10 @@ PROFILE_DESCRIPTIONS = {
     "esbc-trunk-metrics": "Complete one trunk-group call and verify per-trunk attempt and success counters.",
     "ha-shared-state-rtpengine": "Run an RTPengine-backed B2BUA call with HA shared registrar/dialog state and node-to-RTPengine pairing enabled.",
     "ha-options-health-recovery": "Start active OPTIONS probing against a down trunk and verify timed health recovery marks it up.",
+    "rfc5359-call-hold-resume": "RFC 5359 caller hold and resume using in-dialog re-INVITEs with sendonly then sendrecv SDP.",
+    "rfc5359-call-hold-resume-rtpengine": "RFC 5359 hold and resume with the existing RTPengine session updated on both SDP exchanges.",
+    "rfc5359-call-hold-resume-tcp": "RFC 5359 hold and resume over SIP/TCP.",
+    "rfc5359-call-hold-resume-tls": "RFC 5359 hold and resume over SIP/TLS.",
     "ha-node-draining": "Mark the local PlaySBC node as draining and verify new INVITEs are rejected with 503 while the node stays alive.",
     "ha-playsbc-precall-failover": "Delete one PlaySBC pod before call setup and verify service routing plus HA shared state still completes an RTPengine-backed call.",
     "ha-playsbc-midcall-failover": "Delete one PlaySBC pod during an active RTPengine-backed call and verify dialog/B-leg restore completes call release.",

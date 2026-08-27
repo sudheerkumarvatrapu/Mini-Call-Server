@@ -87,6 +87,7 @@ def main() -> int:
     MockRasaHandler.response_count = max(1, args.response_count)
     MockRasaHandler.action = args.action
     MockRasaHandler.action_target = args.action_target
+    ThreadingHTTPServer.allow_reuse_address = True
     server = ThreadingHTTPServer((args.host, args.port), MockRasaHandler)
     print(f"Mock Rasa REST server listening on {args.host}:{args.port}", flush=True)
     server.serve_forever()

@@ -305,6 +305,10 @@ def job_manifest(args: argparse.Namespace) -> dict[str, object]:
                             "env": [
                                 {"name": "PYTHONPATH", "value": "/workspace"},
                                 {"name": "PYTHONPYCACHEPREFIX", "value": "/tmp/playsbc-pycache"},
+                                {
+                                    "name": "PLAYSBC_REGRESSION_RUNNER_IP",
+                                    "valueFrom": {"fieldRef": {"fieldPath": "status.podIP"}},
+                                },
                             ],
                             "volumeMounts": [{"name": "regression-logs", "mountPath": "/workspace/logs"}],
                         },
