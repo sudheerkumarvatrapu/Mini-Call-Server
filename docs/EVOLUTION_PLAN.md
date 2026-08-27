@@ -25,9 +25,9 @@ The audited v2.5.4 run had 63 passing profiles and two reported failures. All re
 
 ## Primary Track: Production AI Voice Gateway
 
-AI Voice Gateway work is the main product focus from v2.5.5 toward v3.0.0.
+AI Voice Gateway work is the main product focus from v2.6.0 toward v3.0.0. Version 2.5.5 delivered regression scaffolding for Rasa, STT, TTS, DTMF, and scripted AI flows; it did not deliver generated TTS as live RTP or the production streaming contract below.
 
-### v2.5.5 Foundation
+### v2.6.0 Streaming Foundation
 
 - Return generated TTS as live RTP in the established call, not report-only audio
 - Define one streaming adapter contract for Rasa and future bot providers
@@ -37,7 +37,9 @@ AI Voice Gateway work is the main product focus from v2.5.5 toward v3.0.0.
 - Produce synchronized SIP, RTP/RTCP, transcript, model, action, and audio evidence
 - Keep Docker, kind, AKS, real-device, HA, and non-AI regression gates green
 
-### v2.6.x Expansion
+The v2.6.0 foundation is complete only when live bidirectional speech and generated TTS RTP are proven by synchronized evidence without weakening any existing deployment or regression gate.
+
+### v2.6.1-v2.6.x Expansion
 
 - Add multiple bot backends behind the provider interface
 - Add multi-turn dialog state, DTMF hybrid IVR, transfer, conference, and human-agent fallback
