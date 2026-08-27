@@ -56,6 +56,7 @@ from tools.run_regression_suite import (  # noqa: E402
     write_reports,
 )
 from mini_call_server import B2BUAFlowLog, RouteResult, SipUri  # noqa: E402
+from tools.real_device_evidence import read_pcap  # noqa: E402
 
 DEFAULT_PROFILES = ("basic-signalling", "basic-media", "transcoding", "registered-inbound", "registered-outbound")
 RASA_NLU_PROFILES = ("ai-rasa-chat-nlu", "ai-rasa-chat-negative")
@@ -417,8 +418,9 @@ def sdp_payloads(profile: SimpleNamespace, role: str) -> tuple[str, str]:
 
 def media_pcap_path(profile: SimpleNamespace, role: str) -> str:
     codec = uas_media_codec(profile) if role == "uas" else str(getattr(profile, "media_codec", "PCMU")).upper()
-    configured = str(getattr(profile, "media_pcap", "") or "")
-    relative = configured if role == "uac" and configured else MEDIA_PCAPS.get(codec, MEDIA_PCAPS["PCMU"])
+    configured_name = "uas_media_pcap" if role == "uas" else "media_pcap"
+    configured = str(getattr(profile, configured_name, "") or "")
+    relative = configured or MEDIA_PCAPS.get(codec, MEDIA_PCAPS["PCMU"])
     return f"/scenarios/{relative}"
 
 
@@ -920,6 +922,43 @@ def validate_k8s_profile_evidence(profile_name: str, bundle: Path) -> list[str]:
         for label, pattern in required_patterns.items():
             if not re.search(pattern, hold_text):
                 failures.append(f"RFC 5359 evidence is missing {label}")
+        capture = bundle / "capture.pcap"
+        if capture.exists():
+            rtp_packets = [
+                packet
+                for packet in read_pcap(capture)
+                if packet.transport == "udp"
+                and len(packet.payload) >= 12
+                and packet.payload[0] >> 6 == 2
+                and packet.src_port not in {5060, 5061, 5062, 2223}
+                and packet.dst_port not in {5060, 5061, 5062, 2223}
+                and (packet.payload[1] & 0x7F) < 96
+            ]
+            ordered_packets = sorted(rtp_packets, key=lambda packet: packet.timestamp)
+            gaps = [
+                later.timestamp - earlier.timestamp
+                for earlier, later in zip(ordered_packets, ordered_packets[1:])
+            ]
+            largest_gap = max(gaps, default=0.0)
+            gap_index = gaps.index(largest_gap) + 1 if gaps else 0
+            before_hold = ordered_packets[:gap_index]
+            after_resume = ordered_packets[gap_index:]
+
+            def has_reciprocal_rtp(packets: list[Any]) -> bool:
+                flows = {(packet.src_ip, packet.dst_ip) for packet in packets}
+                return any((dst_ip, src_ip) in flows for src_ip, dst_ip in flows)
+
+            if (
+                len(before_hold) < 20
+                or len(after_resume) < 20
+                or not has_reciprocal_rtp(before_hold)
+                or not has_reciprocal_rtp(after_resume)
+            ):
+                failures.append(
+                    "RFC 5359 media evidence is missing bidirectional RTP before hold or after resume"
+                )
+            if largest_gap < 0.5:
+                failures.append("RFC 5359 media evidence did not prove a held-media gap before resume")
 
     if profile_name in STRICT_SRTP_PROFILES:
         call_ids = sipmsg_call_ids(bundle)
@@ -2064,12 +2103,15 @@ class K8sRegressionRunner:
         for capture in captures:
             if capture.process.poll() is None:
                 self.kubectl("exec", capture.pod, "--", "sh", "-lc", "pkill -INT tcpdump || true", check=False)
-                capture.process.terminate()
                 try:
                     capture.process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    capture.process.kill()
-                    capture.process.wait(timeout=5)
+                    capture.process.terminate()
+                    try:
+                        capture.process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        capture.process.kill()
+                        capture.process.wait(timeout=3)
             self.close_process_files(capture.process)
 
     def collect_packet_captures(self, captures: list[CaptureProcess], bundle: Path) -> bool:

@@ -1064,6 +1064,9 @@ B2BUA_PROFILES = {
     "rfc5359-call-hold-resume": {
         "caller": "hold-a",
         "callee": "hold-b",
+        "media_codec": "PCMU",
+        "media_pcap": "pcap/g711u_hold_burst.pcap",
+        "uas_media_pcap": "pcap/g711u_hold_burst.pcap",
         "uac_scenario": "b2bua_uac_hold_resume.xml",
         "uas_scenario": "b2bua_uas_hold_resume.xml",
         "expected_log_markers": {
@@ -1073,6 +1076,9 @@ B2BUA_PROFILES = {
     "rfc5359-call-hold-resume-rtpengine": {
         "caller": "hold-rtpe-a",
         "callee": "hold-rtpe-b",
+        "media_codec": "PCMU",
+        "media_pcap": "pcap/g711u_hold_burst.pcap",
+        "uas_media_pcap": "pcap/g711u_hold_burst.pcap",
         "uac_scenario": "b2bua_uac_hold_resume.xml",
         "uas_scenario": "b2bua_uas_hold_resume.xml",
         "media_backend": "rtpengine",
@@ -1084,6 +1090,9 @@ B2BUA_PROFILES = {
     "rfc5359-call-hold-resume-tcp": {
         "caller": "hold-tcp-a",
         "callee": "hold-tcp-b",
+        "media_codec": "PCMU",
+        "media_pcap": "pcap/g711u_hold_burst.pcap",
+        "uas_media_pcap": "pcap/g711u_hold_burst.pcap",
         "uac_scenario": "b2bua_uac_hold_resume.xml",
         "uas_scenario": "b2bua_uas_hold_resume.xml",
         "sip_transport": "tcp",
@@ -1097,6 +1106,9 @@ B2BUA_PROFILES = {
     "rfc5359-call-hold-resume-tls": {
         "caller": "hold-tls-a",
         "callee": "hold-tls-b",
+        "media_codec": "PCMU",
+        "media_pcap": "pcap/g711u_hold_burst.pcap",
+        "uas_media_pcap": "pcap/g711u_hold_burst.pcap",
         "uac_scenario": "b2bua_uac_hold_resume.xml",
         "uas_scenario": "b2bua_uas_hold_resume.xml",
         "sip_transport": "tls",

@@ -81,6 +81,8 @@ Planned real-device acceptance profile: `rfc5359-call-hold-resume-real-device`.
 
 Evidence must prove the initial two-way media period, hold SDP and media suppression, resume SDP and restored bidirectional RTP/RTCP, clean teardown, and no leaked RTPengine session.
 
+The v2.5.5 synthetic gate sends bounded PCMU bursts from both call legs before hold and after resume. Its combined PCAP must contain both RTP directions and a measurable media-free hold interval; SIP-only success is rejected.
+
 ### Remaining HA Evidence Caveat
 
 The current mid-call PlaySBC pod-delete profiles use Kubernetes' normal termination grace period. They prove call continuity during replacement and now preserve pre-fault logs, but they do not yet prove an abrupt process crash followed by shared-dialog restoration on a surviving node. A future HA gate must force termination, identify the serving node before the fault, prove restoration on a different node, and verify uninterrupted or bounded-loss RTP.

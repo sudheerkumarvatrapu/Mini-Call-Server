@@ -50,7 +50,13 @@
     ]]>
   </send>
 
-  <pause milliseconds="500" />
+  <nop>
+    <action>
+      <exec play_pcap_audio="[media_pcap]" />
+    </action>
+  </nop>
+
+  <pause milliseconds="750" />
 
   <send retrans="500" start_rtd="hold">
     <![CDATA[
@@ -99,7 +105,7 @@
     ]]>
   </send>
 
-  <pause milliseconds="500" />
+  <pause milliseconds="750" />
 
   <send retrans="500" start_rtd="resume">
     <![CDATA[
@@ -148,7 +154,13 @@
     ]]>
   </send>
 
-  <pause milliseconds="500" />
+  <nop>
+    <action>
+      <exec play_pcap_audio="[media_pcap]" />
+    </action>
+  </nop>
+
+  <pause milliseconds="750" />
 
   <send retrans="500" start_rtd="bye">
     <![CDATA[

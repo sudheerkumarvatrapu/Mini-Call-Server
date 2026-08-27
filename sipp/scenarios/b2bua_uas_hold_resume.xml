@@ -45,6 +45,12 @@
 
   <recv request="ACK" crlf="true" />
 
+  <nop>
+    <action>
+      <exec play_pcap_audio="[media_pcap]" />
+    </action>
+  </nop>
+
   <recv request="INVITE" crlf="true">
     <action>
       <ereg regexp="a=sendonly" search_in="msg" check_it="true" assign_to="1" />
@@ -98,6 +104,8 @@
 
   <recv request="ACK" crlf="true" />
 
+  <pause milliseconds="750" />
+
   <recv request="INVITE" crlf="true">
     <action>
       <ereg regexp="a=sendrecv" search_in="msg" check_it="true" assign_to="2" />
@@ -150,6 +158,13 @@
   </send>
 
   <recv request="ACK" crlf="true" />
+
+  <nop>
+    <action>
+      <exec play_pcap_audio="[media_pcap]" />
+    </action>
+  </nop>
+
   <recv request="BYE" crlf="true" />
 
   <send>

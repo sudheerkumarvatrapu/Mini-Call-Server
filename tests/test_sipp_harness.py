@@ -1684,6 +1684,7 @@ Content-Length: 0
         release_notes = (ROOT / "release" / f"RELEASE_NOTES_{current_version}.md").read_text(encoding="utf-8")
 
         self.assertEqual(version.strip(), current_version)
+        self.assertEqual(server.PLAYSBC_VERSION, current_version)
         self.assertIn(f"version: {current_version}", chart_yaml)
         self.assertIn(f'appVersion: "{current_version}"', chart_yaml)
         self.assertIn(f'tag: "{current_version}"', values)
@@ -3385,6 +3386,38 @@ class RealTopologyTests(unittest.TestCase):
         self.assertEqual(linktype, 1)
         self.assertEqual([frame for _timestamp, frame in records], [b"earlier", b"later"])
 
+    def test_kubernetes_packet_capture_waits_for_tcpdump_flush_before_fallback_termination(self):
+        process = mock.Mock()
+        process.poll.return_value = None
+        process.wait.return_value = 0
+        process._playsbc_stdout = io.StringIO()
+        process._playsbc_stderr = io.StringIO()
+        capture = run_k8s_regression.CaptureProcess(
+            "core",
+            "core-pod",
+            "/tmp/core.pcap",
+            Path("capture-core.pcap"),
+            process,
+        )
+        args = run_k8s_regression.parse_args(["--profile", "ha-options-health-recovery"])
+        runner = run_k8s_regression.K8sRegressionRunner(args, "unit-k8s")
+
+        with mock.patch.object(runner, "kubectl") as kubectl:
+            runner.stop_packet_captures([capture])
+
+        kubectl.assert_called_once_with(
+            "exec",
+            "core-pod",
+            "--",
+            "sh",
+            "-lc",
+            "pkill -INT tcpdump || true",
+            check=False,
+        )
+        process.wait.assert_called_once_with(timeout=5)
+        process.terminate.assert_not_called()
+        process.kill.assert_not_called()
+
     def test_kubernetes_collect_packet_captures_keeps_only_combined_pcap(self):
         with tempfile.TemporaryDirectory() as tmp:
             bundle = Path(tmp)
@@ -3557,6 +3590,13 @@ class RealTopologyTests(unittest.TestCase):
         }
         self.assertTrue(expected.issubset(run_regression_suite.ALL_B2BUA_PROFILES))
         self.assertIn("rfc5359-call-hold-resume-rtpengine", run_regression_suite.RTPENGINE_B2BUA_PROFILES)
+        for profile_name in expected:
+            profile = run_k8s_regression.profile_values(profile_name, "unit-hold")
+            self.assertTrue(profile.media_enabled)
+            self.assertEqual(profile.media_pcap, "pcap/g711u_hold_burst.pcap")
+            self.assertEqual(profile.uas_media_pcap, "pcap/g711u_hold_burst.pcap")
+            self.assertIn("play_pcap_audio", run_k8s_regression.rendered_scenario(profile, "uac"))
+            self.assertIn("play_pcap_audio", run_k8s_regression.rendered_scenario(profile, "uas"))
 
         with tempfile.TemporaryDirectory() as tmp:
             bundle = Path(tmp)
@@ -3572,10 +3612,33 @@ class RealTopologyTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            self.assertEqual(
-                run_k8s_regression.validate_k8s_profile_evidence("rfc5359-call-hold-resume", bundle),
-                [],
-            )
+            rtp_packets = [
+                SimpleNamespace(
+                    timestamp=timestamp,
+                    transport="udp",
+                    src_ip=src_ip,
+                    dst_ip=dst_ip,
+                    src_port=4000 if src_ip == "10.0.0.1" else 4002,
+                    dst_port=4002 if src_ip == "10.0.0.1" else 4000,
+                    payload=b"\x80\x00" + (b"\x00" * 170),
+                )
+                for burst_start in (1.0, 2.5)
+                for src_ip, dst_ip in (("10.0.0.1", "10.0.0.2"), ("10.0.0.2", "10.0.0.1"))
+                for timestamp in (burst_start + (index * 0.02) for index in range(25))
+            ]
+            with mock.patch.object(run_k8s_regression, "read_pcap", return_value=rtp_packets):
+                self.assertEqual(
+                    run_k8s_regression.validate_k8s_profile_evidence("rfc5359-call-hold-resume", bundle),
+                    [],
+                )
+
+            with mock.patch.object(run_k8s_regression, "read_pcap", return_value=[]):
+                failures = run_k8s_regression.validate_k8s_profile_evidence(
+                    "rfc5359-call-hold-resume",
+                    bundle,
+                )
+            self.assertTrue(any("bidirectional RTP before hold" in failure for failure in failures))
+            self.assertTrue(any("held-media gap" in failure for failure in failures))
 
     def test_kubernetes_mock_rasa_evidence_rejects_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:

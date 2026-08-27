@@ -17,6 +17,7 @@ PlaySBC v2.5.5 closes the two failures from the 65-profile local Kubernetes run 
 - Preserve `sendonly`, `recvonly`, `inactive`, and `sendrecv` SDP direction state.
 - Update existing RTPengine sessions during hold and resume.
 - Add UDP, RTPengine, TCP, and TLS hold/resume SIPp profiles with canonical ladder and SIP evidence validation.
+- Send short PCMU bursts from both SIPp legs before hold and after resume; require the combined PCAP to prove bidirectional RTP and a held-media gap.
 
 ## AI Evidence
 
@@ -26,7 +27,9 @@ PlaySBC v2.5.5 closes the two failures from the 65-profile local Kubernetes run 
 ## Evidence Hardening
 
 - Preserve one combined PCAP and canonical `sipmsg.log` per signalling profile.
+- Stop pod tcpdump processes gracefully before copying captures so short OPTIONS exchanges are flushed into the combined PCAP.
 - Validate RFC 5359 CSeq, ACK, and SDP direction transitions explicitly.
+- Keep the runtime `Server` banner synchronized with release metadata.
 - Keep readable ladders for low-volume multi-call profiles and compact evidence for high-volume load.
 
 ## Compatibility
@@ -40,7 +43,7 @@ PlaySBC v2.5.5 closes the two failures from the 65-profile local Kubernetes run 
 
 ## Validation
 
-- 269 unit and harness tests pass.
+- 270 unit and harness tests pass.
 - All modified Python modules compile and the Git diff passes whitespace validation.
 - The prior 65-profile evidence set was audited for SIP logs, readable combined PCAPs, RTP/RTCP evidence, SRTP verdicts, and severe runtime signatures.
 
