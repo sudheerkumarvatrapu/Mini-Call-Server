@@ -738,7 +738,7 @@ class ResponseTests(unittest.TestCase):
         self.assertEqual(len(transport.sent), 1)
         self.assertIn(b"ACK sip:1001@122.171.69.148:5060", transport.sent[0][0])
 
-    def test_b2bua_inbound_reinvite_gets_cached_sdp_answer_and_local_ack(self):
+    def test_b2bua_inbound_reinvite_propagates_hold_and_consumes_caller_ack(self):
         logger = server.SbcLogger(None)
         media = server.MediaServer("127.0.0.1", 12000, 12010, None, logger)
         protocol = server.SipServerProtocol(
@@ -782,6 +782,11 @@ class ResponseTests(unittest.TestCase):
             inbound_answer_sdp=answer_sdp,
         )
         protocol.b2bua_calls_by_inbound[call.inbound_call_id] = call
+        hold_sdp = server.replace_sdp_session_state(answer_sdp, "sendonly")
+        peer_answer_sdp = server.replace_sdp_session_state(
+            server.make_sdp("122.171.69.148", 41000, server.PCMU, dtmf_payload_type=101),
+            "recvonly",
+        )
         reinvite = server.parse_sip_message(
             (
                 "INVITE sip:1002@20.102.44.81:5062 SIP/2.0\r\n"
@@ -792,21 +797,48 @@ class ResponseTests(unittest.TestCase):
                 "CSeq: 8002 INVITE\r\n"
                 "Contact: <sip:1001@122.171.69.148:5060>\r\n"
                 "Content-Type: application/sdp\r\n"
-                f"Content-Length: {len(answer_sdp.encode('utf-8'))}\r\n"
+                f"Content-Length: {len(hold_sdp.encode('utf-8'))}\r\n"
                 "\r\n"
-                f"{answer_sdp}"
+                f"{hold_sdp}"
             ),
             ("122.171.69.148", 5060),
         )
 
-        asyncio.run(protocol.handle_message(reinvite))
+        async def run_reinvite():
+            task = asyncio.create_task(protocol.handle_message(reinvite))
+            await asyncio.sleep(0)
+            protocol.handle_response(
+                server.SipMessage(
+                    "SIP/2.0 200 OK",
+                    {
+                        "call-id": "zoiper-outbound",
+                        "cseq": "2 INVITE",
+                        "from": call.outbound_from_header,
+                        "to": call.outbound_to_header,
+                        "contact": "<sip:1002@122.171.69.148:62739>",
+                        "content-type": "application/sdp",
+                    },
+                    peer_answer_sdp,
+                    ("122.171.69.148", 62739),
+                )
+            )
+            await task
+
+        asyncio.run(run_reinvite())
 
         packets = [packet for packet, _destination in transport.sent]
         self.assertTrue(any(packet.startswith(b"SIP/2.0 100 Trying") for packet in packets))
+        outbound_reinvites = [packet for packet in packets if packet.startswith(b"INVITE sip:1002@122.171.69.148:62739")]
+        self.assertEqual(len(outbound_reinvites), 1)
+        self.assertIn(b"CSeq: 2 INVITE", outbound_reinvites[0])
+        self.assertIn(b"a=sendonly", outbound_reinvites[0])
+        self.assertTrue(any(packet.startswith(b"ACK sip:1002@122.171.69.148:62739") for packet in packets))
         ok_packets = [packet for packet in packets if packet.startswith(b"SIP/2.0 200 OK")]
         self.assertEqual(len(ok_packets), 1)
         self.assertIn(b"Content-Type: application/sdp", ok_packets[0])
         self.assertIn(b"m=audio 30040 RTP/AVP 0 101", ok_packets[0])
+        self.assertIn(b"a=recvonly", ok_packets[0])
+        self.assertEqual(call.inbound_cseq, 8002)
 
         transport.sent.clear()
         ack = server.SipMessage(
@@ -824,6 +856,17 @@ class ResponseTests(unittest.TestCase):
         asyncio.run(protocol.handle_message(ack))
 
         self.assertEqual(transport.sent, [])
+
+    def test_plain_rtp_normalization_preserves_hold_direction(self):
+        hold = server.replace_sdp_session_state(
+            server.make_sdp("192.0.2.10", 30000, server.PCMU),
+            "sendonly",
+        )
+
+        normalized = server.normalize_plain_rtp_sdp(hold, (server.PCMU,))
+
+        self.assertIn("a=sendonly", normalized)
+        self.assertNotIn("a=sendrecv", normalized)
 
     def test_b2bua_inbound_bye_gets_200_and_peer_bye_when_dialog_validation_is_tolerated(self):
         logger = server.SbcLogger(None)

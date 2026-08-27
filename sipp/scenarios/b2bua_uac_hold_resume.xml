@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+
+<scenario name="RFC 5359 B2BUA caller hold and resume">
+  <send retrans="500" start_rtd="invite">
+    <![CDATA[
+      INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      From: [caller] <sip:[caller]@[local_ip]:[local_port]>;tag=[call_number]
+      To: <sip:[service]@[remote_ip]:[remote_port]>
+      Call-ID: [call_id]
+      CSeq: 1 INVITE
+      Contact: <sip:[caller]@[local_ip]:[local_port]>
+      Max-Forwards: 70
+      Content-Type: application/sdp
+      Content-Length: [len]
+
+      v=0
+      o=hold-a 53655765 1 IN IP4 [local_ip]
+      s=RFC 5359 hold lab
+      c=IN IP[media_ip_type] [media_ip]
+      t=0 0
+      m=audio [media_port] RTP/AVP 0 8 101
+      a=rtpmap:0 PCMU/8000
+      a=rtpmap:8 PCMA/8000
+      a=rtpmap:101 telephone-event/8000
+      a=fmtp:101 0-16
+      a=sendrecv
+    ]]>
+  </send>
+
+  <recv response="100" optional="true" />
+  <recv response="180" optional="true" />
+  <recv response="183" optional="true" />
+  <recv response="200" rtd="invite" rrs="true" />
+
+  <send>
+    <![CDATA[
+      ACK [next_url] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      [last_From:]
+      [last_To:]
+      [last_Call-ID:]
+      CSeq: 1 ACK
+      Contact: <sip:[caller]@[local_ip]:[local_port]>
+      Max-Forwards: 70
+      [routes]
+      Content-Length: 0
+
+    ]]>
+  </send>
+
+  <nop>
+    <action>
+      <exec play_pcap_audio="[media_pcap]" />
+    </action>
+  </nop>
+
+  <pause milliseconds="750" />
+
+  <send retrans="500" start_rtd="hold">
+    <![CDATA[
+      INVITE [next_url] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      [last_From:]
+      [last_To:]
+      [last_Call-ID:]
+      CSeq: 2 INVITE
+      Contact: <sip:[caller]@[local_ip]:[local_port]>
+      Max-Forwards: 70
+      [routes]
+      Content-Type: application/sdp
+      Content-Length: [len]
+
+      v=0
+      o=hold-a 53655765 2 IN IP4 [local_ip]
+      s=RFC 5359 hold lab
+      c=IN IP[media_ip_type] [media_ip]
+      t=0 0
+      m=audio [media_port] RTP/AVP 0 8 101
+      a=rtpmap:0 PCMU/8000
+      a=rtpmap:8 PCMA/8000
+      a=rtpmap:101 telephone-event/8000
+      a=fmtp:101 0-16
+      a=sendonly
+    ]]>
+  </send>
+
+  <recv response="100" optional="true" />
+  <recv response="200" rtd="hold" />
+
+  <send>
+    <![CDATA[
+      ACK [next_url] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      [last_From:]
+      [last_To:]
+      [last_Call-ID:]
+      CSeq: 2 ACK
+      Contact: <sip:[caller]@[local_ip]:[local_port]>
+      Max-Forwards: 70
+      [routes]
+      Content-Length: 0
+
+    ]]>
+  </send>
+
+  <pause milliseconds="750" />
+
+  <send retrans="500" start_rtd="resume">
+    <![CDATA[
+      INVITE [next_url] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      [last_From:]
+      [last_To:]
+      [last_Call-ID:]
+      CSeq: 3 INVITE
+      Contact: <sip:[caller]@[local_ip]:[local_port]>
+      Max-Forwards: 70
+      [routes]
+      Content-Type: application/sdp
+      Content-Length: [len]
+
+      v=0
+      o=hold-a 53655765 3 IN IP4 [local_ip]
+      s=RFC 5359 hold lab
+      c=IN IP[media_ip_type] [media_ip]
+      t=0 0
+      m=audio [media_port] RTP/AVP 0 8 101
+      a=rtpmap:0 PCMU/8000
+      a=rtpmap:8 PCMA/8000
+      a=rtpmap:101 telephone-event/8000
+      a=fmtp:101 0-16
+      a=sendrecv
+    ]]>
+  </send>
+
+  <recv response="100" optional="true" />
+  <recv response="200" rtd="resume" />
+
+  <send>
+    <![CDATA[
+      ACK [next_url] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      [last_From:]
+      [last_To:]
+      [last_Call-ID:]
+      CSeq: 3 ACK
+      Contact: <sip:[caller]@[local_ip]:[local_port]>
+      Max-Forwards: 70
+      [routes]
+      Content-Length: 0
+
+    ]]>
+  </send>
+
+  <nop>
+    <action>
+      <exec play_pcap_audio="[media_pcap]" />
+    </action>
+  </nop>
+
+  <pause milliseconds="750" />
+
+  <send retrans="500" start_rtd="bye">
+    <![CDATA[
+      BYE [next_url] SIP/2.0
+      Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+      [last_From:]
+      [last_To:]
+      [last_Call-ID:]
+      CSeq: 4 BYE
+      Contact: <sip:[caller]@[local_ip]:[local_port]>
+      Max-Forwards: 70
+      [routes]
+      Content-Length: 0
+
+    ]]>
+  </send>
+
+  <recv response="200" rtd="bye" />
+
+  <ResponseTimeRepartition value="10,20,50,100,150,500,1000" />
+  <CallLengthRepartition value="100,250,500,1000,2000,5000,10000" />
+</scenario>

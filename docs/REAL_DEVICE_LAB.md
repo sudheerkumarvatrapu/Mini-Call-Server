@@ -22,7 +22,7 @@ Do not reuse the local values file in AKS or the AKS values file locally. The ca
 Run in Cloud Shell after the base AKS services have public IPs:
 
 ```bash
-export PLAYSBC_VERSION=2.5.4
+export PLAYSBC_VERSION=2.5.5
 export AKS_RG=playsbc-aks-rg
 export NETWORK_RG=playsbc-network-rg
 export AKS_NAME=playsbc-aks
@@ -169,7 +169,7 @@ Pass criteria:
 Use the released capture tool and one temporary host-network `netshoot` pod:
 
 ```bash
-export PLAYSBC_VERSION=2.5.4
+export PLAYSBC_VERSION=2.5.5
 
 export AKS_CONTEXT=$(kubectl config current-context)
 

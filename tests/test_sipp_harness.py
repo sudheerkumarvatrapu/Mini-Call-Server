@@ -559,6 +559,8 @@ Content-Length: 0
         self.assertGreaterEqual(run_b2bua_sipp_smoke.B2BUA_PROFILES["load-5cps-60s"]["server_rtp_max"], 26500)
         rtpengine_load = run_b2bua_sipp_smoke.B2BUA_PROFILES["load-5cps-60s-rtpengine-transcoding"]
         self.assertEqual(rtpengine_load["rtpengine_timeout"], 8.0)
+        self.assertEqual(rtpengine_load["rtpengine_rtp_min"], 30000)
+        self.assertEqual(rtpengine_load["rtpengine_rtp_max"], 32999)
         self.assertEqual(rtpengine_load["media_delivery_threshold_percent"], 99.5)
         self.assertEqual(rtpengine_load["media_per_call_threshold_percent"], 99.0)
 
@@ -1671,7 +1673,7 @@ Content-Length: 0
 
     def test_current_release_keeps_kind_regression_path(self):
         chart = ROOT / "charts" / "playsbc"
-        current_version = "2.5.4"
+        current_version = "2.5.5"
         version = (ROOT / "VERSION").read_text(encoding="utf-8")
         chart_yaml = (chart / "Chart.yaml").read_text(encoding="utf-8")
         values = (chart / "values.yaml").read_text(encoding="utf-8")
@@ -1682,6 +1684,7 @@ Content-Length: 0
         release_notes = (ROOT / "release" / f"RELEASE_NOTES_{current_version}.md").read_text(encoding="utf-8")
 
         self.assertEqual(version.strip(), current_version)
+        self.assertEqual(server.PLAYSBC_VERSION, current_version)
         self.assertIn(f"version: {current_version}", chart_yaml)
         self.assertIn(f'appVersion: "{current_version}"', chart_yaml)
         self.assertIn(f'tag: "{current_version}"', values)
@@ -2946,8 +2949,9 @@ class RealTopologyTests(unittest.TestCase):
         self.assertIn("HA RTPENGINE PAIR SELECTED", args.expected_log_markers["log.platform"])
 
         probe = run_dual_realm_profile.profile_args("ha-options-health-recovery", "ha-probe", "b2bua-Regression")
-        self.assertFalse(probe.run_call)
+        self.assertTrue(probe.run_call)
         self.assertFalse(probe.start_uas)
+        self.assertEqual(probe.uac_scenario, "options.xml")
         self.assertTrue(probe.ha["enabled"])
         self.assertTrue(probe.trunk_groups[0]["members"][0]["options_probe"]["enabled"])
         self.assertEqual(probe.trunk_groups[0]["members"][0]["options_probe"]["recovery_successes"], 1)
@@ -3347,7 +3351,7 @@ class RealTopologyTests(unittest.TestCase):
             "register-auth-failure": ("peer",),
             "ai-rasa-lab": ("core",),
             "unknown-route": ("core",),
-            "ha-options-health-recovery": (),
+            "ha-options-health-recovery": ("core",),
             "load-5cps-60s": (),
         }
 
@@ -3358,13 +3362,43 @@ class RealTopologyTests(unittest.TestCase):
 
     def test_kubernetes_pcap_capture_filter_keeps_evidence_focused(self):
         profile = run_k8s_regression.profile_values("rtpengine-transcoding", "unit-k8s")
+        load_profile = run_k8s_regression.profile_values(
+            "load-5cps-60s-rtpengine-transcoding",
+            "unit-k8s",
+        )
 
         capture_filter = run_k8s_regression.k8s_pcap_capture_filter(profile)
+        load_capture_filter = run_k8s_regression.k8s_pcap_capture_filter(load_profile)
 
         self.assertIn("portrange 5060-5079", capture_filter)
         self.assertIn("portrange 30000-32000", capture_filter)
         self.assertNotEqual(capture_filter, "udp or tcp")
         self.assertNotIn("port 53", capture_filter)
+        self.assertIn("portrange 30000-32999", load_capture_filter)
+
+    def test_kubernetes_options_capture_closes_after_request_response_pair(self):
+        options = run_k8s_regression.profile_values("ha-options-health-recovery", "unit-k8s")
+        hold = run_k8s_regression.profile_values("rfc5359-call-hold-resume", "unit-k8s")
+
+        self.assertEqual(run_k8s_regression.k8s_pcap_packet_limit(options), 2)
+        self.assertIsNone(run_k8s_regression.k8s_pcap_packet_limit(hold))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            process = mock.Mock()
+            process.poll.return_value = None
+            args = run_k8s_regression.parse_args(["--profile", "ha-options-health-recovery"])
+            runner = run_k8s_regression.K8sRegressionRunner(args, "unit-k8s")
+            with (
+                mock.patch.object(run_k8s_regression.subprocess, "Popen", return_value=process) as popen,
+                mock.patch.object(run_k8s_regression.time, "sleep"),
+            ):
+                captures = runner.start_packet_captures(options, Path(tmp), [("core", "core-pod")])
+
+            shell_command = popen.call_args.args[0][-1]
+            self.assertIn(" --immediate-mode ", shell_command)
+            self.assertIn(" -c 2 -w ", shell_command)
+            self.assertIn("packet_limit=2", (Path(tmp) / "log.networking").read_text(encoding="utf-8"))
+            runner.close_process_files(captures[0].process)
 
     def test_kubernetes_merged_pcap_is_sorted_by_packet_timestamp(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3381,6 +3415,38 @@ class RealTopologyTests(unittest.TestCase):
         self.assertGreater(merged_bytes, 24)
         self.assertEqual(linktype, 1)
         self.assertEqual([frame for _timestamp, frame in records], [b"earlier", b"later"])
+
+    def test_kubernetes_packet_capture_waits_for_tcpdump_flush_before_fallback_termination(self):
+        process = mock.Mock()
+        process.poll.return_value = None
+        process.wait.return_value = 0
+        process._playsbc_stdout = io.StringIO()
+        process._playsbc_stderr = io.StringIO()
+        capture = run_k8s_regression.CaptureProcess(
+            "core",
+            "core-pod",
+            "/tmp/core.pcap",
+            Path("capture-core.pcap"),
+            process,
+        )
+        args = run_k8s_regression.parse_args(["--profile", "ha-options-health-recovery"])
+        runner = run_k8s_regression.K8sRegressionRunner(args, "unit-k8s")
+
+        with mock.patch.object(runner, "kubectl") as kubectl:
+            runner.stop_packet_captures([capture])
+
+        kubectl.assert_called_once_with(
+            "exec",
+            "core-pod",
+            "--",
+            "sh",
+            "-lc",
+            "pkill -INT tcpdump || true",
+            check=False,
+        )
+        process.wait.assert_called_once_with(timeout=5)
+        process.terminate.assert_not_called()
+        process.kill.assert_not_called()
 
     def test_kubernetes_collect_packet_captures_keeps_only_combined_pcap(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3545,13 +3611,107 @@ class RealTopologyTests(unittest.TestCase):
                 [],
             )
 
+    def test_rfc5359_profiles_and_evidence_cover_hold_resume_transports(self):
+        expected = {
+            "rfc5359-call-hold-resume",
+            "rfc5359-call-hold-resume-rtpengine",
+            "rfc5359-call-hold-resume-tcp",
+            "rfc5359-call-hold-resume-tls",
+        }
+        self.assertTrue(expected.issubset(run_regression_suite.ALL_B2BUA_PROFILES))
+        self.assertIn("rfc5359-call-hold-resume-rtpengine", run_regression_suite.RTPENGINE_B2BUA_PROFILES)
+        for profile_name in expected:
+            profile = run_k8s_regression.profile_values(profile_name, "unit-hold")
+            self.assertTrue(profile.media_enabled)
+            self.assertEqual(profile.media_pcap, "pcap/g711u_hold_burst.pcap")
+            self.assertEqual(profile.uas_media_pcap, "pcap/g711u_hold_burst.pcap")
+            self.assertIn("play_pcap_audio", run_k8s_regression.rendered_scenario(profile, "uac"))
+            self.assertIn("play_pcap_audio", run_k8s_regression.rendered_scenario(profile, "uas"))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp)
+            write_test_pcap(bundle / "capture.pcap", 1.0, b"hold", linktype=1)
+            (bundle / "sipmsg.log").write_text(
+                (
+                    "INVITE sip:hold-b@example.test SIP/2.0\nCSeq: 1 INVITE\n"
+                    "INVITE sip:hold-b@example.test SIP/2.0\nCSeq: 2 INVITE\na=sendonly\n"
+                    "ACK sip:hold-b@example.test SIP/2.0\nCSeq: 2 ACK\n"
+                    "INVITE sip:hold-b@example.test SIP/2.0\nCSeq: 3 INVITE\na=sendrecv\n"
+                    "ACK sip:hold-b@example.test SIP/2.0\nCSeq: 3 ACK\n"
+                ),
+                encoding="utf-8",
+            )
+
+            rtp_packets = []
+            for burst_start in (1.0, 2.5):
+                flows = (
+                    ("10.0.0.1", 6000, "10.0.0.3", 25100),
+                    ("10.0.0.3", 25102, "10.0.0.2", 6000),
+                    ("10.0.0.2", 6000, "10.0.0.1", 6000),
+                )
+                for src_ip, src_port, dst_ip, dst_port in flows:
+                    for index in range(25):
+                        rtp_packets.append(
+                            SimpleNamespace(
+                                timestamp=burst_start + (index * 0.02),
+                                transport="udp",
+                                src_ip=src_ip,
+                                dst_ip=dst_ip,
+                                src_port=src_port,
+                                dst_port=dst_port,
+                                payload=b"\x80\x00" + (b"\x00" * 170),
+                            )
+                        )
+            with mock.patch.object(run_k8s_regression, "read_pcap", return_value=rtp_packets):
+                self.assertEqual(
+                    run_k8s_regression.validate_k8s_profile_evidence("rfc5359-call-hold-resume", bundle),
+                    [],
+                )
+
+            with mock.patch.object(run_k8s_regression, "read_pcap", return_value=[]):
+                failures = run_k8s_regression.validate_k8s_profile_evidence(
+                    "rfc5359-call-hold-resume",
+                    bundle,
+                )
+            self.assertTrue(any("bidirectional RTP before hold" in failure for failure in failures))
+            self.assertTrue(any("held-media gap" in failure for failure in failures))
+
+    def test_kubernetes_mock_rasa_evidence_rejects_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp)
+            write_test_pcap(bundle / "capture.pcap", 1.0, b"rasa", linktype=1)
+            (bundle / "sipmsg.log").write_text(
+                "INVITE sip:rasa@example.test SIP/2.0\nCSeq: 1 INVITE\n",
+                encoding="utf-8",
+            )
+            (bundle / "log.ai").write_text(
+                "RASA REST RESPONSE fallback_used=true\nRASA REST ERROR connection refused\n",
+                encoding="utf-8",
+            )
+
+            failures = run_k8s_regression.validate_k8s_profile_evidence("ai-rasa-lab", bundle)
+
+            self.assertTrue(any("fallback" in failure for failure in failures))
+
+            (bundle / "log.ai").write_text(
+                "RASA REST RESPONSE fallback_used=false\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                run_k8s_regression.validate_k8s_profile_evidence("ai-rasa-lab", bundle),
+                [],
+            )
+
     def test_kubernetes_evidence_validation_rejects_options_noise_and_split_pcaps(self):
         with tempfile.TemporaryDirectory() as tmp:
             bundle = Path(tmp)
             write_test_pcap(bundle / "capture.pcap", 1.0, b"options", linktype=1)
             write_test_pcap(bundle / "capture-core.pcap", 2.0, b"stale", linktype=1)
             (bundle / "sipmsg.log").write_text(
-                "OPTIONS sip:playsbc@example.test SIP/2.0\nINVITE sip:1002@example.test SIP/2.0\n",
+                (
+                    "OPTIONS sip:playsbc@example.test SIP/2.0\nCSeq: 1 OPTIONS\n"
+                    "INVITE sip:1002@example.test SIP/2.0\nCSeq: 2 INVITE\n"
+                ),
                 encoding="utf-8",
             )
 
@@ -4016,6 +4176,11 @@ class RealTopologyTests(unittest.TestCase):
         manifest = run_k8s_regression_job.job_manifest(job_args)
         containers = manifest["spec"]["template"]["spec"]["containers"]
         self.assertEqual([container["imagePullPolicy"] for container in containers], ["Always", "Always"])
+        runner_env = {entry["name"]: entry for entry in containers[0]["env"]}
+        self.assertEqual(
+            runner_env["PLAYSBC_REGRESSION_RUNNER_IP"]["valueFrom"]["fieldRef"]["fieldPath"],
+            "status.podIP",
+        )
         self.assertIn("--aks-profiles", command)
         self.assertIn("--aks-mode", command)
         self.assertIn("--no-active-active-topology", command)
