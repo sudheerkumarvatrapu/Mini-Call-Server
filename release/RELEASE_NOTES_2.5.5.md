@@ -5,7 +5,7 @@ PlaySBC v2.5.5 closes the two failures from the 65-profile local Kubernetes run 
 ## Regression Closure
 
 - Make `ha-options-health-recovery` execute and retain a real OPTIONS/200 exchange.
-- Give `load-5cps-60s-rtpengine-transcoding` a profile-scoped `30000-31999` RTPengine range for 300 concurrent media sessions.
+- Give `load-5cps-60s-rtpengine-transcoding` a profile-scoped `30000-32999` RTPengine range for 300 concurrent media sessions plus growth headroom.
 - Keep AKS and real-device RTP exposure unchanged at `30000-30049`.
 - Preserve pre-fault logs before HA pod deletion.
 - Restore unified ladders for small multi-call profiles while keeping load evidence compact.
@@ -27,7 +27,7 @@ PlaySBC v2.5.5 closes the two failures from the 65-profile local Kubernetes run 
 ## Evidence Hardening
 
 - Preserve one combined PCAP and canonical `sipmsg.log` per signalling profile.
-- Stop pod tcpdump processes gracefully before copying captures so short OPTIONS exchanges are flushed into the combined PCAP.
+- Run OPTIONS-only tcpdump sessions in immediate mode and bound them to the request/response pair so short exchanges close and flush before capture collection.
 - Validate RFC 5359 CSeq, ACK, and SDP direction transitions explicitly.
 - Keep the runtime `Server` banner synchronized with release metadata.
 - Keep readable ladders for low-volume multi-call profiles and compact evidence for high-volume load.
@@ -43,7 +43,7 @@ PlaySBC v2.5.5 closes the two failures from the 65-profile local Kubernetes run 
 
 ## Validation
 
-- 270 unit and harness tests pass.
+- 325 unit and harness tests pass.
 - All modified Python modules compile and the Git diff passes whitespace validation.
 - The prior 65-profile evidence set was audited for SIP logs, readable combined PCAPs, RTP/RTCP evidence, SRTP verdicts, and severe runtime signatures.
 

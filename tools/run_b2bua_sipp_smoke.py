@@ -845,7 +845,7 @@ B2BUA_PROFILES = {
         "media_backend": "rtpengine",
         "rtpengine_timeout": 8.0,
         "rtpengine_rtp_min": 30000,
-        "rtpengine_rtp_max": 31999,
+        "rtpengine_rtp_max": 32999,
         "media_delivery_threshold_percent": 99.5,
         "media_per_call_threshold_percent": 99.0,
         "ladder": False,

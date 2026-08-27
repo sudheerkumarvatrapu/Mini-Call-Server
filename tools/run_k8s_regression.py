@@ -578,14 +578,21 @@ def k8s_pcap_capture_roles(profile: SimpleNamespace) -> tuple[str, ...]:
     return tuple(dict.fromkeys(roles))
 
 
-def k8s_pcap_capture_filter(_profile: SimpleNamespace) -> str:
+def k8s_pcap_capture_filter(profile: SimpleNamespace) -> str:
     # Keep AKS evidence focused on SIP, RTP/SRTP, and RTCP. DNS and unrelated pod traffic
     # make Wireshark review noisy and can make profile evidence look misleading.
+    rtpengine_max = max(32000, int(getattr(profile, "rtpengine_rtp_max", 32000) or 32000))
     return (
         "((udp and (portrange 5060-5079 or portrange 6000-6999 "
-        "or portrange 25000-26000 or portrange 30000-32000)) "
+        f"or portrange 25000-26000 or portrange 30000-{rtpengine_max})) "
         "or (tcp and portrange 5060-5079))"
     )
+
+
+def k8s_pcap_packet_limit(profile: SimpleNamespace) -> int | None:
+    # OPTIONS-only profiles have exactly one request and one response on the SIPp pod.
+    # Let tcpdump close its own file after both packets instead of racing a remote signal.
+    return 2 if "options" in str(getattr(profile, "profile", "")).lower() else None
 
 
 def should_run_k8s_rtcp(profile: SimpleNamespace) -> bool:
@@ -944,15 +951,24 @@ def validate_k8s_profile_evidence(profile_name: str, bundle: Path) -> list[str]:
             before_hold = ordered_packets[:gap_index]
             after_resume = ordered_packets[gap_index:]
 
-            def has_reciprocal_rtp(packets: list[Any]) -> bool:
-                flows = {(packet.src_ip, packet.dst_ip) for packet in packets}
-                return any((dst_ip, src_ip) in flows for src_ip, dst_ip in flows)
+            def has_two_way_sipp_media(packets: list[Any]) -> bool:
+                senders = {
+                    (packet.src_ip, packet.src_port)
+                    for packet in packets
+                    if 6000 <= packet.src_port <= 6999
+                }
+                receivers = {
+                    (packet.dst_ip, packet.dst_port)
+                    for packet in packets
+                    if 6000 <= packet.dst_port <= 6999
+                }
+                return len(senders) >= 2 and len(receivers) >= 2
 
             if (
                 len(before_hold) < 20
                 or len(after_resume) < 20
-                or not has_reciprocal_rtp(before_hold)
-                or not has_reciprocal_rtp(after_resume)
+                or not has_two_way_sipp_media(before_hold)
+                or not has_two_way_sipp_media(after_resume)
             ):
                 failures.append(
                     "RFC 5359 media evidence is missing bidirectional RTP before hold or after resume"
@@ -2071,9 +2087,12 @@ class K8sRegressionRunner:
             step_dir = bundle / f"k8s-pcap-{role}"
             step_dir.mkdir(parents=True, exist_ok=True)
             capture_filter = k8s_pcap_capture_filter(profile)
+            packet_limit = k8s_pcap_packet_limit(profile)
+            packet_limit_arg = f" -c {packet_limit}" if packet_limit else ""
             shell_command = (
                 f"rm -f {shlex.quote(remote_path)}; "
-                f"tcpdump -i any -U -n -s 0 -w {shlex.quote(remote_path)} {shlex.quote(capture_filter)}"
+                f"tcpdump -i any --immediate-mode -U -n -s 0{packet_limit_arg} "
+                f"-w {shlex.quote(remote_path)} {shlex.quote(capture_filter)}"
             )
             command = [self.args.kubectl_bin, "-n", self.args.namespace, "exec", pod, "--", "sh", "-lc", shell_command]
             (step_dir / "command.txt").write_text(command_text(command) + "\n", encoding="utf-8")
@@ -2094,6 +2113,7 @@ class K8sRegressionRunner:
             "K8S PCAP CAPTURE STARTED",
             (
                 f"filter={k8s_pcap_capture_filter(profile)} "
+                f"packet_limit={k8s_pcap_packet_limit(profile) or 'none'} "
                 + " ".join(f"{capture.role}={capture.pod}:{capture.remote_path}" for capture in captures)
             ),
         )

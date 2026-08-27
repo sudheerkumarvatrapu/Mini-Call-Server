@@ -16,7 +16,7 @@ PlaySBC is an enterprise-style SIP/RTP and AI voice lab. It is not yet a product
 ### v2.5.5 Regression Closure
 
 - `ha-options-health-recovery` now produces an actual OPTIONS exchange and OPTIONS-only `sipmsg.log` evidence.
-- `load-5cps-60s-rtpengine-transcoding` uses a profile-scoped `30000-31999` RTP range, sufficient for the 300-call media load. AKS and real-device media remain fixed at `30000-30049`.
+- `load-5cps-60s-rtpengine-transcoding` uses a profile-scoped `30000-32999` RTP range, sufficient for the 300-call media load with additional headroom. AKS and real-device media remain fixed at `30000-30049`.
 - Mock Rasa profiles run a reachable in-job webhook and fail when fallback is used; fallback is no longer accepted as successful bot evidence.
 - Small multi-call and active-active profiles retain readable unified ladders; high-volume load profiles remain intentionally compact.
 - Pre-fault PlaySBC logs are retained before pod deletion so media and dialog evidence is not lost with the pod.

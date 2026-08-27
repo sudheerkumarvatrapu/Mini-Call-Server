@@ -560,7 +560,7 @@ Content-Length: 0
         rtpengine_load = run_b2bua_sipp_smoke.B2BUA_PROFILES["load-5cps-60s-rtpengine-transcoding"]
         self.assertEqual(rtpengine_load["rtpengine_timeout"], 8.0)
         self.assertEqual(rtpengine_load["rtpengine_rtp_min"], 30000)
-        self.assertEqual(rtpengine_load["rtpengine_rtp_max"], 31999)
+        self.assertEqual(rtpengine_load["rtpengine_rtp_max"], 32999)
         self.assertEqual(rtpengine_load["media_delivery_threshold_percent"], 99.5)
         self.assertEqual(rtpengine_load["media_per_call_threshold_percent"], 99.0)
 
@@ -3362,13 +3362,43 @@ class RealTopologyTests(unittest.TestCase):
 
     def test_kubernetes_pcap_capture_filter_keeps_evidence_focused(self):
         profile = run_k8s_regression.profile_values("rtpengine-transcoding", "unit-k8s")
+        load_profile = run_k8s_regression.profile_values(
+            "load-5cps-60s-rtpengine-transcoding",
+            "unit-k8s",
+        )
 
         capture_filter = run_k8s_regression.k8s_pcap_capture_filter(profile)
+        load_capture_filter = run_k8s_regression.k8s_pcap_capture_filter(load_profile)
 
         self.assertIn("portrange 5060-5079", capture_filter)
         self.assertIn("portrange 30000-32000", capture_filter)
         self.assertNotEqual(capture_filter, "udp or tcp")
         self.assertNotIn("port 53", capture_filter)
+        self.assertIn("portrange 30000-32999", load_capture_filter)
+
+    def test_kubernetes_options_capture_closes_after_request_response_pair(self):
+        options = run_k8s_regression.profile_values("ha-options-health-recovery", "unit-k8s")
+        hold = run_k8s_regression.profile_values("rfc5359-call-hold-resume", "unit-k8s")
+
+        self.assertEqual(run_k8s_regression.k8s_pcap_packet_limit(options), 2)
+        self.assertIsNone(run_k8s_regression.k8s_pcap_packet_limit(hold))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            process = mock.Mock()
+            process.poll.return_value = None
+            args = run_k8s_regression.parse_args(["--profile", "ha-options-health-recovery"])
+            runner = run_k8s_regression.K8sRegressionRunner(args, "unit-k8s")
+            with (
+                mock.patch.object(run_k8s_regression.subprocess, "Popen", return_value=process) as popen,
+                mock.patch.object(run_k8s_regression.time, "sleep"),
+            ):
+                captures = runner.start_packet_captures(options, Path(tmp), [("core", "core-pod")])
+
+            shell_command = popen.call_args.args[0][-1]
+            self.assertIn(" --immediate-mode ", shell_command)
+            self.assertIn(" -c 2 -w ", shell_command)
+            self.assertIn("packet_limit=2", (Path(tmp) / "log.networking").read_text(encoding="utf-8"))
+            runner.close_process_files(captures[0].process)
 
     def test_kubernetes_merged_pcap_is_sorted_by_packet_timestamp(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3612,20 +3642,26 @@ class RealTopologyTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            rtp_packets = [
-                SimpleNamespace(
-                    timestamp=timestamp,
-                    transport="udp",
-                    src_ip=src_ip,
-                    dst_ip=dst_ip,
-                    src_port=4000 if src_ip == "10.0.0.1" else 4002,
-                    dst_port=4002 if src_ip == "10.0.0.1" else 4000,
-                    payload=b"\x80\x00" + (b"\x00" * 170),
+            rtp_packets = []
+            for burst_start in (1.0, 2.5):
+                flows = (
+                    ("10.0.0.1", 6000, "10.0.0.3", 25100),
+                    ("10.0.0.3", 25102, "10.0.0.2", 6000),
+                    ("10.0.0.2", 6000, "10.0.0.1", 6000),
                 )
-                for burst_start in (1.0, 2.5)
-                for src_ip, dst_ip in (("10.0.0.1", "10.0.0.2"), ("10.0.0.2", "10.0.0.1"))
-                for timestamp in (burst_start + (index * 0.02) for index in range(25))
-            ]
+                for src_ip, src_port, dst_ip, dst_port in flows:
+                    for index in range(25):
+                        rtp_packets.append(
+                            SimpleNamespace(
+                                timestamp=burst_start + (index * 0.02),
+                                transport="udp",
+                                src_ip=src_ip,
+                                dst_ip=dst_ip,
+                                src_port=src_port,
+                                dst_port=dst_port,
+                                payload=b"\x80\x00" + (b"\x00" * 170),
+                            )
+                        )
             with mock.patch.object(run_k8s_regression, "read_pcap", return_value=rtp_packets):
                 self.assertEqual(
                     run_k8s_regression.validate_k8s_profile_evidence("rfc5359-call-hold-resume", bundle),
