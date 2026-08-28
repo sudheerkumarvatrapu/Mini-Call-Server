@@ -25,6 +25,16 @@ Before implementing v2.6.0 product code:
 5. Keep the public MIT repository on the v2.5.5 feature line; do not run public image-release workflows for v2.6+ commercial tags.
 6. Maintain an explicit provenance record identifying reusable MIT baseline code and newly developed commercial code.
 
+Gate status as of 2026-08-28: the access-controlled commercial repository was
+created from the exact public `v2.5.5` commit and tree; commercial and retained
+MIT license notices, third-party inventory, provenance ledger, private artifact
+namespaces, least-privilege CI policy, and manual commercial release controls
+are in place. The public image workflow is manual and rejects every version
+other than `2.5.5`. Branch and environment approval rules for private
+repositories require a GitHub plan that supports those controls; until that is
+enabled, repository membership remains owner-only and commercial releases are
+owner-operated through the dedicated environment.
+
 Public v2.5.x maintenance may receive documentation, security, or compatibility corrections, but new Voice AI and Enterprise SBC product features belong only in the private commercial track.
 
 ## v3.0.0 Enterprise Entry Gate

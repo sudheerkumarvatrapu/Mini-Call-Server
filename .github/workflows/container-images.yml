@@ -1,26 +1,49 @@
-name: Publish container images
+name: Rebuild public v2.5.5 container images
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       version_tag:
-        description: Optional image tag for an in-place release rebuild, for example 2.5.0
-        required: false
+        description: Public MIT rebuild version; only 2.5.5 is permitted
+        required: true
         type: string
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
-  publish:
-    name: Build and publish ${{ matrix.image }}
+  policy:
+    name: Enforce public MIT release ceiling
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.policy.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reject non-v2.5.5 publication
+        id: policy
+        env:
+          REQUESTED_VERSION: ${{ inputs.version_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          requested="${REQUESTED_VERSION#v}"
+          test "$version" = "2.5.5"
+          test "$requested" = "2.5.5"
+          test "$(awk '$1 == "version:" {print $2; exit}' charts/playsbc/Chart.yaml)" = "2.5.5"
+          test "$(awk '$1 == "appVersion:" {gsub(/\"/, "", $2); print $2; exit}' charts/playsbc/Chart.yaml)" = "2.5.5"
+          grep -q '^MIT License$' LICENSE
+          echo "version=2.5.5" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Rebuild public ${{ matrix.image }}
+    needs: policy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -51,11 +74,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
           tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ inputs.version_tag }},enable=${{ inputs.version_tag != '' }}
+            type=raw,value=${{ needs.policy.outputs.version }}
+            type=raw,value=2.5
 
       - name: Build and push
         uses: docker/build-push-action@v6
