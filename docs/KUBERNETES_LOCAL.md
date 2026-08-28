@@ -1,6 +1,6 @@
 # Local Kubernetes Lab
 
-This page explains the local topology. Use the [Kubernetes and Helm runbook](KUBERNETES_HELM_RUNBOOK.md) for maintained commands.
+This page explains the local topology. Use the [PlaySBC v2.6.0 Product Guide](../output/pdf/PlaySBC-v2.6.0-Product-Guide.pdf) for maintained commands.
 
 ## Default Topology
 
@@ -80,7 +80,7 @@ OBi1022 and Zoiper use the dedicated `playsbc-real-device` kind cluster when bot
 
 PlaySBC and RTPengine advertise the Mac LAN IP. NodePort translation is not used for this RTP baseline. The chart rejects blank/mismatched LAN addresses, Azure exposure, active-active mode, or a media range other than `30000-30049` in this profile.
 
-Use the maintained [dedicated local real-device commands](KUBERNETES_HELM_RUNBOOK.md#dedicated-local-real-device-lab). This validates LAN device behavior, but not Azure LoadBalancer, public NAT, managed identity, or cloud firewall behavior.
+Use the dedicated local real-device procedure in the [PlaySBC v2.6.0 Product Guide](../output/pdf/PlaySBC-v2.6.0-Product-Guide.pdf). This validates LAN device behavior, but not Azure LoadBalancer, public NAT, managed identity, or cloud firewall behavior.
 
 ## Boundaries
 

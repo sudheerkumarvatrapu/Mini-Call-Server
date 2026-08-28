@@ -32,6 +32,7 @@ DEFAULT_B2BUA_PROFILES = (
 )
 ALL_B2BUA_PROFILES = (
     "basic-signalling",
+    "evidence-b2bua-two-leg-pcap",
     "basic-media",
     "transcoding",
     "rtpengine",

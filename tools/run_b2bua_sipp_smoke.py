@@ -204,6 +204,9 @@ B2BUA_PROFILES = {
     "basic-signalling": {
         "callee": "basic-sig",
     },
+    "evidence-b2bua-two-leg-pcap": {
+        "callee": "evidence-two-leg",
+    },
     "basic-media": {
         "callee": "basic-media",
         "media_codec": "PCMU",
@@ -1500,6 +1503,7 @@ B2BUA_PROFILES = {
 }
 PROFILE_DESCRIPTIONS = {
     "basic-signalling": "One SIPp A -> B2BUA -> registered SIPp B call without RTP replay.",
+    "evidence-b2bua-two-leg-pcap": "One bridged call whose combined Kubernetes PCAP must prove core and peer capture roles plus distinct B2BUA INVITE legs.",
     "basic-media": "One registered 60 second B2BUA call with PCMU RTP replay.",
     "transcoding": "One registered 60 second B2BUA media call with PCMU media and PCMA server codec preference.",
     "rtpengine": "One registered B2BUA signalling call using RTPengine as the media backend.",

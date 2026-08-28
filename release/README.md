@@ -6,19 +6,20 @@ This directory contains immutable release notes and packaged Helm charts. Deploy
 
 | Item | Value |
 | --- | --- |
-| Version | `2.5.5` |
-| Chart | `helm/playsbc-2.5.5.tgz` |
-| Checksum | `helm/playsbc-2.5.5.tgz.sha256` |
-| Notes | `RELEASE_NOTES_2.5.5.md` |
+| Version | `2.6.0` |
+| Chart | `helm/playsbc-2.6.0.tgz` |
+| Checksum | `helm/playsbc-2.6.0.tgz.sha256` |
+| Notes | `RELEASE_NOTES_2.6.0.md` |
+| Product guide | `../output/pdf/PlaySBC-v2.6.0-Product-Guide.pdf` |
 | License | MIT |
 
 Published images:
 
 ```text
-ghcr.io/sudheerkumarvatrapu/playsbc:2.5.5
-ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:2.5.5
-ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.5.5
-ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.5.5
+ghcr.io/sudheerkumarvatrapu/playsbc:2.6.0
+ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:2.6.0
+ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.6.0
+ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.6.0
 ```
 
 The chart contains Kubernetes manifests and configuration, not image layers.
@@ -27,17 +28,15 @@ The chart contains Kubernetes manifests and configuration, not image layers.
 
 | Task | Runbook |
 | --- | --- |
-| Local kind/minikube upgrade and regression | [KUBERNETES_HELM_RUNBOOK.md](../docs/KUBERNETES_HELM_RUNBOOK.md) |
-| Azure AKS deployment and regression | [AZURE_AKS.md](../docs/AZURE_AKS.md) |
-| Real-device registration, calls, and capture | [REAL_DEVICE_LAB.md](../docs/REAL_DEVICE_LAB.md) |
+| Docker, kind, minikube, AKS, and real-device administration | [PlaySBC v2.6.0 Product Guide](../output/pdf/PlaySBC-v2.6.0-Product-Guide.pdf) |
 | Release scope and next milestones | [EVOLUTION_PLAN.md](../docs/EVOLUTION_PLAN.md) |
 
 ## Build The Chart
 
 ```bash
 helm package charts/playsbc --destination release/helm
-shasum -a 256 release/helm/playsbc-2.5.5.tgz \
-  > release/helm/playsbc-2.5.5.tgz.sha256
+shasum -a 256 release/helm/playsbc-2.6.0.tgz \
+  > release/helm/playsbc-2.6.0.tgz.sha256
 ```
 
 ## Release Gate

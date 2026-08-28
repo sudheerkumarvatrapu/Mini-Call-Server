@@ -1649,7 +1649,7 @@ Content-Length: 0
         values = (chart / "values.yaml").read_text(encoding="utf-8")
         azure = (chart / "templates" / "azure-services.yaml").read_text(encoding="utf-8")
         aks_values = (ROOT / "configs" / "kubernetes" / "aks-values.yaml").read_text(encoding="utf-8")
-        aks_doc = (ROOT / "docs" / "AZURE_AKS.md").read_text(encoding="utf-8")
+        product_guide = (ROOT / "docs" / "PRODUCT_GUIDE.md").read_text(encoding="utf-8")
 
         self.assertIn("cloud:", values)
         self.assertIn("azure:", values)
@@ -1665,21 +1665,20 @@ Content-Length: 0
         self.assertIn("$mediaPublicAllowedRanges", azure)
         self.assertIn("documentedPortRange", aks_values)
         self.assertIn("portRange:", aks_values)
-        self.assertIn("PlaySBC On Azure AKS", aks_doc)
-        self.assertIn("Run AKS Regression", aks_doc)
-        self.assertIn("--aks-profiles", aks_doc)
-        self.assertIn("v1.5.0", aks_doc)
-        self.assertIn("v2.4.0", aks_doc)
+        self.assertIn("Azure AKS Administration", product_guide)
+        self.assertIn("AKS Regression", product_guide)
+        self.assertIn("--aks-profiles", product_guide)
+        self.assertIn("PLAYSBC_VERSION=2.6.0", product_guide)
 
     def test_current_release_keeps_kind_regression_path(self):
         chart = ROOT / "charts" / "playsbc"
-        current_version = "2.5.5"
+        current_version = "2.6.0"
         version = (ROOT / "VERSION").read_text(encoding="utf-8")
         chart_yaml = (chart / "Chart.yaml").read_text(encoding="utf-8")
         values = (chart / "values.yaml").read_text(encoding="utf-8")
         aks_values = (ROOT / "configs" / "kubernetes" / "aks-values.yaml").read_text(encoding="utf-8")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        runbook = (ROOT / "docs" / "KUBERNETES_HELM_RUNBOOK.md").read_text(encoding="utf-8")
+        runbook = (ROOT / "docs" / "PRODUCT_GUIDE.md").read_text(encoding="utf-8")
         local_runbook = (ROOT / "docs" / "KUBERNETES_LOCAL.md").read_text(encoding="utf-8")
         release_notes = (ROOT / "release" / f"RELEASE_NOTES_{current_version}.md").read_text(encoding="utf-8")
 
@@ -1692,7 +1691,7 @@ Content-Length: 0
         self.assertIn(f"kind/minikube must track the current release (`v{current_version}`", readme)
         self.assertIn(f"export PLAYSBC_VERSION={current_version}", runbook)
         self.assertIn(
-            "[Kubernetes and Helm runbook](KUBERNETES_HELM_RUNBOOK.md)",
+            "[PlaySBC v2.6.0 Product Guide](../output/pdf/PlaySBC-v2.6.0-Product-Guide.pdf)",
             local_runbook,
         )
         self.assertIn("--all-profiles", runbook)
@@ -2388,6 +2387,8 @@ Content-Length: 0
         self.assertIn("ai-rasa-real-lab", run_regression_suite.SELECTABLE_B2BUA_PROFILES)
         self.assertIn("ai-rasa-real-lab", run_regression_suite.ALL_B2BUA_PROFILES)
         self.assertIn("ai-rasa-rtpengine-speech", run_regression_suite.SELECTABLE_B2BUA_PROFILES)
+        self.assertIn("evidence-b2bua-two-leg-pcap", run_regression_suite.ALL_B2BUA_PROFILES)
+        self.assertEqual(len(run_k8s_regression.ALL_PROFILES), 70)
         self.assertIn("ai-rasa-rtpengine-speech", run_regression_suite.ALL_B2BUA_PROFILES)
         self.assertIn("ai-rasa-rtpengine-speech-whisper", run_regression_suite.SELECTABLE_B2BUA_PROFILES)
         self.assertIn("ai-rasa-rtpengine-speech-whisper", run_regression_suite.ALL_B2BUA_PROFILES)
@@ -3476,11 +3477,30 @@ class RealTopologyTests(unittest.TestCase):
             def fake_copy(command, **_kwargs):
                 destination = Path(command[5])
                 timestamp = 20.0 if destination.name == "capture-core.pcap" else 10.0
-                write_test_pcap(destination, timestamp, destination.name.encode("ascii"), linktype=1)
+                if destination.name == "capture-core.pcap":
+                    packet = run_b2bua_sipp_smoke.PcapPacket(
+                        timestamp,
+                        "10.10.10.10",
+                        5060,
+                        "10.10.10.20",
+                        5062,
+                        b"INVITE sip:1002@lab SIP/2.0\r\nCall-ID: core-leg\r\nCSeq: 1 INVITE\r\nContent-Length: 0\r\n\r\n",
+                    )
+                else:
+                    packet = run_b2bua_sipp_smoke.PcapPacket(
+                        timestamp,
+                        "10.10.10.20",
+                        5062,
+                        "10.10.10.30",
+                        5060,
+                        b"INVITE sip:1002@peer SIP/2.0\r\nCall-ID: peer-leg\r\nCSeq: 1 INVITE\r\nContent-Length: 0\r\n\r\n",
+                    )
+                run_b2bua_sipp_smoke.write_udp_pcap(destination, [packet])
                 return run_k8s_regression.CommandResult(command, 0, 0.1, "", "")
 
             with mock.patch.object(run_k8s_regression, "run_command", side_effect=fake_copy):
-                self.assertTrue(runner.collect_packet_captures(captures, bundle))
+                profile = run_k8s_regression.profile_values("basic-media", "unit-k8s")
+                self.assertTrue(runner.collect_packet_captures(captures, bundle, profile))
 
             self.assertTrue((bundle / "capture.pcap").exists())
             self.assertFalse((bundle / "capture-core.pcap").exists())
@@ -3488,6 +3508,57 @@ class RealTopologyTests(unittest.TestCase):
             networking_log = (bundle / "log.networking").read_text(encoding="utf-8")
             self.assertIn("retained_file=capture.pcap", networking_log)
             self.assertIn("discarded_role_pcaps=capture-core.pcap,capture-peer.pcap", networking_log)
+            self.assertIn("merged_roles=core,peer", networking_log)
+            self.assertIn("invite_legs=2", networking_log)
+            leg_summary = json.loads((bundle / "pcap-legs.json").read_text(encoding="utf-8"))
+            self.assertEqual(leg_summary["expected_roles"], ["core", "peer"])
+            self.assertEqual(leg_summary["invite_call_ids"], ["core-leg", "peer-leg"])
+            self.assertEqual(leg_summary["status"], "passed")
+
+    def test_kubernetes_packet_capture_rejects_empty_expected_role(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp)
+            for role in ("core", "peer"):
+                (bundle / f"k8s-pcap-{role}").mkdir()
+            captures = [
+                run_k8s_regression.CaptureProcess(
+                    role,
+                    f"{role}-pod",
+                    f"/tmp/{role}.pcap",
+                    bundle / f"capture-{role}.pcap",
+                    mock.Mock(),
+                )
+                for role in ("core", "peer")
+            ]
+            args = run_k8s_regression.parse_args(["--profile", "basic-media"])
+            runner = run_k8s_regression.K8sRegressionRunner(args, "unit-k8s")
+
+            def fake_copy(command, **_kwargs):
+                destination = Path(command[5])
+                if destination.name == "capture-core.pcap":
+                    run_b2bua_sipp_smoke.write_udp_pcap(
+                        destination,
+                        [
+                            run_b2bua_sipp_smoke.PcapPacket(
+                                1.0,
+                                "10.10.10.10",
+                                5060,
+                                "10.10.10.20",
+                                5062,
+                                b"INVITE sip:1002@lab SIP/2.0\r\nCall-ID: core-only\r\nCSeq: 1 INVITE\r\nContent-Length: 0\r\n\r\n",
+                            )
+                        ],
+                    )
+                    return run_k8s_regression.CommandResult(command, 0, 0.1, "", "")
+                return run_k8s_regression.CommandResult(command, 1, 0.1, "", "copy failed")
+
+            profile = run_k8s_regression.profile_values("basic-media", "unit-k8s")
+            with mock.patch.object(run_k8s_regression, "run_command", side_effect=fake_copy):
+                self.assertFalse(runner.collect_packet_captures(captures, bundle, profile))
+
+            summary = json.loads((bundle / "pcap-legs.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["role_packet_counts"], {"core": 1, "peer": 0})
+            self.assertEqual(summary["status"], "failed")
 
     def test_kubernetes_combined_sipmsg_log_is_written_from_sipp_traces(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -4348,6 +4419,26 @@ class RealTopologyTests(unittest.TestCase):
 
         prepare.assert_not_called()
         run_command.assert_not_called()
+
+    def test_kubernetes_job_uses_macos_sleep_inhibitor(self):
+        process = mock.Mock()
+        process.poll.return_value = None
+        with (
+            mock.patch.object(run_k8s_regression_job.sys, "platform", "darwin"),
+            mock.patch.object(run_k8s_regression_job.shutil, "which", return_value="/usr/bin/caffeinate"),
+            mock.patch.object(run_k8s_regression_job.os, "getpid", return_value=1234),
+            mock.patch.object(run_k8s_regression_job.subprocess, "Popen", return_value=process) as popen,
+        ):
+            inhibitor = run_k8s_regression_job.start_host_sleep_inhibitor()
+            run_k8s_regression_job.stop_host_sleep_inhibitor(inhibitor)
+
+        popen.assert_called_once_with(
+            ["caffeinate", "-dimsu", "-w", "1234"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        process.terminate.assert_called_once_with()
+        process.wait.assert_called_once_with(timeout=3)
 
     def test_kubernetes_job_rejects_empty_acr_image_before_cluster_mutation(self):
         args = run_k8s_regression_job.parse_args(

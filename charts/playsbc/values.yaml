@@ -61,7 +61,7 @@ image:
   # For direct deployments after image publishing, use:
   # repository: ghcr.io/sudheerkumarvatrapu/playsbc
   repository: playsbc
-  tag: "2.5.5"
+  tag: "2.6.0"
   pullPolicy: IfNotPresent
 
 service:

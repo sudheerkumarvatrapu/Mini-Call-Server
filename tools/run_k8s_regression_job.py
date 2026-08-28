@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -90,6 +91,28 @@ def run_command(
 def ensure_binary(name: str) -> None:
     if not shutil.which(name):
         raise SystemExit(f"{name} executable not found in PATH")
+
+
+def start_host_sleep_inhibitor() -> Optional[subprocess.Popen[bytes]]:
+    """Keep a macOS-hosted kind/minikube run alive while its Job is active."""
+    if sys.platform != "darwin" or not shutil.which("caffeinate"):
+        return None
+    return subprocess.Popen(
+        ["caffeinate", "-dimsu", "-w", str(os.getpid())],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def stop_host_sleep_inhibitor(process: Optional[subprocess.Popen[bytes]]) -> None:
+    if process is None or process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=3)
 
 
 def labels(run_id: str) -> dict[str, str]:
@@ -785,6 +808,7 @@ def wait_for_runner(args: argparse.Namespace) -> tuple[str, str, str]:
     deadline = time.monotonic() + args.job_timeout
     pod_name = ""
     last_detail = "Waiting for regression runner pod to start"
+    last_progress = ""
     while time.monotonic() < deadline:
         pod = job_pod(args)
         if not pod:
@@ -807,6 +831,28 @@ def wait_for_runner(args: argparse.Namespace) -> tuple[str, str, str]:
                 last_detail = f"regression-runner waiting reason={waiting.get('reason', '')} message={waiting.get('message', '')}"
             elif "running" in state:
                 last_detail = "regression-runner running"
+                progress_log = run_command(
+                    [
+                        args.kubectl_bin,
+                        "-n",
+                        args.namespace,
+                        "logs",
+                        f"pod/{pod_name}",
+                        "-c",
+                        "regression-runner",
+                        "--tail=20",
+                    ],
+                    timeout=args.kubectl_timeout,
+                    check=False,
+                )
+                progress_lines = [
+                    line
+                    for line in progress_log.stdout.splitlines()
+                    if line.startswith("Regression progress:")
+                ]
+                if progress_lines and progress_lines[-1] != last_progress:
+                    last_progress = progress_lines[-1]
+                    print(last_progress, flush=True)
         time.sleep(args.job_poll_interval)
     return "timeout", f"Timed out after {args.job_timeout}s waiting for regression-runner; last={last_detail}", pod_name
 
@@ -1046,7 +1092,13 @@ def main() -> int:
         print(f"Launching Kubernetes Job for {len(ALL_PROFILES)} profiles.")
     else:
         print(f"Launching Kubernetes Job for profiles: {', '.join(args.profile)}")
-    return run_job(args)
+    sleep_inhibitor = None if args.dry_run else start_host_sleep_inhibitor()
+    if sleep_inhibitor is not None:
+        print("Host sleep inhibition: active (macOS caffeinate)")
+    try:
+        return run_job(args)
+    finally:
+        stop_host_sleep_inhibitor(sleep_inhibitor)
 
 
 if __name__ == "__main__":
