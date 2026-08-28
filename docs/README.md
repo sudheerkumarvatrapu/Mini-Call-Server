@@ -6,6 +6,7 @@ Use one canonical page for each task. Supporting pages explain design and eviden
 
 | Task | Canonical Page | Environment |
 | --- | --- | --- |
+| Product features, architecture, and administration | [PlaySBC v2.6.0 Product Guide](../output/pdf/PlaySBC-v2.6.0-Product-Guide.pdf) | all supported labs |
 | Local release deployment and full regression | [Kubernetes and Helm runbook](KUBERNETES_HELM_RUNBOOK.md) | kind/minikube |
 | Local source-image compatibility gate | [Kubernetes and Helm runbook](KUBERNETES_HELM_RUNBOOK.md#build-current-source) | kind |
 | Local topology and networking | [Local Kubernetes lab](KUBERNETES_LOCAL.md) | kind/minikube |

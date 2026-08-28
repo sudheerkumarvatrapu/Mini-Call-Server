@@ -23,6 +23,12 @@ PlaySBC v2.6.0 is the final public MIT feature gate. It closes the public line w
 - The isolated `kind-playsbc-real-device` lane remains available for OBi1022 and Zoiper registration, calls, RTP/RTCP, and capture without changing the AKS or full-regression topology.
 - Current values and runbooks consistently select v2.6.0 images for PlaySBC and RTPengine.
 
+## Product Documentation
+
+- The public evolution plan is frozen at the v2.6.0 baseline and no longer carries future product roadmap commitments.
+- `PlaySBC-v2.6.0-Product-Guide.pdf` provides a branded 17-page feature, architecture, and administration guide for Docker, kind, minikube, Azure AKS, Helm, observability, evidence, and real-device labs.
+- The guide cover identifies Sudheer Kumar Vatrapu as contributor and clearly distinguishes the engineering lab from a production-certified SBC.
+
 ## Compatibility
 
 - Existing SIP, RTPengine, AI, RFC 5359 hold/resume, HA, observability, and real-device behavior is unchanged by the sleep-inhibition and evidence-certification work.

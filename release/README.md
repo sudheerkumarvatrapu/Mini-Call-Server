@@ -10,6 +10,7 @@ This directory contains immutable release notes and packaged Helm charts. Deploy
 | Chart | `helm/playsbc-2.6.0.tgz` |
 | Checksum | `helm/playsbc-2.6.0.tgz.sha256` |
 | Notes | `RELEASE_NOTES_2.6.0.md` |
+| Product guide | `../output/pdf/PlaySBC-v2.6.0-Product-Guide.pdf` |
 | License | MIT |
 
 Published images:

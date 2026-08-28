@@ -21,6 +21,7 @@ PlaySBC is a Python SIP/RTP lab for B2BUA routing, G.711 media, RTPengine, HA ex
 | Goal | Guide |
 | --- | --- |
 | Choose the correct workflow | [Documentation index](docs/README.md) |
+| Read the product and administration guide | [PlaySBC v2.6.0 Product Guide](output/pdf/PlaySBC-v2.6.0-Product-Guide.pdf) |
 | Deploy and regress on local Kubernetes | [Kubernetes and Helm runbook](docs/KUBERNETES_HELM_RUNBOOK.md) |
 | Understand kind/minikube topology | [Local Kubernetes lab](docs/KUBERNETES_LOCAL.md) |
 | Deploy and regress on Azure AKS | [Azure AKS runbook](docs/AZURE_AKS.md) |
