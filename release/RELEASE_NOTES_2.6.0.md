@@ -33,6 +33,7 @@ PlaySBC v2.6.0 is the final public MIT feature gate. It closes the public line w
 
 - Existing SIP, RTPengine, AI, RFC 5359 hold/resume, HA, observability, and real-device behavior is unchanged by the sleep-inhibition and evidence-certification work.
 - The standard `kind-playsbc` active-active lane and Azure AKS deployment retain separate values and networking contracts.
+- The PlaySBC image retries rate-limited Piper voice downloads and verifies both pinned model files before completing the build.
 - The release gate includes unit checks, Helm lint/render checks, Docker image publication, and operator-run Kubernetes regression.
 
 ## Public And Commercial Boundary

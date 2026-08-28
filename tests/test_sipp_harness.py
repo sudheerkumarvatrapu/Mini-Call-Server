@@ -2598,6 +2598,11 @@ Content-Length: 0
         dockerfile = (ROOT / "docker" / "playsbc.Dockerfile").read_text(encoding="utf-8")
 
         self.assertIn("python3 -m piper.download_voices en_US-lessac-low --data-dir", dockerfile)
+        self.assertIn("for attempt in 1 2 3 4 5", dockerfile)
+        self.assertIn('if [ "$attempt" -eq 5 ]; then exit 1; fi', dockerfile)
+        self.assertIn("sleep $((attempt * 15))", dockerfile)
+        self.assertIn("test -s /opt/playsbc/models/piper/en_US-lessac-low.onnx", dockerfile)
+        self.assertIn("test -s /opt/playsbc/models/piper/en_US-lessac-low.onnx.json", dockerfile)
         self.assertNotIn("--download-dir", dockerfile)
 
     def test_rtpengine_load_observation_uses_query_packet_totals(self):

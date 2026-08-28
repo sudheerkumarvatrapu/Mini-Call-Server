@@ -9,7 +9,14 @@ RUN apt-get update \
 
 RUN python3 -m pip install --no-cache-dir piper-tts vosk \
     && mkdir -p /opt/playsbc/models/piper /opt/playsbc/models/vosk \
-    && python3 -m piper.download_voices en_US-lessac-low --data-dir /opt/playsbc/models/piper \
+    && for attempt in 1 2 3 4 5; do \
+        python3 -m piper.download_voices en_US-lessac-low --data-dir /opt/playsbc/models/piper \
+          && break; \
+        if [ "$attempt" -eq 5 ]; then exit 1; fi; \
+        sleep $((attempt * 15)); \
+      done \
+    && test -s /opt/playsbc/models/piper/en_US-lessac-low.onnx \
+    && test -s /opt/playsbc/models/piper/en_US-lessac-low.onnx.json \
     && python3 - <<'PY'
 import hashlib
 import ssl
