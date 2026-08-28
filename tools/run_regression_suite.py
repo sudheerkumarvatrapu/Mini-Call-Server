@@ -235,6 +235,37 @@ ROBOT_PHASE_ORDER = (
 )
 AUDIO_EVIDENCE_PREFIXES = ("ai-speech-input", "ai-tts-output")
 AUDIO_EMBED_MAX_BYTES = 2_000_000
+REPORT_ARTIFACTS = (
+    ("Setup values", "helm-profile-values.yaml"),
+    ("Helm execution", "helm-profile-upgrade.log"),
+    ("Pod snapshot", "kubectl-pods.log"),
+    ("StatefulSet snapshot", "kubectl-statefulsets.log"),
+    ("Service snapshot", "kubectl-services.log"),
+    ("Kubernetes events", "kubectl-events.log"),
+    ("Platform lifecycle", "log.platform"),
+    ("SIPp execution", "log.sipp"),
+    ("SIP decisions", "log.sip"),
+    ("SIP messages", "sipmsg.log"),
+    ("Call decisions", "log.call"),
+    ("Media decisions", "log.media"),
+    ("Network evidence", "log.networking"),
+    ("Transcoding evidence", "log.transcoding"),
+    ("PlaySBC workload", "playsbc.log"),
+    ("RTPengine workload", "rtpengine.log"),
+    ("Rasa workload", "rasa.log"),
+    ("Combined packet capture", "capture.pcap"),
+    ("PCAP leg certification", "pcap-legs.json"),
+    ("Rasa NLU results", "rasa-nlu-results.json"),
+)
+PHASE_ARTIFACTS = {
+    "Setup Preparation": ("helm-profile-values.yaml", "kubectl-services.log"),
+    "Configuration": ("helm-profile-upgrade.log", "helm-profile-values.yaml"),
+    "Test Setup": ("kubectl-pods.log", "kubectl-statefulsets.log", "kubectl-services.log"),
+    "Test Execution": ("log.sipp", "sipmsg.log", "log.sip", "log.call"),
+    "Test Teardown": ("kubectl-events.log", "log.platform"),
+    "Metrics Scrape Settle": ("log.platform",),
+    "Evidence Validation": ("log.platform", "log.media", "capture.pcap", "pcap-legs.json"),
+}
 
 
 @dataclass
@@ -323,6 +354,34 @@ def evidence_bundle_candidates(log_path: str, report_dir: Optional[Path] = None)
             unique.append(candidate)
             seen.add(key)
     return unique
+
+
+def resolve_evidence_bundle(log_path: str, report_dir: Optional[Path] = None) -> Optional[Path]:
+    return next(
+        (candidate for candidate in evidence_bundle_candidates(log_path, report_dir) if candidate.is_dir()),
+        None,
+    )
+
+
+def discover_report_artifacts(log_path: str, report_dir: Optional[Path] = None) -> List[dict]:
+    root = resolve_evidence_bundle(log_path, report_dir)
+    if root is None:
+        return []
+    artifacts = []
+    for label, name in REPORT_ARTIFACTS:
+        path = root / name
+        if not path.is_file():
+            continue
+        artifacts.append(
+            {
+                "label": label,
+                "name": name,
+                "path": str(path),
+                "href": audio_src_for_report(path, report_dir),
+                "bytes": path.stat().st_size,
+            }
+        )
+    return artifacts
 
 
 def discover_audio_evidence(log_path: str, report_dir: Optional[Path] = None) -> List[AudioEvidence]:
@@ -789,6 +848,8 @@ def render_html(
     row_html = []
     for row in rows:
         status_class = "pass" if row.status == "passed" else "blocked" if row.status == "blocked" else "fail"
+        artifacts = discover_report_artifacts(row.log_path, report_dir)
+        artifacts_by_name = {artifact["name"]: artifact for artifact in artifacts}
         phase_html = []
         for phase in row.phases or fallback_execution_phases(
             row.status,
@@ -796,13 +857,47 @@ def render_html(
             "Execute the reported test case.",
         ):
             phase_class = "pass" if phase.status == "passed" else "blocked" if phase.status in {"blocked", "skipped"} else "fail"
+            phase_links = []
+            for artifact_name in PHASE_ARTIFACTS.get(phase.name, ()):
+                artifact = artifacts_by_name.get(artifact_name)
+                if artifact:
+                    phase_links.append(
+                        f'<a href="{html.escape(artifact["href"])}">{html.escape(artifact["label"])}</a>'
+                    )
+            phase_evidence = (
+                " ".join(phase_links)
+                if phase_links
+                else '<span class="muted">Inline verdict</span>'
+            )
             phase_html.append(
                 "<tr>"
                 f"<td><span class=\"keyword\">{html.escape(phase.name)}</span></td>"
                 f"<td><span class=\"badge {phase_class}\">{html.escape(phase.status.upper())}</span></td>"
                 f"<td class=\"elapsed\">{phase.duration_seconds:.3f} s</td>"
                 f"<td>{html.escape(phase.detail)}</td>"
+                f'<td class="phase-links">{phase_evidence}</td>'
                 "</tr>"
+            )
+        artifact_html = ""
+        if artifacts:
+            artifact_links = []
+            for artifact in artifacts:
+                size = int(artifact["bytes"])
+                if size >= 1024 * 1024:
+                    size_label = f"{size / (1024 * 1024):.1f} MB"
+                elif size >= 1024:
+                    size_label = f"{size / 1024:.1f} KB"
+                else:
+                    size_label = f"{size} B"
+                artifact_links.append(
+                    f'<a class="artifact-link" href="{html.escape(artifact["href"])}">'
+                    f'<strong>{html.escape(artifact["label"])}</strong>'
+                    f'<span>{html.escape(artifact["name"])} - {html.escape(size_label)}</span></a>'
+                )
+            artifact_html = (
+                '<nav class="artifact-nav" aria-label="Test evidence files">'
+                '<h2>Evidence Files</h2><p>Open the retained source evidence directly from this report.</p>'
+                f'<div class="artifact-grid">{"".join(artifact_links)}</div></nav>'
             )
         chat_nlu_evidence = discover_chat_nlu_evidence(row.log_path, report_dir)
         is_chat_nlu = bool(chat_nlu_evidence)
@@ -896,10 +991,12 @@ def render_html(
             "<div class=\"metadata\">"
             f"<div><span>Return code</span><strong>{'-' if row.returncode is None else row.returncode}</strong></div>"
             f"<div><span>Evidence bundle</span><code>{html.escape(row.log_path)}</code></div>"
-            f"<div><span>Runner command</span><code>{html.escape(row.command)}</code></div>"
             "</div>"
+            "<details class=\"command-details\"><summary>Runner command</summary>"
+            f"<code>{html.escape(row.command)}</code></details>"
+            f"{artifact_html}"
             "<table class=\"phases\"><thead><tr>"
-            "<th>Keyword / Phase</th><th>Status</th><th>Elapsed</th><th>Execution Detail</th>"
+            "<th>Phase</th><th>Status</th><th>Elapsed</th><th>Execution Detail</th><th>Evidence</th>"
             "</tr></thead><tbody>"
             f"{''.join(phase_html)}"
             "</tbody></table>"
@@ -913,7 +1010,7 @@ def render_html(
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>PlaySBC Robot-Style Regression Report</title>
+  <title>PlaySBC Regression Evidence Report</title>
   <style>
     :root {{ color-scheme: light; }}
     * {{ box-sizing: border-box; }}
@@ -937,8 +1034,8 @@ def render_html(
     .test-case {{ background: #fff; border: 1px solid #d1d5db; border-left: 5px solid #16a34a; border-radius: 6px; margin: 10px 0; overflow: hidden; }}
     .test-case.blocked {{ border-left-color: #f59e0b; }}
     .test-case.fail {{ border-left-color: #dc2626; }}
-    summary {{ display: grid; grid-template-columns: minmax(220px, 1.3fr) minmax(220px, 1fr) 100px 92px; align-items: center; gap: 14px; padding: 13px 15px; cursor: pointer; list-style-position: inside; }}
-    summary:hover {{ background: #f9fafb; }}
+    .test-case > summary {{ display: grid; grid-template-columns: minmax(220px, 1.3fr) minmax(220px, 1fr) 100px 92px; align-items: center; gap: 14px; padding: 13px 15px; cursor: pointer; list-style-position: inside; }}
+    .test-case > summary:hover {{ background: #f9fafb; }}
     .test-name {{ font-weight: 750; }}
     .suite {{ color: #4b5563; font-size: 13px; }}
     .total-time {{ color: #374151; font-variant-numeric: tabular-nums; text-align: right; }}
@@ -946,12 +1043,28 @@ def render_html(
     .metadata {{ display: grid; grid-template-columns: 140px 1fr; gap: 8px 14px; margin-bottom: 14px; font-size: 12px; }}
     .metadata div {{ display: contents; }}
     .metadata span {{ color: #6b7280; font-weight: 700; text-transform: uppercase; }}
+    .command-details {{ margin: 0 0 14px; border: 1px solid #dbe3ea; border-radius: 5px; background: #f8fafc; }}
+    .command-details summary {{ cursor: pointer; padding: 8px 10px; color: #334155; font-size: 12px; font-weight: 750; }}
+    .command-details code {{ display: block; padding: 0 10px 10px; overflow-wrap: anywhere; color: #334155; }}
+    .artifact-nav {{ margin: 0 0 16px; padding: 12px; border: 1px solid #bfdbfe; border-radius: 7px; background: #f8fbff; }}
+    .artifact-nav h2 {{ margin: 0 0 3px; font-size: 14px; color: #1e3a5f; }}
+    .artifact-nav p {{ margin: 0 0 10px; color: #5b6875; font-size: 12px; }}
+    .artifact-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 7px; }}
+    .artifact-link {{ display: block; padding: 8px 9px; border: 1px solid #dbe3ea; border-radius: 5px; background: #fff; color: #1d4ed8; text-decoration: none; }}
+    .artifact-link:hover {{ border-color: #60a5fa; background: #eff6ff; }}
+    .artifact-link strong {{ display: block; font-size: 12px; }}
+    .artifact-link span {{ display: block; margin-top: 2px; color: #64748b; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }}
     table {{ border-collapse: collapse; width: 100%; table-layout: fixed; }}
     th, td {{ border-bottom: 1px solid #e5e7eb; padding: 10px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }}
     th {{ background: #f9fafb; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: #374151; }}
-    .phases th:nth-child(1) {{ width: 19%; }}
-    .phases th:nth-child(2) {{ width: 10%; }}
-    .phases th:nth-child(3) {{ width: 10%; }}
+    .phases th:nth-child(1) {{ width: 15%; }}
+    .phases th:nth-child(2) {{ width: 9%; }}
+    .phases th:nth-child(3) {{ width: 9%; }}
+    .phases th:nth-child(5) {{ width: 17%; }}
+    .phase-links {{ font-size: 11px; line-height: 1.55; }}
+    .phase-links a {{ display: block; color: #1d4ed8; font-weight: 650; text-decoration: none; }}
+    .phase-links a:hover {{ text-decoration: underline; }}
+    .muted {{ color: #94a3b8; font-size: 11px; }}
     code {{ font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }}
     .keyword {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; color: #1d4ed8; }}
     .elapsed {{ font-variant-numeric: tabular-nums; white-space: nowrap; }}
@@ -983,7 +1096,7 @@ def render_html(
     .badge.fail {{ color: #991b1b; background: #fee2e2; border: 1px solid #dc2626; }}
     @media (max-width: 760px) {{
       main {{ width: min(100% - 18px, 1500px); margin-top: 12px; }}
-      summary {{ grid-template-columns: 1fr auto; }}
+      .test-case > summary {{ grid-template-columns: 1fr auto; }}
       .suite {{ grid-column: 1; }}
       .total-time {{ grid-column: 2; grid-row: 1; }}
       .metadata {{ grid-template-columns: 1fr; }}
@@ -997,9 +1110,9 @@ def render_html(
 </head>
 <body>
   <main>
-    <div class="eyebrow">Robot-style execution log</div>
-    <h1>PlaySBC Regression Report</h1>
-    <p class="meta">Run ID: <code>{html.escape(run_id)}</code> | Generated: {html.escape(generated_at)}</p>
+    <div class="eyebrow">Execution and evidence</div>
+    <h1>PlaySBC Regression Evidence Report</h1>
+    <p class="meta">Run <code>{html.escape(run_id)}</code> | Generated {html.escape(generated_at)} | Expand a test to open its measured phases, logs, ladder, and packet evidence.</p>
     <div class="summary {summary_class}">
       <strong>Total: {len(rows)}</strong>
       <strong>Passed: {passed}</strong>

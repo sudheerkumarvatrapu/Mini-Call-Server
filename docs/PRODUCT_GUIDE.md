@@ -92,33 +92,64 @@ The inbound SIP dialog and outbound SIP dialog are separate B2BUA legs with dist
 
 A passing profile proves the behavior and evidence asserted by that profile. It does not automatically certify every RFC clause, endpoint, network, scale, or failure mode.
 
-# Deployment Models
+# Deployment Model Selection
 
 Choose one lane for one purpose. Do not reuse cloud values in local clusters or local real-device values in AKS.
 
 | Model | Topology | Primary use | Exposure |
 | --- | --- | --- | --- |
-| Docker | Process/container lab | Fast development checks | Local only |
-| kind-playsbc | 2 PlaySBC + 2 RTPengine | Canonical 70-profile regression | Docker Desktop |
-| Minikube | Compatibility topology | Kubernetes portability | Local |
-| kind real device | 1 PlaySBC + 1 RTPengine | LAN OBi/Zoiper calls | Mac LAN ports |
-| Azure AKS | 1+1 readiness baseline | Azure LB, ACR, public SIP/RTP | Cloud resources |
+| Docker | PlaySBC, RTPengine, SIPp containers | Fast development and dual-realm checks | Local Docker networks |
+| kind regression | 2 PlaySBC + 2 RTPengine | Canonical 70-profile regression and HA lab | Docker Desktop |
+| Minikube | Chart compatibility topology | Kubernetes portability checks | Local NodePort/tunnel |
+| Generic Kubernetes | Deployment or StatefulSet | Platform integration with operator-owned networking | Platform-defined |
+| kind real device | 1 PlaySBC + 1 RTPengine | LAN OBi/Zoiper calls and packet capture | Mac LAN ports |
+| Azure AKS | 1+1 readiness or active-active | Azure ACR, identity, static SIP/RTP LBs | Public/private Azure networking |
 
-## Isolation Rules
+## Common Isolation And Safety Rules
 
-- Use context `kind-playsbc` for canonical local regression.
-- Use context `kind-playsbc-real-device` for LAN phone testing.
-- Use the AKS context only with Azure values and LoadBalancer resources.
-- Verify context, image tags, advertised addresses, and RTP range before a run.
+- Set `PLAYSBC_VERSION=2.6.0` before cloning, importing images, upgrading, or running regression.
+- Use context `kind-playsbc` only for canonical local regression.
+- Use context `kind-playsbc-real-device` only for LAN phone testing.
+- Use the AKS context only with Azure values, ACR images, and Azure LoadBalancer resources.
+- Always set both image repositories and both image tags during an upgrade. Setting only a tag can produce nonexistent defaults such as `playsbc:2.6.0` or `drachtio/rtpengine:2.6.0`.
+- Verify context, Helm status, workload images, advertised addresses, and RTP range before a call or regression run.
+- Use `--atomic --wait` for normal upgrades. If an interrupted operation leaves Helm pending, inspect history and roll back before starting another upgrade.
 
-# Docker Administration
+# Docker Deployment Model
 
-Use Docker for fast local protocol and application checks before Kubernetes. Docker Desktop must be running on macOS.
+[[DOCKER_DIAGRAM]]
+
+## Purpose And Prerequisites
+
+Docker is the fastest lane for application, signalling, media, and dual-realm topology checks. On macOS, start Docker Desktop and keep the Mac awake for load or soak work.
 
 ```bash
-cd /path/to/PlaySBC
-docker info
+cd /Users/sudheerkumar/Documents/Codex/2026-05-18/Mini-Call-Server
+export PLAYSBC_VERSION=2.6.0
 
+open -a Docker
+until docker info >/dev/null 2>&1; do
+  echo "Waiting for Docker Desktop..."
+  sleep 5
+done
+```
+
+## Build Or Refresh Images
+
+```bash
+docker build -f docker/playsbc.Dockerfile \
+  -t "playsbc:$PLAYSBC_VERSION" .
+
+docker build -f docker/rtpengine.Dockerfile \
+  -t "playsbc-rtpengine:$PLAYSBC_VERSION" .
+
+docker image inspect "playsbc:$PLAYSBC_VERSION" >/dev/null
+docker image inspect "playsbc-rtpengine:$PLAYSBC_VERSION" >/dev/null
+```
+
+## Run Fast Application Regression
+
+```bash
 PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache \
 python3 tools/run_regression_suite.py \
   --skip-sipp-smoke \
@@ -126,56 +157,403 @@ python3 tools/run_regression_suite.py \
   --timeout 420
 ```
 
-Output: `logs/reports/latest.html`
+Report: `logs/reports/latest.html`.
 
-## Administration Notes
-
-- Confirm Docker has sufficient CPU, memory, disk, and battery/power before media or load work.
-- Use versioned images; do not assume `latest` points at the release gate.
-- Inspect container logs and generated HTML before escalating a failed scenario.
-
-# kind and Minikube Administration
-
-kind is the canonical full regression environment. kind nodes are Docker containers, so Docker Desktop must remain running. Minikube is a compatibility lane.
+## Run The Real-Address Docker Topology
 
 ```bash
+PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache \
+python3 tools/run_real_topology.py --rebuild
+```
+
+This lane creates distinct core and peer Docker networks, a PlaySBC container, an RTPengine container, SIPp endpoints, RTP/RTCP helpers, and a combined evidence bundle.
+
+## Verify, Inspect, And Clean Up
+
+```bash
+docker compose -f docker-compose.topology.yml ps
+docker compose -f docker-compose.topology.yml logs --tail=100 playsbc rtpengine
+
+docker compose -f docker-compose.topology.yml down \
+  --remove-orphans --volumes
+```
+
+To roll back, rebuild the previously accepted Git tag under a different immutable local tag and rerun the same profile. Do not retag an unverified image as the accepted release.
+
+# kind Canonical Regression Model
+
+[[KIND_DIAGRAM]]
+
+## Purpose And Prerequisites
+
+The `kind-playsbc` context is the canonical 70-profile, active-active, HA-foundation regression lane. kind nodes are Docker containers, so Docker Desktop must remain running.
+
+```bash
+cd /Users/sudheerkumar/Documents/Codex/2026-05-18/Mini-Call-Server
+export PLAYSBC_VERSION=2.6.0
+
 open -a Docker
 until docker info >/dev/null 2>&1; do sleep 5; done
 
 kind get clusters
-kubectl config use-context kind-playsbc
-kubectl config set-context --current --namespace=playsbc
-kubectl get nodes
-kubectl get pods -n playsbc
 ```
 
-## Upgrade v2.6.0
+## Create Or Recover The Cluster
+
+Create the cluster only when `kind get clusters` does not list `playsbc`.
+
+```bash
+kind create cluster --name playsbc --wait 180s
+
+kubectl config use-context kind-playsbc
+kubectl create namespace playsbc \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl config set-context --current --namespace=playsbc
+kubectl get nodes
+```
+
+If the context exists but `127.0.0.1:<port>` is refused, start Docker Desktop and the existing control-plane container first.
+
+```bash
+open -a Docker
+until docker info >/dev/null 2>&1; do sleep 5; done
+docker start playsbc-control-plane 2>/dev/null || true
+kubectl --context kind-playsbc get nodes
+```
+
+## Install Or Upgrade v2.6.0
+
+Both repositories are mandatory. The active-active values create two StatefulSet replicas for PlaySBC and RTPengine plus Prometheus and Grafana.
+
+```bash
+helm upgrade --install playsbc \
+  "https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz" \
+  --kube-context kind-playsbc \
+  --namespace playsbc \
+  --create-namespace \
+  --atomic --wait --timeout 10m \
+  -f configs/kubernetes/active-active-values.yaml \
+  --set image.repository=ghcr.io/sudheerkumarvatrapu/playsbc \
+  --set-string image.tag="$PLAYSBC_VERSION" \
+  --set image.pullPolicy=Always \
+  --set rtpengine.enabled=true \
+  --set rtpengine.image.repository=ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine \
+  --set-string rtpengine.image.tag="$PLAYSBC_VERSION" \
+  --set rtpengine.image.pullPolicy=Always \
+  --set rtpengine.hostNetwork=false \
+  --set playsbc.config.media_backend=rtpengine \
+  --set-string playsbc.config.rtpengine_url=udp://playsbc-playsbc-rtpengine:2223 \
+  --set observability.enabled=true \
+  --set observability.prometheus.retention=31d \
+  --set observability.prometheus.persistence.size=5Gi \
+  --set observability.grafana.persistence.size=2Gi
+```
+
+## Verify The Upgrade
+
+```bash
+helm --kube-context kind-playsbc -n playsbc status playsbc
+
+kubectl --context kind-playsbc -n playsbc get pods -o wide
+kubectl --context kind-playsbc -n playsbc get statefulset
+
+kubectl --context kind-playsbc -n playsbc get statefulset \
+  playsbc-playsbc playsbc-playsbc-rtpengine \
+  -o custom-columns='NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image,READY:.status.readyReplicas'
+
+kubectl --context kind-playsbc -n playsbc exec \
+  statefulset/playsbc-playsbc -- \
+  python3 -c 'import mini_call_server as s; print(s.PLAYSBC_VERSION)'
+```
+
+Expected images are the two GHCR repositories with tag `2.6.0`; the runtime version must print `2.6.0`.
+
+## Run All 70 Profiles
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache \
+python3 tools/run_k8s_regression_job.py \
+  --all-profiles \
+  --runner-image ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.6.0 \
+  --sipp-image ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.6.0 \
+  --playsbc-image ghcr.io/sudheerkumarvatrapu/playsbc:2.6.0 \
+  --rtpengine-image ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:2.6.0 \
+  --set-playsbc-image \
+  --set-rtpengine-image \
+  --no-load-playsbc-image \
+  --no-load-rtpengine-image \
+  --no-load-sipp-image \
+  --kind-cluster playsbc
+```
+
+The launcher prints `Regression progress: X/70`. The final report is under `logs/k8s-job/<run-id>/k8s-reports/latest.html`.
+
+## Run Selected Profiles
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache \
+python3 tools/run_k8s_regression_job.py \
+  --profile rfc5359-call-hold-resume \
+  --profile rtpengine-media \
+  --runner-image ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.6.0 \
+  --sipp-image ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.6.0 \
+  --playsbc-image ghcr.io/sudheerkumarvatrapu/playsbc:2.6.0 \
+  --rtpengine-image ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:2.6.0 \
+  --set-playsbc-image --set-rtpengine-image \
+  --no-load-playsbc-image --no-load-rtpengine-image --no-load-sipp-image \
+  --kind-cluster playsbc
+```
+
+## Roll Back And Clean Up
+
+```bash
+helm --kube-context kind-playsbc -n playsbc history playsbc
+helm --kube-context kind-playsbc -n playsbc rollback playsbc <REVISION> \
+  --wait --timeout 10m
+
+helm --kube-context kind-playsbc -n playsbc uninstall playsbc
+kind delete cluster --name playsbc
+```
+
+If Helm is `pending-upgrade` after an interruption, roll back to the last `deployed` revision. If pods still reference the interrupted image, delete only those failed pods and let the rolled-back StatefulSet recreate them.
+
+# Minikube Compatibility Model
+
+[[MINIKUBE_DIAGRAM]]
+
+## Purpose And Prerequisites
+
+Minikube checks chart portability. The Docker driver requires Docker Desktop; VM drivers require their matching hypervisor. kind remains the release-gating local lane.
 
 ```bash
 export PLAYSBC_VERSION=2.6.0
+minikube start --driver=docker --profile playsbc
 
-helm upgrade --install playsbc \
-  https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz \
-  -n playsbc --create-namespace --atomic --wait --timeout 10m \
-  -f configs/kubernetes/active-active-values.yaml \
-  --set-string image.tag=$PLAYSBC_VERSION \
-  --set-string rtpengine.image.tag=$PLAYSBC_VERSION
+kubectl config use-context playsbc
+kubectl create namespace playsbc \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl config set-context --current --namespace=playsbc
 ```
 
-If kubectl reports connection refused on `127.0.0.1`, start Docker Desktop and the existing `playsbc-control-plane` container. Recreate the cluster only when `kind get clusters` no longer lists `playsbc`.
+## Make Images Available
 
-# Azure AKS Administration
+Use GHCR images with pull policy `Always`, or load locally built images into the profile. Do not combine a GHCR repository with `pullPolicy: Never`.
+
+```bash
+minikube -p playsbc image load "playsbc:$PLAYSBC_VERSION"
+minikube -p playsbc image load "playsbc-rtpengine:$PLAYSBC_VERSION"
+```
+
+## Install Or Upgrade
+
+```bash
+helm upgrade --install playsbc \
+  "https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz" \
+  --kube-context playsbc \
+  -n playsbc --create-namespace --atomic --wait --timeout 10m \
+  -f configs/kubernetes/minikube-values.yaml \
+  --set image.repository=ghcr.io/sudheerkumarvatrapu/playsbc \
+  --set-string image.tag="$PLAYSBC_VERSION" \
+  --set image.pullPolicy=Always \
+  --set rtpengine.image.repository=ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine \
+  --set-string rtpengine.image.tag="$PLAYSBC_VERSION" \
+  --set rtpengine.image.pullPolicy=Always
+```
+
+## Verify, Test, Roll Back, And Clean Up
+
+```bash
+kubectl --context playsbc -n playsbc get pods,svc -o wide
+helm --kube-context playsbc -n playsbc history playsbc
+
+helm --kube-context playsbc -n playsbc rollback playsbc <REVISION> \
+  --wait --timeout 10m
+
+helm --kube-context playsbc -n playsbc uninstall playsbc
+minikube delete --profile playsbc
+```
+
+Selected Kubernetes profiles may be run against this context after validating image availability and service reachability. Run the full release gate on kind.
+
+# Generic Helm Kubernetes Model
+
+[[KUBERNETES_DIAGRAM]]
+
+## Operator Responsibilities
+
+The chart can render for another conformant Kubernetes cluster, but the operator owns the CNI, storage classes, LoadBalancer implementation, SIP/RTP firewall policy, certificates, identity, secrets, and capacity. An HTTP ingress controller does not replace SIP UDP/TCP/TLS or RTP/RTCP exposure.
+
+## Prepare And Render Before Applying
+
+```bash
+export PLAYSBC_VERSION=2.6.0
+export KUBE_CONTEXT=<your-context>
+
+kubectl --context "$KUBE_CONTEXT" get nodes
+helm lint charts/playsbc
+
+helm template playsbc \
+  "https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz" \
+  --namespace playsbc \
+  -f <platform-values.yaml> \
+  --set image.repository=ghcr.io/sudheerkumarvatrapu/playsbc \
+  --set-string image.tag="$PLAYSBC_VERSION" \
+  --set rtpengine.image.repository=ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine \
+  --set-string rtpengine.image.tag="$PLAYSBC_VERSION" \
+  >/tmp/playsbc-rendered.yaml
+```
+
+Inspect `/tmp/playsbc-rendered.yaml` for workload kind, replicas, images, Services, Secrets, storage, advertised IPs, and RTP range.
+
+## Install Or Upgrade
+
+```bash
+helm upgrade --install playsbc \
+  "https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz" \
+  --kube-context "$KUBE_CONTEXT" \
+  -n playsbc --create-namespace --atomic --wait --timeout 10m \
+  -f <platform-values.yaml> \
+  --set image.repository=ghcr.io/sudheerkumarvatrapu/playsbc \
+  --set-string image.tag="$PLAYSBC_VERSION" \
+  --set rtpengine.image.repository=ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine \
+  --set-string rtpengine.image.tag="$PLAYSBC_VERSION"
+```
+
+## Verify, Test, Roll Back, And Clean Up
+
+```bash
+kubectl --context "$KUBE_CONTEXT" -n playsbc get \
+  pods,svc,deploy,statefulset,pvc -o wide
+
+helm --kube-context "$KUBE_CONTEXT" -n playsbc history playsbc
+helm --kube-context "$KUBE_CONTEXT" -n playsbc rollback playsbc <REVISION> \
+  --wait --timeout 10m
+
+helm --kube-context "$KUBE_CONTEXT" -n playsbc uninstall playsbc
+```
+
+Run selected regression profiles first. Promote to a full suite only after platform-specific SIP and RTP networking is verified.
+
+# Azure AKS Administration and Deployment Model
 
 [[AKS_DIAGRAM]]
 
-## Required Azure Resources
+## Purpose And Required Resources
+
+The AKS lane validates Azure identity, ACR, static public IPs, Azure Load Balancers, public SIP/RTP reachability, cloud regression, and internet real-device calls.
 
 - AKS resource group and cluster.
-- Network resource group with static SIP and RTP public IP resources.
+- Network resource group with separate static SIP and RTP public IP resources.
 - Azure Container Registry containing all four v2.6.0 images.
 - Network Contributor permission for the AKS identity on the network resource group.
+- Firewall/source-range policy for SIP, health, and RTP ports.
 
-## Verify Azure Services
+## Set Variables And Register Providers
+
+```bash
+export PLAYSBC_VERSION=2.6.0
+export LOCATION=eastus
+export AKS_RG=playsbc-aks-rg
+export NETWORK_RG=playsbc-network-rg
+export AKS_NAME=playsbc-aks
+export ACR_NAME=playsbcacr$RANDOM
+export SIP_PIP_NAME=playsbc-sip-pip
+export RTP_PIP_NAME=playsbc-rtp-pip
+
+for PROVIDER in Microsoft.ContainerService Microsoft.ContainerRegistry \
+  Microsoft.Network Microsoft.Compute Microsoft.ManagedIdentity; do
+  az provider register --namespace "$PROVIDER"
+done
+
+az group create -n "$AKS_RG" -l "$LOCATION"
+az group create -n "$NETWORK_RG" -l "$LOCATION"
+```
+
+## Create ACR And AKS
+
+```bash
+az acr create -g "$AKS_RG" -n "$ACR_NAME" --sku Basic
+
+az aks create \
+  -g "$AKS_RG" -n "$AKS_NAME" -l "$LOCATION" \
+  --tier free --node-count 1 --node-vm-size Standard_D2as_v7 \
+  --load-balancer-sku standard --attach-acr "$ACR_NAME" \
+  --generate-ssh-keys
+
+az aks get-credentials \
+  -g "$AKS_RG" -n "$AKS_NAME" --overwrite-existing
+kubectl get nodes
+```
+
+## Create Static Public IPs And Grant Identity Access
+
+```bash
+az network public-ip create \
+  -g "$NETWORK_RG" -n "$SIP_PIP_NAME" -l "$LOCATION" \
+  --sku Standard --allocation-method Static
+
+az network public-ip create \
+  -g "$NETWORK_RG" -n "$RTP_PIP_NAME" -l "$LOCATION" \
+  --sku Standard --allocation-method Static
+
+AKS_OBJECT_ID=$(az aks show -g "$AKS_RG" -n "$AKS_NAME" \
+  --query identity.principalId -o tsv)
+NETWORK_RG_ID=$(az group show -n "$NETWORK_RG" --query id -o tsv)
+
+az role assignment create \
+  --assignee-object-id "$AKS_OBJECT_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "Network Contributor" \
+  --scope "$NETWORK_RG_ID"
+```
+
+This role assignment is persistent for the current managed identity and network resource group. Recreate it when either resource is recreated with a new identity or scope.
+
+## Import And Verify All Four Images
+
+```bash
+for IMAGE in playsbc playsbc-rtpengine playsbc-k8s-regression playsbc-sipp; do
+  az acr import --name "$ACR_NAME" \
+    --source "ghcr.io/sudheerkumarvatrapu/$IMAGE:$PLAYSBC_VERSION" \
+    --image "$IMAGE:$PLAYSBC_VERSION" --force
+
+  az acr repository show --name "$ACR_NAME" \
+    --image "$IMAGE:$PLAYSBC_VERSION" -o none
+done
+```
+
+## Install Or Upgrade AKS
+
+```bash
+export ACR_LOGIN_SERVER=$(az acr show -g "$AKS_RG" -n "$ACR_NAME" \
+  --query loginServer -o tsv)
+export NODE_RG=$(az aks show -g "$AKS_RG" -n "$AKS_NAME" \
+  --query nodeResourceGroup -o tsv)
+export SIP_PUBLIC_IP=$(az network public-ip show -g "$NETWORK_RG" \
+  -n "$SIP_PIP_NAME" --query ipAddress -o tsv)
+export RTP_PUBLIC_IP=$(az network public-ip show -g "$NETWORK_RG" \
+  -n "$RTP_PIP_NAME" --query ipAddress -o tsv)
+
+helm upgrade --install playsbc \
+  "https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz" \
+  -n playsbc --create-namespace --atomic --wait --timeout 15m \
+  -f configs/kubernetes/aks-values.yaml \
+  --set cloud.azure.nodeResourceGroup="$NODE_RG" \
+  --set cloud.azure.sip.public.publicIPResourceGroup="$NETWORK_RG" \
+  --set cloud.azure.sip.public.publicIPName="$SIP_PIP_NAME" \
+  --set cloud.azure.media.public.enabled=true \
+  --set cloud.azure.media.public.publicIPResourceGroup="$NETWORK_RG" \
+  --set cloud.azure.media.public.publicIPName="$RTP_PIP_NAME" \
+  --set image.repository="$ACR_LOGIN_SERVER/playsbc" \
+  --set-string image.tag="$PLAYSBC_VERSION" \
+  --set rtpengine.image.repository="$ACR_LOGIN_SERVER/playsbc-rtpengine" \
+  --set-string rtpengine.image.tag="$PLAYSBC_VERSION" \
+  --set-string rtpengine.advertisedIP="$RTP_PUBLIC_IP" \
+  --set-string playsbc.config.sip_advertised_ip="$SIP_PUBLIC_IP" \
+  --set-string playsbc.config.b2bua_advertised_ip="$SIP_PUBLIC_IP"
+```
+
+## Verify Azure Services And Runtime
 
 ```bash
 kubectl -n playsbc get pods -o wide
@@ -185,36 +563,173 @@ kubectl -n playsbc get svc \
 
 kubectl -n playsbc describe svc \
   playsbc-playsbc-azure-sip-public | sed -n '/Events:/,$p'
+
+kubectl -n playsbc get deployment,statefulset \
+  -o custom-columns='KIND:.kind,NAME:.metadata.name,IMAGES:.spec.template.spec.containers[*].image'
 ```
 
-A pending external IP is not solved by restarting PlaySBC. Check Service events, static public-IP names, resource groups, and AKS managed identity permission. Wait for both ingress addresses before registration, calls, or AKS regression.
+A pending external IP is not solved by restarting PlaySBC. Check Service events, static public-IP names, resource groups, and managed identity permission. Wait for both ingress addresses before registration, calls, or AKS regression.
 
-# Real-Device Administration
+## Run AKS Regression: 12-Profile Readiness Suite
 
-## Validated Identities
+```bash
+PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache \
+python3 tools/run_k8s_regression_job.py \
+  --aks-profiles \
+  --runner-image "$ACR_LOGIN_SERVER/playsbc-k8s-regression:$PLAYSBC_VERSION" \
+  --runner-image-pull-policy Always \
+  --sipp-image "$ACR_LOGIN_SERVER/playsbc-sipp:$PLAYSBC_VERSION" \
+  --sipp-image-pull-policy Always \
+  --playsbc-image "$ACR_LOGIN_SERVER/playsbc:$PLAYSBC_VERSION" \
+  --rtpengine-image "$ACR_LOGIN_SERVER/playsbc-rtpengine:$PLAYSBC_VERSION" \
+  --set-playsbc-image --set-rtpengine-image \
+  --aks-load-balancer-wait-timeout 1200 \
+  --job-timeout 3600
+```
+
+Download `latest-aks-regression.tgz` immediately because Cloud Shell storage can be ephemeral.
+
+## Credential Recovery
+
+Use the normal CLI first. If the installed CLI selects an unsupported API version, retrieve the credential payload with an explicitly supported API version.
+
+```bash
+az aks get-credentials \
+  -g "$AKS_RG" -n "$AKS_NAME" --overwrite-existing
+```
+
+Fallback:
+
+```bash
+export SUB_ID=$(az account show --query id -o tsv)
+mkdir -p ~/.kube
+
+az rest --method post \
+  --url "https://management.azure.com/subscriptions/$SUB_ID/resourceGroups/$AKS_RG/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME/listClusterUserCredential?api-version=2025-04-01" \
+  --query 'kubeconfigs[0].value' -o tsv \
+  | base64 -d >~/.kube/config
+
+chmod 600 ~/.kube/config
+kubectl get pods -n playsbc
+```
+
+## Roll Back And Clean Up
+
+Resource-group deletion is asynchronous. A stale kube context may show cached objects briefly and later fail DNS/API access after the control plane is removed.
+
+```bash
+helm -n playsbc history playsbc
+helm -n playsbc rollback playsbc <REVISION> --wait --timeout 15m
+
+export SUB_ID=$(az account show --query id -o tsv)
+for RG in "$AKS_RG" "$NETWORK_RG"; do
+  if [ "$(az group exists --subscription "$SUB_ID" --name "$RG")" = true ]; then
+    az group delete --subscription "$SUB_ID" \
+      --name "$RG" --yes --no-wait
+  fi
+done
+```
+
+# Local kind Real-Device Model
+
+[[REAL_DEVICE_DIAGRAM]]
+
+## Validated Baseline
 
 | Endpoint | User | Password | Transport |
 | --- | --- | --- | --- |
 | OBi1022 | 1001 | secret-password | UDP |
 | Zoiper | 1002 | secret-password | UDP |
 
-## AKS Settings
+This lane uses a separate `playsbc-real-device` cluster. PlaySBC and RTPengine advertise the Mac LAN IPv4 and expose SIP plus RTP/RTCP one-to-one through kind port mappings.
 
-- Proxy and registrar: Azure SIP public IP.
-- SIP port: `5062` for UDP/TCP; `5061` for TLS where configured.
-- Outbound proxy: blank for the validated baseline.
-- Media: plain RTP/AVP with G.711; RTPengine advertises the Azure RTP public IP.
+## Determine The LAN Address And Create The Cluster
 
-## Local Settings
+```bash
+export PLAYSBC_VERSION=2.6.0
+export REAL_DEVICE_CLUSTER=playsbc-real-device
+export REAL_DEVICE_CONTEXT=kind-playsbc-real-device
+export LAN_IF=$(route -n get default | awk '/interface:/{print $2; exit}')
+export LAN_IP=$(ipconfig getifaddr "$LAN_IF")
+: "${LAN_IP:?Could not determine Mac LAN IPv4}"
 
-Use the Mac LAN IPv4 address and the isolated `kind-playsbc-real-device` context. The values profile uses fixed host ports and a Recreate rollout strategy.
+kind create cluster \
+  --name "$REAL_DEVICE_CLUSTER" \
+  --config configs/kubernetes/kind-real-device-cluster.yaml \
+  --wait 180s
+```
 
-## Call Acceptance
+## Install Or Upgrade
+
+```bash
+helm upgrade --install playsbc \
+  "https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz" \
+  --kube-context "$REAL_DEVICE_CONTEXT" \
+  -n playsbc --create-namespace --atomic --wait --timeout 5m \
+  -f configs/kubernetes/kind-real-device-values.yaml \
+  --set-string localRealDevice.lanIPv4="$LAN_IP" \
+  --set image.repository=ghcr.io/sudheerkumarvatrapu/playsbc \
+  --set-string image.tag="$PLAYSBC_VERSION" \
+  --set rtpengine.image.repository=ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine \
+  --set-string rtpengine.image.tag="$PLAYSBC_VERSION" \
+  --set-string playsbc.config.sip_advertised_ip="$LAN_IP" \
+  --set-string playsbc.config.b2bua_advertised_ip="$LAN_IP" \
+  --set-string rtpengine.advertisedIP="$LAN_IP"
+```
+
+The TLS lane also requires Secret `playsbc-real-device-tls`. Validate UDP registration and calls before troubleshooting device certificate trust.
+
+## Verify And Configure Endpoints
+
+```bash
+kubectl --context "$REAL_DEVICE_CONTEXT" -n playsbc get pods -o wide
+python3 tools/check_kind_real_device_lab.py \
+  --context "$REAL_DEVICE_CONTEXT" \
+  --cluster "$REAL_DEVICE_CLUSTER" \
+  --lan-ip "$LAN_IP" \
+  --expected-version "$PLAYSBC_VERSION"
+```
+
+- Proxy and registrar: `$LAN_IP`.
+- UDP/TCP SIP port: `5062`.
+- TLS SIP port: `5061` after certificate trust is configured.
+- OBi1022: user `1001`; Zoiper: user `1002`.
+- Outbound proxy: blank for this baseline.
+- Media: RTP/AVP G.711 with RTPengine range `30000-30049/UDP`.
+
+## Call And Capture Acceptance
 
 - Both users register after the digest challenge.
 - `1001 -> 1002` and `1002 -> 1001` ring, answer, and tear down cleanly.
 - Both parties hear audio in both directions.
-- RTPengine evidence reports caller-to-callee and callee-to-caller traffic.
+- RTPengine evidence reports both media directions and RTCP where endpoints generate it.
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache \
+python3 tools/run_real_device_capture.py \
+  --context "$REAL_DEVICE_CONTEXT" \
+  --namespace playsbc \
+  --duration 120 \
+  --capture-image nicolaka/netshoot:latest
+```
+
+The output bundle contains one combined packet capture and synchronized workload logs. Interrupt once with `Ctrl+C`; the collector performs graceful finalization.
+
+## Monitor, Roll Back, And Clean Up
+
+```bash
+kubectl --context "$REAL_DEVICE_CONTEXT" -n playsbc logs -f \
+  -l app.kubernetes.io/instance=playsbc \
+  --all-containers=true --prefix --max-log-requests=10 --since=10m \
+  | grep -aE 'SIP (INVITE|ACK|BYE|CANCEL)|SIP TX response|SIP response|SDP SUMMARY|RTPENGINE|RTP packet|RTCP|1001|1002'
+
+helm --kube-context "$REAL_DEVICE_CONTEXT" -n playsbc history playsbc
+helm --kube-context "$REAL_DEVICE_CONTEXT" -n playsbc rollback playsbc <REVISION> \
+  --wait --timeout 5m
+
+helm --kube-context "$REAL_DEVICE_CONTEXT" -n playsbc uninstall playsbc
+kind delete cluster --name "$REAL_DEVICE_CLUSTER"
+```
 
 # Helm Configuration and Lifecycle
 
@@ -387,247 +902,3 @@ helm template playsbc charts/playsbc \
 - `docs/OBSERVABILITY.md` - Grafana and Prometheus operations.
 - `docs/AI_VOICE_GATEWAY.md` - public AI lab baseline.
 - `release/RELEASE_NOTES_2.6.0.md` - immutable release record.
-
-# Administrative Appendix A: Prerequisites
-
-## Common Tools
-
-```bash
-git --version
-python3 --version
-kubectl version --client
-helm version --short
-```
-
-Local kind and Docker workflows also require Docker Desktop and kind. Azure Cloud Shell supplies `az`, `kubectl`, `helm`, and Git.
-
-## Repository and Version
-
-```bash
-export PLAYSBC_VERSION=2.6.0
-
-git clone --branch "v$PLAYSBC_VERSION" --depth 1 \
-  https://github.com/sudheerkumarvatrapu/PlaySBC.git \
-  "PlaySBC-v$PLAYSBC_VERSION"
-
-cd "PlaySBC-v$PLAYSBC_VERSION"
-```
-
-# Administrative Appendix B: Cluster Creation
-
-## kind
-
-```bash
-open -a Docker
-until docker info >/dev/null 2>&1; do sleep 5; done
-
-kind create cluster --name playsbc --wait 180s
-kubectl config use-context kind-playsbc
-kubectl create namespace playsbc --dry-run=client -o yaml | kubectl apply -f -
-kubectl config set-context --current --namespace=playsbc
-```
-
-## Minikube Compatibility Lane
-
-```bash
-minikube start --driver=docker --profile playsbc
-kubectl config use-context playsbc
-kubectl create namespace playsbc --dry-run=client -o yaml | kubectl apply -f -
-kubectl config set-context --current --namespace=playsbc
-```
-
-Minikube driver behavior varies. The Docker driver requires Docker Desktop; a VM driver requires its matching hypervisor. kind remains the canonical full-regression lane.
-
-# Administrative Appendix C: Azure AKS Provisioning
-
-## Variables and Providers
-
-```bash
-export LOCATION=eastus
-export AKS_RG=playsbc-aks-rg
-export NETWORK_RG=playsbc-network-rg
-export AKS_NAME=playsbc-aks
-export ACR_NAME=playsbcacr$RANDOM
-export SIP_PIP_NAME=playsbc-sip-pip
-export RTP_PIP_NAME=playsbc-rtp-pip
-
-for PROVIDER in Microsoft.ContainerService Microsoft.ContainerRegistry \
-  Microsoft.Network Microsoft.Compute Microsoft.ManagedIdentity; do
-  az provider register --namespace "$PROVIDER"
-done
-
-az group create -n "$AKS_RG" -l "$LOCATION"
-az group create -n "$NETWORK_RG" -l "$LOCATION"
-```
-
-## ACR and AKS
-
-```bash
-az acr create -g "$AKS_RG" -n "$ACR_NAME" --sku Basic
-
-az aks create \
-  -g "$AKS_RG" -n "$AKS_NAME" -l "$LOCATION" \
-  --tier free --node-count 1 --node-vm-size Standard_D2as_v7 \
-  --load-balancer-sku standard --attach-acr "$ACR_NAME" \
-  --generate-ssh-keys
-
-az aks get-credentials -g "$AKS_RG" -n "$AKS_NAME" --overwrite-existing
-kubectl get nodes
-```
-
-## Static Public IPs and AKS Identity
-
-```bash
-az network public-ip create \
-  -g "$NETWORK_RG" -n "$SIP_PIP_NAME" -l "$LOCATION" \
-  --sku Standard --allocation-method Static
-
-az network public-ip create \
-  -g "$NETWORK_RG" -n "$RTP_PIP_NAME" -l "$LOCATION" \
-  --sku Standard --allocation-method Static
-
-AKS_OBJECT_ID=$(az aks show -g "$AKS_RG" -n "$AKS_NAME" \
-  --query identity.principalId -o tsv)
-NETWORK_RG_ID=$(az group show -n "$NETWORK_RG" --query id -o tsv)
-
-az role assignment create \
-  --assignee-object-id "$AKS_OBJECT_ID" \
-  --assignee-principal-type ServicePrincipal \
-  --role "Network Contributor" \
-  --scope "$NETWORK_RG_ID"
-```
-
-## Import v2.6.0 Images
-
-```bash
-export PLAYSBC_VERSION=2.6.0
-
-for IMAGE in playsbc playsbc-rtpengine playsbc-k8s-regression playsbc-sipp; do
-  az acr import --name "$ACR_NAME" \
-    --source "ghcr.io/sudheerkumarvatrapu/$IMAGE:$PLAYSBC_VERSION" \
-    --image "$IMAGE:$PLAYSBC_VERSION" --force
-done
-```
-
-## Install the AKS Baseline
-
-Use `configs/kubernetes/aks-values.yaml` as the base and set the current ACR, static IP resource names, network resource group, and advertised addresses. Wait for both SIP and RTP Services to receive external IPs before calls or regression.
-
-```bash
-export ACR_LOGIN_SERVER=$(az acr show -g "$AKS_RG" -n "$ACR_NAME" \
-  --query loginServer -o tsv)
-export NODE_RG=$(az aks show -g "$AKS_RG" -n "$AKS_NAME" \
-  --query nodeResourceGroup -o tsv)
-export SIP_PUBLIC_IP=$(az network public-ip show -g "$NETWORK_RG" \
-  -n "$SIP_PIP_NAME" --query ipAddress -o tsv)
-export RTP_PUBLIC_IP=$(az network public-ip show -g "$NETWORK_RG" \
-  -n "$RTP_PIP_NAME" --query ipAddress -o tsv)
-
-helm upgrade --install playsbc \
-  "https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz" \
-  -n playsbc --create-namespace --atomic --wait --timeout 10m \
-  -f configs/kubernetes/aks-values.yaml \
-  --set cloud.azure.nodeResourceGroup="$NODE_RG" \
-  --set cloud.azure.sip.public.publicIPResourceGroup="$NETWORK_RG" \
-  --set cloud.azure.sip.public.publicIPName="$SIP_PIP_NAME" \
-  --set cloud.azure.media.public.publicIPResourceGroup="$NETWORK_RG" \
-  --set cloud.azure.media.public.publicIPName="$RTP_PIP_NAME" \
-  --set image.repository="$ACR_LOGIN_SERVER/playsbc" \
-  --set-string image.tag="$PLAYSBC_VERSION" \
-  --set rtpengine.image.repository="$ACR_LOGIN_SERVER/playsbc-rtpengine" \
-  --set-string rtpengine.image.tag="$PLAYSBC_VERSION" \
-  --set-string rtpengine.advertisedIP="$RTP_PUBLIC_IP" \
-  --set-string playsbc.config.sip_advertised_ip="$SIP_PUBLIC_IP" \
-  --set-string playsbc.config.b2bua_advertised_ip="$SIP_PUBLIC_IP"
-```
-
-# Administrative Appendix D: AKS Regression
-
-AKS regression uses 12 cloud-readiness profiles and one PlaySBC plus one RTPengine by default to control lab cost.
-
-```bash
-PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache \
-python3 tools/run_k8s_regression_job.py \
-  --aks-profiles \
-  --runner-image "$ACR_LOGIN_SERVER/playsbc-k8s-regression:$PLAYSBC_VERSION" \
-  --runner-image-pull-policy Always \
-  --sipp-image "$ACR_LOGIN_SERVER/playsbc-sipp:$PLAYSBC_VERSION" \
-  --sipp-image-pull-policy Always \
-  --playsbc-image "$ACR_LOGIN_SERVER/playsbc:$PLAYSBC_VERSION" \
-  --rtpengine-image "$ACR_LOGIN_SERVER/playsbc-rtpengine:$PLAYSBC_VERSION" \
-  --set-playsbc-image --set-rtpengine-image \
-  --aks-load-balancer-wait-timeout 1200 \
-  --job-timeout 3600
-```
-
-Download `latest-aks-regression.tgz` from Cloud Shell immediately after the run because the session may be ephemeral.
-
-# Administrative Appendix E: Local Real-Device Cluster
-
-```bash
-export REAL_DEVICE_CLUSTER=playsbc-real-device
-export REAL_DEVICE_CONTEXT=kind-playsbc-real-device
-export LAN_IF=$(route -n get default | awk '/interface:/{print $2; exit}')
-export LAN_IP=$(ipconfig getifaddr "$LAN_IF")
-: "${LAN_IP:?Could not determine Mac LAN IPv4}"
-
-kind create cluster \
-  --name "$REAL_DEVICE_CLUSTER" \
-  --config configs/kubernetes/kind-real-device-cluster.yaml \
-  --wait 180s
-
-helm upgrade --install playsbc \
-  "https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz" \
-  --kube-context "$REAL_DEVICE_CONTEXT" \
-  -n playsbc --create-namespace --atomic --wait --timeout 5m \
-  -f configs/kubernetes/kind-real-device-values.yaml \
-  --set-string localRealDevice.lanIPv4="$LAN_IP" \
-  --set-string playsbc.config.sip_advertised_ip="$LAN_IP" \
-  --set-string playsbc.config.b2bua_advertised_ip="$LAN_IP" \
-  --set-string rtpengine.advertisedIP="$LAN_IP" \
-  --set-string image.tag="$PLAYSBC_VERSION" \
-  --set-string rtpengine.image.tag="$PLAYSBC_VERSION"
-```
-
-The TLS lane also requires the `playsbc-real-device-tls` Secret described by the chart values. UDP registration and calls can be validated before TLS device trust is configured.
-
-## Capture Real-Device Evidence
-
-```bash
-PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache \
-python3 tools/run_real_device_capture.py \
-  --context "$REAL_DEVICE_CONTEXT" \
-  --namespace playsbc \
-  --duration 120 \
-  --capture-image nicolaka/netshoot:latest
-```
-
-# Administrative Appendix F: Cleanup
-
-## Local Clusters
-
-```bash
-helm --kube-context kind-playsbc-real-device -n playsbc uninstall playsbc
-kind delete cluster --name playsbc-real-device
-
-helm --kube-context kind-playsbc -n playsbc uninstall playsbc
-kind delete cluster --name playsbc
-```
-
-## Azure
-
-Set the active subscription from the current account; do not paste an old subscription ID from another tenant.
-
-```bash
-export SUB_ID=$(az account show --query id -o tsv)
-export AKS_RG=playsbc-aks-rg
-export NETWORK_RG=playsbc-network-rg
-
-for RG in "$AKS_RG" "$NETWORK_RG"; do
-  if [ "$(az group exists --subscription "$SUB_ID" --name "$RG")" = true ]; then
-    az group delete --subscription "$SUB_ID" --name "$RG" --yes --no-wait
-  fi
-done
-```
-
-Resource-group deletion is asynchronous. A stale kubectl context may continue to show cached objects briefly and later fail DNS/API access after the AKS control plane is removed.

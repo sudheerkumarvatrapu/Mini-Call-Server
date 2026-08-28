@@ -2018,24 +2018,53 @@ Content-Length: 0
             self.assertIn("uas-reg-inbound.xml", sipp)
 
     def test_regression_report_html_marks_pass_and_fail(self):
-        rows = [
-            run_regression_suite.ReportRow("SIPp Smoke", "options", "passed", 0, 0.1, "/tmp/logs", "cmd"),
-            run_regression_suite.ReportRow("B2BUA", "media", "failed", 1, 0.2, "/tmp/logs", "cmd"),
-            run_regression_suite.ReportRow("B2BUA", "rtpengine-preflight", "blocked", None, 0.01, "/tmp/logs", "cmd"),
-        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            report_dir = Path(tmp) / "reports"
+            bundle = Path(tmp) / "options"
+            report_dir.mkdir()
+            bundle.mkdir()
+            (bundle / "log.sipp").write_text("SIPp passed\n", encoding="utf-8")
+            (bundle / "sipmsg.log").write_text("OPTIONS sip:playsbc SIP/2.0\n", encoding="utf-8")
+            rows = [
+                run_regression_suite.ReportRow(
+                    "SIPp Smoke",
+                    "options",
+                    "passed",
+                    0,
+                    0.1,
+                    str(bundle),
+                    "cmd",
+                    phases=[
+                        run_regression_suite.ReportPhase(
+                            "Test Execution", "passed", 0.1, "OPTIONS returned 200"
+                        )
+                    ],
+                ),
+                run_regression_suite.ReportRow("B2BUA", "media", "failed", 1, 0.2, "/tmp/logs", "cmd"),
+                run_regression_suite.ReportRow("B2BUA", "rtpengine-preflight", "blocked", None, 0.01, "/tmp/logs", "cmd"),
+            ]
 
-        report = run_regression_suite.render_html(rows, "2026-06-13 10:00:00 IST", "unit-report")
+            report = run_regression_suite.render_html(
+                rows,
+                "2026-06-13 10:00:00 IST",
+                "unit-report",
+                report_dir=report_dir,
+            )
 
-        self.assertIn("PlaySBC Regression Report", report)
-        self.assertIn("PASSED", report)
-        self.assertIn("FAILED", report)
-        self.assertIn("BLOCKED", report)
-        self.assertIn("Blocked: 1", report)
-        self.assertIn("badge pass", report)
-        self.assertIn("badge fail", report)
-        self.assertIn("badge blocked", report)
-        self.assertIn("Robot-style execution log", report)
-        self.assertIn("Keyword / Phase", report)
+            self.assertIn("PlaySBC Regression Evidence Report", report)
+            self.assertIn("PASSED", report)
+            self.assertIn("FAILED", report)
+            self.assertIn("BLOCKED", report)
+            self.assertIn("Blocked: 1", report)
+            self.assertIn("badge pass", report)
+            self.assertIn("badge fail", report)
+            self.assertIn("badge blocked", report)
+            self.assertIn("Execution and evidence", report)
+            self.assertNotIn("Robot-style execution log", report)
+            self.assertIn("Evidence Files", report)
+            self.assertIn("log.sipp", report)
+            self.assertIn("sipmsg.log", report)
+            self.assertIn("Test Execution", report)
 
     def test_regression_report_embeds_single_call_sip_ladder(self):
         with tempfile.TemporaryDirectory() as tmp:
