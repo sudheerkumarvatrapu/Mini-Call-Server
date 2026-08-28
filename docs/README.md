@@ -16,7 +16,7 @@ Use one canonical page for each task. Supporting pages explain design and eviden
 | Rasa voice and chat regression | [AI Voice Gateway](AI_VOICE_GATEWAY.md) | Docker/Kubernetes |
 | Grafana, Prometheus, and metrics | [Observability](OBSERVABILITY.md) | Kubernetes |
 | Roadmap and production gates | [Evolution plan](EVOLUTION_PLAN.md) | all |
-| Commercial Voice AI and v3 Enterprise SBC delivery | [v2.6+ commercial and v3 playbook](ENTERPRISE_SBC_V3_PLAYBOOK.md) | private/commercial |
+| Commercial Voice AI and v3 Enterprise SBC delivery | [Commercial and v3 playbook](ENTERPRISE_SBC_V3_PLAYBOOK.md) | private/commercial |
 | Release assets and historical notes | [Release index](../release/README.md) | GitHub |
 
 ## Default Test Strategy
@@ -36,4 +36,4 @@ Use one canonical page for each task. Supporting pages explain design and eviden
 4. Commands must fail before changing workloads when variables or images are invalid.
 5. Local kind regression, AKS regression, Docker regression, and real-device behavior must remain isolated.
 
-Current release: `v2.5.5`.
+Current and final public MIT release: `v2.6.0`.

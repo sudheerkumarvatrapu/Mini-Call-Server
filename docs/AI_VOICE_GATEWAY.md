@@ -2,7 +2,7 @@
 
 PlaySBC can answer a SIP call as an AI endpoint, anchor its media through RTPengine, convert speech to text, send the transcript to Rasa, synthesize the response, and preserve the evidence in one report.
 
-The public MIT feature line ends at v2.5.5. Existing AI scenarios in that release remain under their published MIT terms, but new production Voice AI capabilities beginning with v2.6.0 are planned for private distribution under a separate paid commercial license. Development and release controls are defined in the [v2.6+ commercial and v3 Enterprise SBC playbook](ENTERPRISE_SBC_V3_PLAYBOOK.md).
+The public MIT feature line ends at v2.6.0. Existing AI scenarios in that release remain under their published MIT terms. Production Voice AI capabilities developed after the exact v2.6.0 fork are planned for private distribution under a separate paid commercial license, with the first commercial package targeted at v6.0.0. Development and release controls are defined in the [commercial and v3 Enterprise SBC playbook](ENTERPRISE_SBC_V3_PLAYBOOK.md).
 
 ```text
 SIPp caller -> PlaySBC -> RTPengine -> STT -> Rasa -> TTS -> RTP response

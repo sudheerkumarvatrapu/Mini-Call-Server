@@ -99,7 +99,7 @@ Start Docker, discover the Mac LAN address, and create the dedicated cluster onc
 ```bash
 cd /Users/sudheerkumar/Documents/Codex/2026-05-18/Mini-Call-Server
 
-export PLAYSBC_VERSION=2.5.5
+export PLAYSBC_VERSION=2.6.0
 export REAL_DEVICE_CLUSTER=playsbc-real-device
 export REAL_DEVICE_CONTEXT=kind-playsbc-real-device
 export LAN_IF=$(route -n get default | awk '/interface:/{print $2; exit}')
@@ -217,7 +217,7 @@ Run from the repository on the Mac. This is the single maintained release-image 
 ```bash
 cd /Users/sudheerkumar/Documents/Codex/2026-05-18/Mini-Call-Server
 
-export PLAYSBC_VERSION=2.5.5
+export PLAYSBC_VERSION=2.6.0
 
 kubectl config use-context kind-playsbc
 kubectl config set-context --current --namespace=playsbc
@@ -320,14 +320,16 @@ python3 tools/run_k8s_regression_job.py \
 
 The next local HA milestone will add a dedicated shortcut for the complete multi-node HA catalog.
 
-Retest the two v2.5.4 failures with published v2.5.5 images:
+Run the sleep-sensitive load and evidence profiles with the final public v2.6.0 images:
 
 ```bash
-export PLAYSBC_VERSION=2.5.5
+export PLAYSBC_VERSION=2.6.0
 
 PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache \
 python3 tools/run_k8s_regression_job.py \
-  --profile ha-options-health-recovery \
+  --profile evidence-b2bua-two-leg-pcap \
+  --profile soak-1cps-30s \
+  --profile load-5cps-60s \
   --profile load-5cps-60s-rtpengine-transcoding \
   --runner-image "ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:$PLAYSBC_VERSION" \
   --sipp-image "ghcr.io/sudheerkumarvatrapu/playsbc-sipp:$PLAYSBC_VERSION" \

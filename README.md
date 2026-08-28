@@ -10,7 +10,7 @@
   <img alt="SIPp" src="https://img.shields.io/badge/-SIPp%20Regression-16A34A?style=flat-square">
   <img alt="RTPengine" src="https://img.shields.io/badge/-RTPengine-0F766E?style=flat-square">
   <img alt="Rasa" src="https://img.shields.io/badge/-AI%20Rasa%20Gateway-BE185D?style=flat-square">
-  <img alt="Version" src="https://img.shields.io/badge/-v2.5.5-111827?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/-v2.6.0-111827?style=flat-square">
   <img alt="License" src="https://img.shields.io/badge/-MIT-F59E0B?style=flat-square">
 </p>
 
@@ -28,18 +28,18 @@ PlaySBC is a Python SIP/RTP lab for B2BUA routing, G.711 media, RTPengine, HA ex
 | Run Rasa voice/chat profiles | [AI Voice Gateway](docs/AI_VOICE_GATEWAY.md) |
 | Use Grafana and Prometheus | [Observability](docs/OBSERVABILITY.md) |
 | Review planned work | [Evolution plan](docs/EVOLUTION_PLAN.md) |
-| Review the commercial Voice AI and v3 Enterprise SBC track | [v2.6+ commercial and v3 playbook](docs/ENTERPRISE_SBC_V3_PLAYBOOK.md) |
+| Review the post-v2.6 commercial Voice AI and Enterprise SBC track | [Commercial Enterprise SBC playbook](docs/ENTERPRISE_SBC_V3_PLAYBOOK.md) |
 | Inspect release artifacts | [Release index](release/README.md) |
 
 ## Current Release
 
-- Version: `2.5.5`
-- Release: <https://github.com/sudheerkumarvatrapu/PlaySBC/releases/tag/v2.5.5>
-- Helm: `playsbc-2.5.5.tgz`
+- Version: `2.6.0`
+- Release: <https://github.com/sudheerkumarvatrapu/PlaySBC/releases/tag/v2.6.0>
+- Helm: `playsbc-2.6.0.tgz`
 - Images: `playsbc`, `playsbc-rtpengine`, `playsbc-k8s-regression`, and `playsbc-sipp` under `ghcr.io/sudheerkumarvatrapu`
 - Security: CodeQL, Dependency Review, Trivy, and Checkov in GitHub Actions
 
-Local kind/minikube must track the current release (`v2.5.5`) unless a compatibility run intentionally pins an older version.
+Local kind/minikube must track the current release (`v2.6.0`) unless a compatibility run intentionally pins an older version.
 
 ## Architecture
 
@@ -100,6 +100,7 @@ Every applicable regression profile should produce:
 - `log.sip`, `log.media`, and `log.platform`
 - one combined `sipmsg.log`
 - one combined `capture.pcap` for non-load call profiles
+- `pcap-legs.json` proving every expected capture role and both plain-SIP B2BUA INVITE legs
 - codec, RTP/RTCP, transcoding, AI, or HA evidence required by that profile
 - an HTML report that links or embeds the useful artifacts
 
@@ -107,7 +108,7 @@ Every applicable regression profile should produce:
 
 PlaySBC has strong lab coverage, but large-scale production claims require external shared state, carrier-grade load balancing, security hardening, multi-node and multi-zone failure proof, long soak tests, and measured capacity baselines. See the [evolution plan](docs/EVOLUTION_PLAN.md).
 
-PlaySBC v2.5.5 is the final public MIT feature release. Published source and releases through v2.5.5 remain under their existing MIT terms; newly developed Voice AI and Enterprise SBC capabilities beginning with v2.6.0 are planned for private distribution under a separate paid commercial license. See the [v2.6+ commercial and v3 Enterprise SBC playbook](docs/ENTERPRISE_SBC_V3_PLAYBOOK.md). This plan does not alter rights already granted for MIT code.
+PlaySBC v2.6.0 is the final public MIT baseline. Published source, images, and releases through v2.6.0 retain their MIT terms. The exact audited v2.6.0 tag will be imported into the access-controlled `SBC-Comm` repository; production Voice AI and Enterprise SBC development after that fork is planned under a separate paid commercial license. See the [commercial Enterprise SBC playbook](docs/ENTERPRISE_SBC_V3_PLAYBOOK.md). This plan does not alter rights already granted for MIT code.
 
 ## Cleanup
 

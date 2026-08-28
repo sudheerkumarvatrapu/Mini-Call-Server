@@ -56,7 +56,7 @@ from tools.run_regression_suite import (  # noqa: E402
     write_reports,
 )
 from mini_call_server import B2BUAFlowLog, RouteResult, SipUri  # noqa: E402
-from tools.real_device_evidence import read_pcap  # noqa: E402
+from tools.real_device_evidence import read_pcap, sip_events  # noqa: E402
 
 DEFAULT_PROFILES = ("basic-signalling", "basic-media", "transcoding", "registered-inbound", "registered-outbound")
 RASA_NLU_PROFILES = ("ai-rasa-chat-nlu", "ai-rasa-chat-negative")
@@ -752,6 +752,66 @@ def prune_merged_capture_inputs(paths: list[Path], destination: Path) -> list[st
             path.unlink()
             removed.append(path.name)
     return removed
+
+
+def write_pcap_leg_summary(
+    profile: Optional[SimpleNamespace],
+    captures: list[CaptureProcess],
+    copied: list[Path],
+    destination: Path,
+    bundle: Path,
+) -> tuple[dict[str, Any], list[str]]:
+    """Describe and verify the role sources retained in the merged capture."""
+    path_by_role = {
+        capture.role: capture.local_path
+        for capture in captures
+        if capture.local_path in copied
+    }
+    role_packets: dict[str, int] = {}
+    failures: list[str] = []
+    for capture in captures:
+        path = path_by_role.get(capture.role)
+        packet_count = len(read_pcap(path)) if path is not None else 0
+        role_packets[capture.role] = packet_count
+        if packet_count == 0:
+            failures.append(f"capture role {capture.role} has no decoded packets")
+
+    merged_packets = read_pcap(destination) if destination.exists() and destination.stat().st_size > 24 else []
+    merged_sip_events = sip_events(merged_packets)
+    invite_events = [event for event in merged_sip_events if event.start_line.startswith("INVITE ")]
+    invite_call_ids = sorted({event.call_id for event in invite_events if event.call_id != "unknown"})
+    expected_roles = [capture.role for capture in captures]
+    expects_plain_two_leg_sip = bool(
+        profile
+        and expected_roles == ["core", "peer"]
+        and getattr(profile, "run_call", True)
+        and getattr(profile, "start_uas", True)
+        and getattr(profile, "register_callee", True)
+        and not profile_uses_tls(profile)
+    )
+    if expects_plain_two_leg_sip and len(invite_call_ids) < 2:
+        failures.append(
+            "merged capture does not contain distinct core-facing and peer-facing INVITE Call-IDs"
+        )
+
+    summary: dict[str, Any] = {
+        "profile": str(getattr(profile, "profile", "")) if profile else "",
+        "expected_roles": expected_roles,
+        "role_packet_counts": role_packets,
+        "all_role_sources_present": not any(count == 0 for count in role_packets.values()),
+        "merged_packet_count": len(merged_packets),
+        "merged_sip_event_count": len(merged_sip_events),
+        "invite_leg_count": len(invite_call_ids),
+        "invite_call_ids": invite_call_ids,
+        "plain_two_leg_sip_required": expects_plain_two_leg_sip,
+        "status": "passed" if not failures else "failed",
+        "failures": failures,
+    }
+    (bundle / "pcap-legs.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return summary, failures
 
 
 def extract_sipp_message_sections(trace_text: str) -> list[tuple[str, str]]:
@@ -2134,7 +2194,12 @@ class K8sRegressionRunner:
                         capture.process.wait(timeout=3)
             self.close_process_files(capture.process)
 
-    def collect_packet_captures(self, captures: list[CaptureProcess], bundle: Path) -> bool:
+    def collect_packet_captures(
+        self,
+        captures: list[CaptureProcess],
+        bundle: Path,
+        profile: Optional[SimpleNamespace] = None,
+    ) -> bool:
         if not captures:
             return True
         ok = True
@@ -2162,6 +2227,7 @@ class K8sRegressionRunner:
                 ok = False
                 continue
             copied.append(capture.local_path)
+        leg_summary: dict[str, Any] = {}
         try:
             merged_bytes = merge_pcap_files(copied, bundle / "capture.pcap")
         except Exception as exc:
@@ -2170,6 +2236,17 @@ class K8sRegressionRunner:
             removed: list[str] = []
             self.write_log(bundle, "log.networking", "K8S PCAP MERGE FAILED", f"{type(exc).__name__}: {exc}")
         else:
+            leg_failures: list[str] = []
+            if merged_bytes > 0:
+                leg_summary, leg_failures = write_pcap_leg_summary(
+                    profile,
+                    captures,
+                    copied,
+                    bundle / "capture.pcap",
+                    bundle,
+                )
+                if leg_failures:
+                    ok = False
             removed = prune_merged_capture_inputs(copied, bundle / "capture.pcap") if merged_bytes > 0 else []
         self.write_log(
             bundle,
@@ -2180,7 +2257,11 @@ class K8sRegressionRunner:
                 f"merged_sources={','.join(path.name for path in copied) or 'none'} "
                 f"retained_file={'capture.pcap' if merged_bytes > 0 else 'none'} "
                 f"discarded_role_pcaps={','.join(removed) or 'none'} "
-                f"merge=timestamp_sorted merged_bytes={merged_bytes}"
+                f"merge=timestamp_sorted merged_bytes={merged_bytes} "
+                f"merged_roles={','.join(capture.role for capture in captures) or 'none'} "
+                f"role_packet_counts={json.dumps(leg_summary.get('role_packet_counts', {}), sort_keys=True)} "
+                f"invite_legs={leg_summary.get('invite_leg_count', 0)} "
+                f"leg_validation={leg_summary.get('status', 'not-run')}"
             ),
         )
         return ok and merged_bytes > 0
@@ -3325,7 +3406,7 @@ class K8sRegressionRunner:
                         process.kill()
                 self.close_process_files(process)
             self.stop_packet_captures(captures)
-            capture_ok = self.collect_packet_captures(captures, bundle)
+            capture_ok = self.collect_packet_captures(captures, bundle, profile)
 
         if not capture_ok:
             returncodes.append(1)
@@ -3975,7 +4056,16 @@ def main() -> int:
     restore_error = ""
     try:
         runner.capture_original_values()
-        rows = [runner.run_profile(profile, output_root) for profile in profiles]
+        total_profiles = len(profiles)
+        print(f"Regression progress: 0/{total_profiles} started", flush=True)
+        for profile_index, profile in enumerate(profiles, start=1):
+            row = runner.run_profile(profile, output_root)
+            rows.append(row)
+            print(
+                f"Regression progress: {profile_index}/{total_profiles} completed "
+                f"profile={profile} status={row.status}",
+                flush=True,
+            )
     finally:
         restore_error = runner.restore_original_values(report_dir) or ""
     cleanup_old_reports(report_dir, run_id)

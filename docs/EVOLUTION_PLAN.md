@@ -2,32 +2,33 @@
 
 PlaySBC is an enterprise-style SIP/RTP and AI voice lab. It is not yet a production-certified SBC. Historical delivery detail belongs in the [release notes](../release/README.md); this page tracks only the current baseline and forward work.
 
-## Current Baseline: v2.5.5
+## Current Baseline: v2.6.0 Final Public MIT Gate
 
 - SIP UDP/TCP/TLS registration and B2BUA calls through local kind and Azure AKS
 - RTPengine anchoring, G.711 transcoding, RTP/RTCP, SRTP interworking, NAT learning, and media evidence
 - Active-active and failure-injection regression foundations
 - OBi1022 and Zoiper registration with verified two-way audio
-- One combined PCAP, canonical SIP ladder, `sipmsg.log`, media verdicts, and HTML/archive evidence
+- One combined PCAP, role-aware `pcap-legs.json`, canonical SIP ladder, `sipmsg.log`, media verdicts, and HTML/archive evidence
 - Isolated `kind-playsbc-real-device` lane with guarded LAN advertisement, optional TLS CA verification, and deadlock-free local upgrades
 - Rasa, STT, TTS, DTMF, and scripted AI Voice Gateway regression foundations
 - RFC 5359 call hold/resume propagation across both B2BUA legs over UDP, TCP, TLS, and RTPengine
 
-### v2.5.5 Regression Closure
+### v2.6.0 Regression And Evidence Closure
 
-- `ha-options-health-recovery` now produces an actual OPTIONS exchange and OPTIONS-only `sipmsg.log` evidence.
-- `load-5cps-60s-rtpengine-transcoding` uses a profile-scoped `30000-32999` RTP range, sufficient for the 300-call media load with additional headroom. AKS and real-device media remain fixed at `30000-30049`.
-- Mock Rasa profiles run a reachable in-job webhook and fail when fallback is used; fallback is no longer accepted as successful bot evidence.
-- Small multi-call and active-active profiles retain readable unified ladders; high-volume load profiles remain intentionally compact.
-- Pre-fault PlaySBC logs are retained before pod deletion so media and dialog evidence is not lost with the pod.
+- The full public catalog contains 70 profiles, including `evidence-b2bua-two-leg-pcap`, which explicitly proves core and peer capture roles plus two distinct B2BUA INVITE Call-IDs.
+- The launcher prints live `X/70` progress and uses `caffeinate` on macOS so a long local run cannot silently fail because the host sleeps.
+- Every merged two-role PCAP is checked before split captures are removed. `pcap-legs.json` records source-role packet counts, merged packet count, SIP event count, distinct INVITE legs, and a pass/fail verdict.
+- The three load failures in run `k8s-regression-20260827-201206` were classified as host suspension: caller SIPp completed its workload, while wall-clock gaps caused peer timeout. They are not evidence of a PlaySBC capacity failure.
+- High-volume profiles remain intentionally compact, and profiles that intentionally skip PCAP capture continue to say so explicitly.
+- Existing Docker, kind, AKS, HA, real-device, SIP, RTP/RTCP, and AI regression behavior remains within the shared compatibility gate.
 
-The audited v2.5.4 run had 63 passing profiles and two reported failures. All retained PCAPs were readable, SIP evidence was present for every signalling profile, strict SRTP profiles proved negotiated security and both observed RTP directions, and no traceback, invalid CSeq, index error, or SIP parser failure was found. These are regression-evidence results, not blanket protocol certification.
+These are regression-evidence controls, not blanket protocol certification or a production capacity claim. A fresh v2.6.0 full run remains the operator's release acceptance gate.
 
 ## Primary Track: Production AI Voice Gateway
 
-AI Voice Gateway work is the main product focus from v2.6.0 toward v3.0.0. Version 2.5.5 is the final public MIT feature release: it delivered regression scaffolding for Rasa, STT, TTS, DTMF, and scripted AI flows, but it did not deliver generated TTS as live RTP or the production streaming contract below. New v2.6.0 and later Voice AI and Enterprise SBC product capabilities are planned for private distribution under a separate paid commercial license.
+AI Voice Gateway work is the main product focus after the v2.6.0 public fork. The final MIT baseline delivers regression scaffolding for Rasa, STT, TTS, DTMF, and scripted AI flows, but it does not deliver generated TTS as live RTP or the production streaming contract below. New production Voice AI and Enterprise SBC capabilities belong in the access-controlled commercial repository and are targeted for the first packaged commercial release at v6.0.0.
 
-### v2.6.0 Streaming Foundation
+### Post-Fork Streaming Foundation
 
 - Return generated TTS as live RTP in the established call, not report-only audio
 - Define one streaming adapter contract for Rasa and future bot providers
@@ -37,9 +38,9 @@ AI Voice Gateway work is the main product focus from v2.6.0 toward v3.0.0. Versi
 - Produce synchronized SIP, RTP/RTCP, transcript, model, action, and audio evidence
 - Keep Docker, kind, AKS, real-device, HA, and non-AI regression gates green
 
-The v2.6.0 foundation is complete only when live bidirectional speech and generated TTS RTP are proven by synchronized evidence without weakening any existing deployment or regression gate.
+The commercial streaming foundation is complete only when live bidirectional speech and generated TTS RTP are proven by synchronized evidence without weakening any existing deployment or regression gate.
 
-### v2.6.1-v2.6.x Expansion
+### Commercial Expansion
 
 - Add multiple bot backends behind the provider interface
 - Add multi-turn dialog state, DTMF hybrid IVR, transfer, conference, and human-agent fallback
@@ -55,7 +56,7 @@ The v2.6.0 foundation is complete only when live bidirectional speech and genera
 - Every AI call has complete signalling, media, transcript, model, action, and latency evidence
 - Security, privacy, retention, secret rotation, overload, and operational runbooks are validated
 
-The commercial Voice AI work beginning with v2.6.0 and the enterprise SIP, HA, security, scale, and operational work leading into v3.0.0 are governed by the [commercial and v3 Enterprise SBC playbook](ENTERPRISE_SBC_V3_PLAYBOOK.md). Existing MIT releases through v2.5.5 retain their published MIT terms; newly developed v2.6+ product modules are planned for separate private distribution under a paid commercial license.
+Commercial Voice AI work after the exact public v2.6.0 fork and the enterprise SIP, HA, security, scale, and operational work leading into v3 are governed by the [commercial and v3 Enterprise SBC playbook](ENTERPRISE_SBC_V3_PLAYBOOK.md). Existing MIT releases through v2.6.0 retain their published MIT terms; newly developed post-fork product modules are planned for separate private distribution under a paid commercial license.
 
 ## Secondary Track: RFC 5359 Business Calling Services
 
@@ -63,7 +64,7 @@ The commercial Voice AI work beginning with v2.6.0 and the enterprise SIP, HA, s
 
 PlaySBC now propagates an in-dialog re-INVITE to the opposite B2BUA leg, preserves dialog routing and CSeq ordering, and updates an existing RTPengine session. Synthetic UDP, TCP, TLS, and RTPengine profiles validate the signalling sequence. Real-device hold/resume remains an acceptance gate before the feature is described as production-ready.
 
-### v2.5.5 Priority: Hold And Resume
+### Public Baseline: Hold And Resume
 
 - Accept an in-dialog re-INVITE from either call leg and originate the corresponding request on the opposite B2BUA leg
 - Validate dialog identifiers, route set, Contact, monotonically increasing CSeq, SDP origin version, retransmissions, and glare handling
@@ -85,25 +86,25 @@ Planned real-device acceptance profile: `rfc5359-call-hold-resume-real-device`.
 
 Evidence must prove the initial two-way media period, hold SDP and media suppression, resume SDP and restored bidirectional RTP/RTCP, clean teardown, and no leaked RTPengine session.
 
-The v2.5.5 synthetic gate sends bounded PCMU bursts from both call legs before hold and after resume. Its combined PCAP must contain both RTP directions and a measurable media-free hold interval; SIP-only success is rejected.
+The synthetic gate sends bounded PCMU bursts from both call legs before hold and after resume. Its combined PCAP must contain both RTP directions and a measurable media-free hold interval; SIP-only success is rejected.
 
 ### Remaining HA Evidence Caveat
 
 The current mid-call PlaySBC pod-delete profiles use Kubernetes' normal termination grace period. They prove call continuity during replacement and now preserve pre-fault logs, but they do not yet prove an abrupt process crash followed by shared-dialog restoration on a surviving node. A future HA gate must force termination, identify the serving node before the fault, prove restoration on a different node, and verify uninterrupted or bounded-loss RTP.
 
-### v2.6.x Service Sequence
+### Post-Fork Service Sequence
 
 | RFC 5359 service | Target | PlaySBC responsibility |
 | --- | --- | --- |
-| 2.1 Call Hold | v2.5.5 | Re-INVITE/SDP propagation and RTPengine direction update |
-| 2.2 Consultation Hold | v2.6.0 | Maintain original dialog while establishing consultation dialog |
-| 2.3 Music on Hold | v2.6.0 | Controlled media source, SDP direction, and RTPengine anchoring |
-| 2.4 Unattended Transfer | v2.6.1 | REFER, NOTIFY, new dialog, failure recovery, and teardown |
-| 2.5 Attended Transfer | v2.6.1 | Consultation dialog plus REFER with Replaces |
-| 2.6 Instant Messaging Transfer | Later v2.6.x | Optional MESSAGE-session work; not a real-device voice priority |
-| 2.7 Unconditional Forwarding | v2.6.2 | Policy/registrar target selection and loop prevention |
-| 2.8 Forwarding on Busy | v2.6.2 | Busy response handling and alternate target routing |
-| 2.9 Forwarding on No Answer | v2.6.2 | Ring timeout, cancellation, and alternate target routing |
+| 2.1 Call Hold | Public v2.6.0 | Re-INVITE/SDP propagation and RTPengine direction update |
+| 2.2 Consultation Hold | Commercial | Maintain original dialog while establishing consultation dialog |
+| 2.3 Music on Hold | Commercial | Controlled media source, SDP direction, and RTPengine anchoring |
+| 2.4 Unattended Transfer | Commercial | REFER, NOTIFY, new dialog, failure recovery, and teardown |
+| 2.5 Attended Transfer | Commercial | Consultation dialog plus REFER with Replaces |
+| 2.6 Instant Messaging Transfer | Commercial, optional | MESSAGE-session work; not a real-device voice priority |
+| 2.7 Unconditional Forwarding | Commercial | Policy/registrar target selection and loop prevention |
+| 2.8 Forwarding on Busy | Commercial | Busy response handling and alternate target routing |
+| 2.9 Forwarding on No Answer | Commercial | Ring timeout, cancellation, and alternate target routing |
 
 Every service needs unit tests, local SIPp profiles, kind and AKS regression coverage, combined evidence, and real-device validation when the endpoint exposes the feature.
 

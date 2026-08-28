@@ -1,45 +1,42 @@
-# PlaySBC v2.6+ Commercial And v3 Enterprise SBC Playbook
+# PlaySBC Commercial And v3 Enterprise SBC Playbook
 
-This playbook defines the commercial product track that begins with PlaySBC v2.6.0 and grows into the v3 Enterprise SBC. Version 2.6.x delivers private production Voice AI capabilities; v3 combines the fully functional AI Voice Gateway with the SIP, security, HA, scale, and operational controls required for an enterprise SBC.
+This playbook defines the product track after the exact public PlaySBC v2.6.0 fork. Internal development grows into the v3 Enterprise SBC, while the first packaged commercial release is targeted at v6.0.0.
 
-PlaySBC v2.5.5 is the final public MIT feature release and remains an engineering and regression lab. Nothing in this plan describes the current v2.5.5 code as production-certified.
+PlaySBC v2.6.0 is the final public MIT feature release and remains an engineering and regression lab. Nothing in this plan describes the public v2.6.0 code as production-certified.
 
 ## Distribution And License Boundary
 
-- Existing releases and source published through v2.5.5 under the MIT License remain available under those granted MIT terms.
-- PlaySBC v2.5.5 is the final public MIT feature gate. New Voice AI, enterprise SBC, and related product capabilities developed for v2.6.0 and later are planned for private distribution under a separate paid commercial license, not the MIT license.
+- Existing releases and source published through v2.6.0 under the MIT License remain available under those granted MIT terms.
+- PlaySBC v2.6.0 is the final public MIT feature gate. New Voice AI, enterprise SBC, and related product capabilities developed after its exact fork are planned for private distribution under a separate paid commercial license, not the MIT license.
 - Commercial modules, images, charts, model adapters, documentation, and release artifacts must use private repositories and registries with authenticated customer access.
-- Proprietary v2.6+ implementation must not be committed to the public MIT repository or included in a public MIT image by accident.
-- The final commercial EULA, third-party model terms, support policy, and dependency notices require legal review before the first v2.6.0 commercial release.
+- Proprietary post-fork implementation must not be committed to the public MIT repository or included in a public MIT image by accident.
+- The final commercial EULA, third-party model terms, support policy, and dependency notices require legal review before the first packaged commercial release, targeted at v6.0.0.
 
-This boundary does not revoke or restrict rights already granted for published MIT code through v2.5.5.
+This boundary does not revoke or restrict rights already granted for published MIT code through v2.6.0.
 
-## v2.6.0 Commercial Development Gate
+## Commercial Development Gate
 
-Before implementing v2.6.0 product code:
+Before implementing post-fork product code:
 
-1. Create a private source repository or other access-controlled commercial development location from the v2.5.5 baseline.
+1. Import the exact public v2.6.0 tag and tree into the access-controlled commercial repository.
 2. Add the commercial license and third-party notices before the first private release.
 3. Use private container, Helm, model, evidence, and documentation registries.
 4. Restrict CI/CD credentials and artifacts to authorized developers and customers.
-5. Keep the public MIT repository on the v2.5.5 feature line; do not run public image-release workflows for v2.6+ commercial tags.
+5. Keep the public MIT repository on the v2.6.0 feature line; do not run public image-release workflows for commercial tags.
 6. Maintain an explicit provenance record identifying reusable MIT baseline code and newly developed commercial code.
 
 Gate status as of 2026-08-28: the access-controlled commercial repository was
-created from the exact public `v2.5.5` commit and tree; commercial and retained
-MIT license notices, third-party inventory, provenance ledger, private artifact
-namespaces, least-privilege CI policy, and manual commercial release controls
-are in place. The public image workflow is manual and rejects every version
-other than `2.5.5`. Branch and environment approval rules for private
-repositories require a GitHub plan that supports those controls; until that is
-enabled, repository membership remains owner-only and commercial releases are
-owner-operated through the dedicated environment.
+initially created from v2.5.5 and contains commercial controls. It must import
+the exact final public `v2.6.0` tag and tree before product development resumes,
+then update its provenance ledger without dropping private license, notice,
+artifact, CI, or access-control files. The public image workflow is manual and
+rejects every version other than `2.6.0`.
 
-Public v2.5.x maintenance may receive documentation, security, or compatibility corrections, but new Voice AI and Enterprise SBC product features belong only in the private commercial track.
+After the v2.6.0 gate, new Voice AI and Enterprise SBC product features belong only in the private commercial track.
 
 ## v3.0.0 Enterprise Entry Gate
 
-Work enters the enterprise v3 phase only after the private commercial v2.6.x foundation proves:
+Work enters the enterprise v3 phase only after the private commercial foundation proves:
 
 - generated TTS returned as live RTP in an established call
 - deterministic streaming STT, bot, and TTS provider contracts
@@ -108,12 +105,12 @@ Work enters the enterprise v3 phase only after the private commercial v2.6.x fou
 
 | Milestone | Required outcome |
 | --- | --- |
-| v2.6.0 | Private commercial development boundary plus live TTS RTP, streaming provider contract, deterministic failure handling, synchronized evidence, and green compatibility gates |
-| v2.6.x | Multiple private AI providers, multi-turn workflows, interruption, DTMF, transfer, human handoff, production model images, and AI observability |
-| v3.0.0 | Commercial packaging, fully functional AI Voice Gateway, hardened SIP transaction/session core, security baseline, and green compatibility gates |
+| Public v2.6.0 | Final MIT compatibility and evidence baseline; exact tagged tree becomes commercial provenance base |
+| Private development | Live TTS RTP, streaming provider contract, deterministic failure handling, synchronized evidence, and green compatibility gates |
+| Internal v3.x | Multiple AI providers, fully functional AI Voice Gateway, hardened SIP transaction/session core, security, HA, scale, and operations |
 | v3.1.x | Enterprise registrar, SIP Outbound/NAT, trunk routing, business calling, and expanded device/PBX interoperability |
 | v3.2.x | Distributed HA state, multi-zone recovery, scale milestones, overload control, and operational automation |
-| Later v3.x | Carrier identity, regulatory integrations, external certification, broader cloud support, and measured production references |
+| v6.0.0 | First customer-facing commercial package, subject to legal, third-party, security, support, and release acceptance gates |
 
 ## Mandatory Regression Matrix
 
@@ -132,7 +129,7 @@ Evidence must include one synchronized bundle containing the verdict, canonical 
 
 ## Release Acceptance
 
-A commercial v2.6+ or enterprise v3 release is not ready until:
+A commercial or enterprise release is not ready until:
 
 1. Every advertised feature has an automated positive, negative, timeout, recovery, and interoperability test.
 2. No release depends on fallback behavior to report a false pass.
