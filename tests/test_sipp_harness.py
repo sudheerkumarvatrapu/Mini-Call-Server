@@ -30,6 +30,7 @@ from tools import run_real_device_capture
 from tools import real_device_evidence
 from tools import send_srtp_audio
 from tools import check_kind_real_device_lab
+from tools import serve_regression_report
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -2061,10 +2062,35 @@ Content-Length: 0
             self.assertIn("badge blocked", report)
             self.assertIn("Execution and evidence", report)
             self.assertNotIn("Robot-style execution log", report)
+            self.assertIn("serve_regression_report.py", report)
             self.assertIn("Evidence Files", report)
             self.assertIn("log.sipp", report)
             self.assertIn("sipmsg.log", report)
             self.assertIn("Test Execution", report)
+
+    def test_regression_evidence_server_wraps_text_and_binary_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            text_path = root / "sipmsg.log"
+            pcap_path = root / "capture.pcap"
+            text_path.write_text("INVITE sip:1002@example.test SIP/2.0\n", encoding="utf-8")
+            pcap_path.write_bytes(b"pcap-evidence")
+
+            text_page = serve_regression_report.render_text_evidence(text_path, root).decode("utf-8")
+            binary_page = serve_regression_report.render_binary_evidence(pcap_path, root).decode("utf-8")
+            evidence_paths = {}
+            rewritten = serve_regression_report.rewrite_report_links(
+                '<a href="../evidence/sipmsg.log">SIP messages</a>',
+                "/k8s-reports/latest.html",
+                evidence_paths,
+            ).decode("utf-8")
+
+            self.assertIn("<!doctype html>", text_page)
+            self.assertIn("INVITE sip:1002@example.test SIP/2.0", text_page)
+            self.assertIn("open -a Wireshark", binary_page)
+            self.assertIn(hashlib.sha256(b"pcap-evidence").hexdigest(), binary_page)
+            self.assertRegex(rewritten, r'/evidence/[0-9a-f]{24}')
+            self.assertEqual(list(evidence_paths.values()), ["evidence/sipmsg.log"])
 
     def test_regression_report_embeds_single_call_sip_ladder(self):
         with tempfile.TemporaryDirectory() as tmp:

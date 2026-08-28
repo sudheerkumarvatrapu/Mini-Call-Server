@@ -925,6 +925,7 @@ def run_job(args: argparse.Namespace) -> int:
     latest = output_root / args.remote_report_dir_name / "latest.html"
     if latest.exists():
         print(f"Latest report: {latest}")
+        print(f'Evidence browser: python3 tools/serve_regression_report.py "{latest}"')
     if job_status != "passed":
         print(job_detail, file=sys.stderr)
         return 1

@@ -807,6 +807,17 @@ python3 tools/run_k8s_regression_job.py \
 | log.sip / log.media | Protocol and media decisions. |
 | archive | Portable evidence bundle for review outside the cluster. |
 
+## Open Clickable Evidence
+
+Do not open `latest.html` with `file://` in a restricted browser. Start the localhost-only evidence viewer from the repository and keep that terminal running while reviewing the report.
+
+```bash
+python3 tools/serve_regression_report.py \
+  /absolute/path/to/k8s-regression-<run-id>/k8s-reports/latest.html
+```
+
+The printed `http://127.0.0.1:8765/...` report renders text evidence safely in the browser. PCAP links show the retained file checksum and exact Wireshark command.
+
 # Security, HA, and Recovery
 
 ## Security Baseline

@@ -1018,6 +1018,8 @@ def render_html(
     main {{ width: min(1500px, calc(100% - 32px)); margin: 24px auto 48px; }}
     .eyebrow {{ color: #2563eb; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }}
     h1 {{ margin: 4px 0; font-size: 28px; }}
+    .browser-note {{ margin: 10px 0 14px; padding: 10px 12px; border: 1px solid #bfdbfe; border-radius: 6px; background: #eff6ff; color: #334155; font-size: 13px; }}
+    .browser-note code {{ overflow-wrap: anywhere; color: #1e3a5f; }}
     .meta {{ color: #4b5563; margin: 0 0 18px; }}
     .summary {{ display: flex; flex-wrap: wrap; gap: 18px; padding: 12px 14px; border-radius: 6px; margin-bottom: 18px; }}
     .summary.pass {{ background: #ecfdf5; border: 1px solid #16a34a; }}
@@ -1112,6 +1114,7 @@ def render_html(
   <main>
     <div class="eyebrow">Execution and evidence</div>
     <h1>PlaySBC Regression Evidence Report</h1>
+    <p class="browser-note"><strong>Evidence links:</strong> browsers may block raw local files when this report is opened with <code>file://</code>. Run <code>python3 tools/serve_regression_report.py /absolute/path/to/latest.html</code> and use the printed localhost URL.</p>
     <p class="meta">Run <code>{html.escape(run_id)}</code> | Generated {html.escape(generated_at)} | Expand a test to open its measured phases, logs, ladder, and packet evidence.</p>
     <div class="summary {summary_class}">
       <strong>Total: {len(rows)}</strong>

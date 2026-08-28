@@ -98,7 +98,7 @@ class Diagram(Flowable):
             for index, line in enumerate(subtitle.split("\n")[:3]):
                 canvas.drawCentredString(x + w / 2, y + h - 23 - index * 8, line)
 
-    def _arrow(self, canvas, x1, y1, x2, y2, label="", color=BLUE):
+    def _arrow(self, canvas, x1, y1, x2, y2, color=BLUE):
         canvas.setStrokeColor(color)
         canvas.setFillColor(color)
         canvas.setLineWidth(1.2)
@@ -112,11 +112,6 @@ class Diagram(Flowable):
             direction = 1 if y2 > y1 else -1
             canvas.line(x2, y2, x2 + angle, y2 - direction * 7)
             canvas.line(x2, y2, x2 - angle, y2 - direction * 7)
-        if label:
-            canvas.setFillColor(MUTED)
-            canvas.setFont("Helvetica", 6.4)
-            canvas.drawCentredString((x1 + x2) / 2, (y1 + y2) / 2 + 5, label)
-
     def _title(self, canvas, title, subtitle):
         canvas.setFillColor(NAVY)
         canvas.setFont("Helvetica-Bold", 11)
@@ -136,109 +131,106 @@ class Diagram(Flowable):
 
     def _draw_architecture(self, c):
         self._title(c, "PlaySBC component architecture", "Signalling, media, orchestration, and telemetry remain independently observable")
-        y = 50
-        h = 48
-        w = 78
-        gap = 18
+        y = 54
+        h = 50
+        w = 82
+        gap = 16
         x0 = 4
         boxes = [
-            ("Core endpoints", "SIPp / devices", PALE_BLUE),
+            ("Core endpoints", "SIPp or devices\nSIP signalling", PALE_BLUE),
             ("PlaySBC", "Registrar + B2BUA\npolicy + metrics", colors.HexColor("#E8F0F7")),
             ("RTPengine", "RTP/RTCP + SRTP\nNAT + transcoding", colors.HexColor("#E8F5F2")),
-            ("Peer / AI", "SIPp / devices\nRasa route", colors.HexColor("#F4F0E8")),
+            ("Peer / AI", "SIPp, devices, Rasa\nSIP + media", colors.HexColor("#F4F0E8")),
         ]
         for index, (title, subtitle, fill) in enumerate(boxes):
             x = x0 + index * (w + gap)
             self._box(c, x, y, w, h, title, subtitle, fill)
             if index:
-                self._arrow(c, x - gap + 2, y + h / 2, x - 2, y + h / 2, "SIP" if index != 2 else "NG")
-        self._box(c, 112, 4, 90, 32, "Regression runner", "Profiles + evidence", PALE)
-        self._box(c, 224, 4, 90, 32, "Prometheus / Grafana", "Metrics + dashboards", PALE)
-        self._arrow(c, 157, 36, 157, 49, "control")
-        self._arrow(c, 269, 36, 269, 49, "scrape")
+                self._arrow(c, x - gap + 2, y + h / 2, x - 2, y + h / 2)
+        self._box(c, 104, 5, 98, 32, "Regression runner", "Controls profiles and evidence", PALE)
+        self._box(c, 222, 5, 98, 32, "Prometheus / Grafana", "Scrapes metrics and dashboards", PALE)
+        self._arrow(c, 153, 38, 153, 53)
+        self._arrow(c, 271, 38, 271, 53, color=GREEN)
 
     def _draw_docker(self, c):
         self._title(c, "Docker process and topology lane", "Fast development checks with isolated core and peer container networks")
-        self._box(c, 6, 52, 78, 46, "Core SIPp", "172.28.0.10", PALE_BLUE)
-        self._box(c, 106, 52, 82, 46, "PlaySBC", "172.28.0.20\nB2BUA", colors.HexColor("#E8F0F7"))
-        self._box(c, 210, 52, 82, 46, "RTPengine", "172.28.0.40\n192.168.28.40", colors.HexColor("#E8F5F2"))
-        self._box(c, 314, 52, 78, 46, "Peer SIPp", "192.168.28.30", colors.HexColor("#F4F0E8"))
-        self._arrow(c, 84, 75, 104, 75, "SIP")
-        self._arrow(c, 188, 75, 208, 75, "NG")
-        self._arrow(c, 292, 75, 312, 75, "RTP/RTCP")
-        self._box(c, 106, 5, 186, 28, "Host output", "HTML + logs + combined PCAP", PALE)
-        self._arrow(c, 199, 34, 199, 51, "evidence")
+        self._box(c, 4, 54, 82, 48, "Core SIPp", "172.28.0.10\nSIP + RTP", PALE_BLUE)
+        self._box(c, 106, 54, 82, 48, "PlaySBC", "172.28.0.20\nSIP B2BUA", colors.HexColor("#E8F0F7"))
+        self._box(c, 208, 54, 82, 48, "RTPengine", "Dual-realm media\nRTP/RTCP", colors.HexColor("#E8F5F2"))
+        self._box(c, 310, 54, 82, 48, "Peer SIPp", "192.168.28.30\nSIP + RTP", colors.HexColor("#F4F0E8"))
+        self._arrow(c, 86, 78, 104, 78)
+        self._arrow(c, 188, 78, 206, 78)
+        self._arrow(c, 290, 78, 308, 78)
+        self._box(c, 106, 6, 184, 30, "Host evidence output", "HTML, synchronized logs, combined PCAP", PALE)
+        self._arrow(c, 198, 37, 198, 53, color=GREEN)
 
     def _draw_kind(self, c):
         self._title(c, "Canonical kind regression lane", "One Docker-backed Kubernetes node, two active-active signalling/media replicas")
-        self._box(c, 6, 61, 74, 40, "Regression Job", "70 profiles", PALE)
-        self._box(c, 99, 66, 76, 35, "SIPp core", "temporary pod", PALE_BLUE)
-        self._box(c, 99, 20, 76, 35, "SIPp peer", "temporary pod", colors.HexColor("#F4F0E8"))
-        self._box(c, 197, 61, 84, 40, "PlaySBC 0 / 1", "StatefulSet\nshared lab state", colors.HexColor("#E8F0F7"))
-        self._box(c, 303, 61, 84, 40, "RTPengine 0 / 1", "StatefulSet\npaired media", colors.HexColor("#E8F5F2"))
-        self._box(c, 221, 8, 142, 32, "Prometheus + Grafana", "metrics and dashboards", PALE)
-        self._arrow(c, 80, 81, 97, 81, "create")
-        self._arrow(c, 175, 83, 195, 83, "SIP")
-        self._arrow(c, 175, 38, 238, 60, "SIP")
-        self._arrow(c, 281, 81, 301, 81, "NG")
-        self._arrow(c, 292, 40, 292, 60, "scrape")
+        self._box(c, 4, 56, 86, 48, "Regression Job", "70 profiles\norchestration", PALE)
+        self._box(c, 106, 56, 86, 48, "Endpoint pods", "SIPp core + peer\nper profile", PALE_BLUE)
+        self._box(c, 208, 56, 86, 48, "PlaySBC 0 / 1", "Active-active StatefulSet\nshared lab state", colors.HexColor("#E8F0F7"))
+        self._box(c, 310, 56, 86, 48, "RTPengine 0 / 1", "Paired media\nRTP/RTCP", colors.HexColor("#E8F5F2"))
+        self._arrow(c, 90, 80, 104, 80)
+        self._arrow(c, 192, 80, 206, 80)
+        self._arrow(c, 294, 80, 308, 80)
+        self._box(c, 208, 7, 188, 30, "Prometheus + Grafana", "Scrapes both replicas; dashboards persist metrics", PALE)
+        self._arrow(c, 302, 38, 302, 55, color=GREEN)
 
     def _draw_minikube(self, c):
         self._title(c, "Minikube compatibility lane", "Portable chart validation; kind remains the canonical full-regression environment")
-        self._box(c, 18, 56, 92, 44, "Host runtime", "Docker driver or VM", PALE)
-        self._box(c, 140, 56, 96, 44, "Minikube node", "PlaySBC + RTPengine", colors.HexColor("#E8F0F7"))
-        self._box(c, 266, 56, 110, 44, "NodePort / tunnel", "lab-only exposure", colors.HexColor("#E8F5F2"))
-        self._box(c, 140, 8, 96, 30, "Compatibility run", "selected or full profiles", PALE_BLUE)
-        self._arrow(c, 110, 78, 138, 78, "runtime")
-        self._arrow(c, 236, 78, 264, 78, "service")
-        self._arrow(c, 188, 39, 188, 55, "test")
+        self._box(c, 16, 58, 98, 46, "Host runtime", "Docker driver or VM\ncluster lifecycle", PALE)
+        self._box(c, 152, 58, 98, 46, "Minikube node", "PlaySBC + RTPengine\nHelm chart", colors.HexColor("#E8F0F7"))
+        self._box(c, 288, 58, 98, 46, "Lab exposure", "NodePort or tunnel\nSIP + media", colors.HexColor("#E8F5F2"))
+        self._arrow(c, 114, 81, 150, 81)
+        self._arrow(c, 250, 81, 286, 81)
+        self._box(c, 152, 8, 98, 31, "Compatibility run", "Selected profiles; full gate on kind", PALE_BLUE)
+        self._arrow(c, 201, 40, 201, 57, color=GREEN)
 
     def _draw_kubernetes(self, c):
         self._title(c, "Generic Helm-managed Kubernetes", "Operator supplies storage, exposure, identity, and network policy appropriate to the platform")
-        self._box(c, 6, 60, 86, 42, "SIP clients", "UDP / TCP / TLS", PALE_BLUE)
-        self._box(c, 112, 60, 88, 42, "SIP service", "LB or private VIP", PALE)
-        self._box(c, 220, 60, 80, 42, "PlaySBC", "Deployment or STS", colors.HexColor("#E8F0F7"))
-        self._box(c, 320, 60, 76, 42, "RTPengine", "media service", colors.HexColor("#E8F5F2"))
-        self._box(c, 112, 8, 88, 30, "Storage / secrets", "platform-owned", PALE)
-        self._box(c, 220, 8, 176, 30, "Prometheus / Grafana", "optional observability", PALE)
-        self._arrow(c, 92, 81, 110, 81, "SIP")
-        self._arrow(c, 200, 81, 218, 81, "SIP")
-        self._arrow(c, 300, 81, 318, 81, "NG")
-        self._arrow(c, 156, 39, 244, 59, "state")
-        self._arrow(c, 308, 39, 308, 59, "metrics")
+        self._box(c, 4, 58, 86, 46, "SIP clients", "UDP, TCP, TLS\nRTP/RTCP", PALE_BLUE)
+        self._box(c, 106, 58, 86, 46, "Platform services", "SIP VIP/LB\nRTP exposure", PALE)
+        self._box(c, 208, 58, 86, 46, "PlaySBC", "Deployment or StatefulSet\nSIP B2BUA", colors.HexColor("#E8F0F7"))
+        self._box(c, 310, 58, 86, 46, "RTPengine", "Media service\nRTP/RTCP", colors.HexColor("#E8F5F2"))
+        self._arrow(c, 90, 81, 104, 81)
+        self._arrow(c, 192, 81, 206, 81)
+        self._arrow(c, 294, 81, 308, 81)
+        self._box(c, 106, 8, 86, 30, "Storage + secrets", "Operator managed", PALE)
+        self._box(c, 208, 8, 188, 30, "Prometheus + Grafana", "Optional metrics collection and dashboards", PALE)
+        self._arrow(c, 302, 39, 302, 57, color=GREEN)
 
     def _draw_aks(self, c):
         self._title(c, "Azure AKS public lab", "Separate static SIP and RTP addresses; managed identity controls Network RG resources")
-        self._box(c, 2, 67, 72, 38, "Internet devices", "OBi / Zoiper / SIPp", PALE_BLUE)
-        self._box(c, 91, 76, 78, 31, "SIP static IP", "Azure LB :5061/5062", PALE)
-        self._box(c, 91, 34, 78, 31, "RTP static IP", "Azure LB :30000-30049", PALE)
-        self._box(c, 190, 67, 82, 38, "PlaySBC pods", "SIP + B2BUA", colors.HexColor("#E8F0F7"))
-        self._box(c, 190, 22, 82, 38, "RTPengine pods", "RTP/RTCP + NAT", colors.HexColor("#E8F5F2"))
-        self._box(c, 294, 67, 96, 38, "ACR", "4 versioned images", colors.HexColor("#F4F0E8"))
-        self._box(c, 294, 22, 96, 38, "Prometheus / Grafana", "cluster observability", PALE)
-        self._arrow(c, 74, 86, 89, 91, "SIP")
-        self._arrow(c, 74, 78, 89, 49, "RTP")
-        self._arrow(c, 169, 91, 188, 86, "SIP")
-        self._arrow(c, 169, 49, 188, 42, "media")
-        self._arrow(c, 294, 86, 274, 86, "pull", ORANGE)
-        self._arrow(c, 294, 42, 274, 42, "scrape", GREEN)
+        self._box(c, 2, 67, 76, 38, "SIP clients", "OBi, Zoiper, SIPp\nInternet signalling", PALE_BLUE)
+        self._box(c, 94, 67, 82, 38, "SIP static IP + LB", "TCP 5061\nUDP/TCP 5062", PALE)
+        self._box(c, 192, 67, 82, 38, "PlaySBC pods", "Registrar + B2BUA\nAKS workloads", colors.HexColor("#E8F0F7"))
+        self._box(c, 300, 67, 92, 38, "Azure ACR", "Four versioned\ncontainer images", colors.HexColor("#F4F0E8"))
+        self._arrow(c, 78, 86, 92, 86)
+        self._arrow(c, 176, 86, 190, 86)
+        self._arrow(c, 298, 86, 276, 86, color=ORANGE)
+
+        self._box(c, 2, 22, 76, 38, "Media clients", "RTP + RTCP\nInternet media", PALE_BLUE)
+        self._box(c, 94, 22, 82, 38, "RTP static IP + LB", "UDP ports\n30000-30049", PALE)
+        self._box(c, 192, 22, 82, 38, "RTPengine pods", "Anchoring + NAT\nRTP/RTCP", colors.HexColor("#E8F5F2"))
+        self._box(c, 300, 22, 92, 38, "Observability", "Prometheus\nand Grafana", PALE)
+        self._arrow(c, 78, 41, 92, 41)
+        self._arrow(c, 176, 41, 190, 41)
+        self._arrow(c, 298, 41, 276, 41, color=GREEN)
         c.setFillColor(MUTED)
         c.setFont("Helvetica", 6.5)
-        c.drawCentredString(241, 8, "AKS identity -> Network Contributor on the network resource group")
+        c.drawCentredString(197, 8, "AKS managed identity has Network Contributor on the network resource group")
 
     def _draw_real_device(self, c):
         self._title(c, "Local kind real-device lane", "Dedicated cluster exposes the Mac LAN address; never reuse the regression cluster")
-        self._box(c, 4, 58, 80, 44, "OBi1022", "1001 / UDP", PALE_BLUE)
-        self._box(c, 4, 9, 80, 38, "Zoiper", "1002 / UDP", colors.HexColor("#F4F0E8"))
-        self._box(c, 112, 58, 88, 44, "Mac LAN IP", "5061/5062\n30000-30049", PALE)
-        self._box(c, 228, 58, 76, 44, "PlaySBC", "host network", colors.HexColor("#E8F0F7"))
-        self._box(c, 332, 58, 66, 44, "RTPengine", "host network", colors.HexColor("#E8F5F2"))
-        self._box(c, 228, 9, 170, 30, "Evidence capture pod", "combined SIP + RTP + RTCP + network PCAP", PALE)
-        self._arrow(c, 84, 80, 110, 80, "LAN")
-        self._arrow(c, 84, 28, 140, 57, "LAN")
-        self._arrow(c, 200, 80, 226, 80, "SIP")
-        self._arrow(c, 304, 80, 330, 80, "NG")
-        self._arrow(c, 313, 40, 313, 57, "capture")
+        self._box(c, 4, 58, 86, 46, "Real endpoints", "OBi1022 1001\nZoiper 1002", PALE_BLUE)
+        self._box(c, 106, 58, 86, 46, "Mac LAN exposure", "SIP 5061/5062\nRTP 30000-30049", PALE)
+        self._box(c, 208, 58, 86, 46, "PlaySBC", "Dedicated kind cluster\nLAN advertised IP", colors.HexColor("#E8F0F7"))
+        self._box(c, 310, 58, 86, 46, "RTPengine", "Anchored RTP/RTCP\nLAN advertised IP", colors.HexColor("#E8F5F2"))
+        self._arrow(c, 90, 81, 104, 81)
+        self._arrow(c, 192, 81, 206, 81)
+        self._arrow(c, 294, 81, 308, 81)
+        self._box(c, 208, 8, 188, 30, "Combined evidence bundle", "SIP + RTP + RTCP + networking in one PCAP", PALE)
+        self._arrow(c, 302, 39, 302, 57, color=GREEN)
 
 
 def styles():
