@@ -28,9 +28,7 @@ The chart contains Kubernetes manifests and configuration, not image layers.
 
 | Task | Runbook |
 | --- | --- |
-| Local kind/minikube upgrade and regression | [KUBERNETES_HELM_RUNBOOK.md](../docs/KUBERNETES_HELM_RUNBOOK.md) |
-| Azure AKS deployment and regression | [AZURE_AKS.md](../docs/AZURE_AKS.md) |
-| Real-device registration, calls, and capture | [REAL_DEVICE_LAB.md](../docs/REAL_DEVICE_LAB.md) |
+| Docker, kind, minikube, AKS, and real-device administration | [PlaySBC v2.6.0 Product Guide](../output/pdf/PlaySBC-v2.6.0-Product-Guide.pdf) |
 | Release scope and next milestones | [EVOLUTION_PLAN.md](../docs/EVOLUTION_PLAN.md) |
 
 ## Build The Chart

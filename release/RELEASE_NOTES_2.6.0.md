@@ -26,7 +26,7 @@ PlaySBC v2.6.0 is the final public MIT feature gate. It closes the public line w
 ## Product Documentation
 
 - The public evolution plan is frozen at the v2.6.0 baseline and no longer carries future product roadmap commitments.
-- `PlaySBC-v2.6.0-Product-Guide.pdf` provides a branded 17-page feature, architecture, and administration guide for Docker, kind, minikube, Azure AKS, Helm, observability, evidence, and real-device labs.
+- `PlaySBC-v2.6.0-Product-Guide.pdf` provides one branded feature, architecture, and administration guide for Docker, kind, minikube, Azure AKS, Helm, observability, evidence, and real-device labs.
 - The guide cover identifies Sudheer Kumar Vatrapu as contributor and clearly distinguishes the engineering lab from a production-certified SBC.
 
 ## Compatibility

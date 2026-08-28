@@ -6,7 +6,7 @@ The lab observability path is:
 PlaySBC /metrics -> Prometheus -> Grafana
 ```
 
-PlaySBC also exports RTPengine and AI/Rasa state derived from its call-control evidence. Enable or upgrade the stack with the canonical command in [KUBERNETES_HELM_RUNBOOK.md](KUBERNETES_HELM_RUNBOOK.md).
+PlaySBC also exports RTPengine and AI/Rasa state derived from its call-control evidence. Enable or upgrade the stack with the canonical command in the [PlaySBC v2.6.0 Product Guide](../output/pdf/PlaySBC-v2.6.0-Product-Guide.pdf).
 
 ## What Is Measured
 

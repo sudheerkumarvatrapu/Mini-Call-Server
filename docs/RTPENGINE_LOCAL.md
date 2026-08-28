@@ -16,7 +16,7 @@ RTP: endpoint A <-> RTPengine <-> endpoint B
 | AKS real-device | Public SIP LB plus public RTP LB on UDP 30000-30049 |
 | Standalone container | Local RTPengine control development |
 
-Use [KUBERNETES_HELM_RUNBOOK.md](KUBERNETES_HELM_RUNBOOK.md) for Kubernetes commands and [AZURE_AKS.md](AZURE_AKS.md) for public Azure media exposure.
+Use the [PlaySBC v2.6.0 Product Guide](../output/pdf/PlaySBC-v2.6.0-Product-Guide.pdf) for Kubernetes and Azure media administration.
 
 ## Docker Regression
 

@@ -1649,7 +1649,7 @@ Content-Length: 0
         values = (chart / "values.yaml").read_text(encoding="utf-8")
         azure = (chart / "templates" / "azure-services.yaml").read_text(encoding="utf-8")
         aks_values = (ROOT / "configs" / "kubernetes" / "aks-values.yaml").read_text(encoding="utf-8")
-        aks_doc = (ROOT / "docs" / "AZURE_AKS.md").read_text(encoding="utf-8")
+        product_guide = (ROOT / "docs" / "PRODUCT_GUIDE.md").read_text(encoding="utf-8")
 
         self.assertIn("cloud:", values)
         self.assertIn("azure:", values)
@@ -1665,11 +1665,10 @@ Content-Length: 0
         self.assertIn("$mediaPublicAllowedRanges", azure)
         self.assertIn("documentedPortRange", aks_values)
         self.assertIn("portRange:", aks_values)
-        self.assertIn("PlaySBC On Azure AKS", aks_doc)
-        self.assertIn("Run AKS Regression", aks_doc)
-        self.assertIn("--aks-profiles", aks_doc)
-        self.assertIn("v1.5.0", aks_doc)
-        self.assertIn("v2.4.0", aks_doc)
+        self.assertIn("Azure AKS Administration", product_guide)
+        self.assertIn("AKS Regression", product_guide)
+        self.assertIn("--aks-profiles", product_guide)
+        self.assertIn("PLAYSBC_VERSION=2.6.0", product_guide)
 
     def test_current_release_keeps_kind_regression_path(self):
         chart = ROOT / "charts" / "playsbc"
@@ -1679,7 +1678,7 @@ Content-Length: 0
         values = (chart / "values.yaml").read_text(encoding="utf-8")
         aks_values = (ROOT / "configs" / "kubernetes" / "aks-values.yaml").read_text(encoding="utf-8")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        runbook = (ROOT / "docs" / "KUBERNETES_HELM_RUNBOOK.md").read_text(encoding="utf-8")
+        runbook = (ROOT / "docs" / "PRODUCT_GUIDE.md").read_text(encoding="utf-8")
         local_runbook = (ROOT / "docs" / "KUBERNETES_LOCAL.md").read_text(encoding="utf-8")
         release_notes = (ROOT / "release" / f"RELEASE_NOTES_{current_version}.md").read_text(encoding="utf-8")
 
@@ -1692,7 +1691,7 @@ Content-Length: 0
         self.assertIn(f"kind/minikube must track the current release (`v{current_version}`", readme)
         self.assertIn(f"export PLAYSBC_VERSION={current_version}", runbook)
         self.assertIn(
-            "[Kubernetes and Helm runbook](KUBERNETES_HELM_RUNBOOK.md)",
+            "[PlaySBC v2.6.0 Product Guide](../output/pdf/PlaySBC-v2.6.0-Product-Guide.pdf)",
             local_runbook,
         )
         self.assertIn("--all-profiles", runbook)

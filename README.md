@@ -22,14 +22,10 @@ PlaySBC is a Python SIP/RTP lab for B2BUA routing, G.711 media, RTPengine, HA ex
 | --- | --- |
 | Choose the correct workflow | [Documentation index](docs/README.md) |
 | Read the product and administration guide | [PlaySBC v2.6.0 Product Guide](output/pdf/PlaySBC-v2.6.0-Product-Guide.pdf) |
-| Deploy and regress on local Kubernetes | [Kubernetes and Helm runbook](docs/KUBERNETES_HELM_RUNBOOK.md) |
 | Understand kind/minikube topology | [Local Kubernetes lab](docs/KUBERNETES_LOCAL.md) |
-| Deploy and regress on Azure AKS | [Azure AKS runbook](docs/AZURE_AKS.md) |
-| Test OBi1022 and Zoiper | [Real-device lab](docs/REAL_DEVICE_LAB.md) |
 | Run Rasa voice/chat profiles | [AI Voice Gateway](docs/AI_VOICE_GATEWAY.md) |
 | Use Grafana and Prometheus | [Observability](docs/OBSERVABILITY.md) |
 | Review planned work | [Evolution plan](docs/EVOLUTION_PLAN.md) |
-| Review the post-v2.6 commercial Voice AI and Enterprise SBC track | [Commercial Enterprise SBC playbook](docs/ENTERPRISE_SBC_V3_PLAYBOOK.md) |
 | Inspect release artifacts | [Release index](release/README.md) |
 
 ## Current Release
@@ -83,7 +79,7 @@ Report:
 logs/reports/latest.html
 ```
 
-For Kubernetes, use the single maintained copy/paste flow in [docs/KUBERNETES_HELM_RUNBOOK.md](docs/KUBERNETES_HELM_RUNBOOK.md).
+For deployment and administration, use the single maintained [PlaySBC v2.6.0 Product Guide](output/pdf/PlaySBC-v2.6.0-Product-Guide.pdf).
 
 Verify the PlaySBC and RTPengine images currently configured in either Deployment or StatefulSet topology:
 
@@ -109,7 +105,7 @@ Every applicable regression profile should produce:
 
 PlaySBC has strong lab coverage, but large-scale production claims require external shared state, carrier-grade load balancing, security hardening, multi-node and multi-zone failure proof, long soak tests, and measured capacity baselines. See the [evolution plan](docs/EVOLUTION_PLAN.md).
 
-PlaySBC v2.6.0 is the final public MIT baseline. Published source, images, and releases through v2.6.0 retain their MIT terms. The exact audited v2.6.0 tag will be imported into the access-controlled `SBC-Comm` repository; production Voice AI and Enterprise SBC development after that fork is planned under a separate paid commercial license. See the [commercial Enterprise SBC playbook](docs/ENTERPRISE_SBC_V3_PLAYBOOK.md). This plan does not alter rights already granted for MIT code.
+PlaySBC v2.6.0 is the final public MIT baseline. Published source, images, and releases through v2.6.0 retain their MIT terms. The exact audited v2.6.0 tag will be imported into the access-controlled `SBC-Comm` repository. This boundary does not alter rights already granted for MIT code.
 
 ## Cleanup
 
