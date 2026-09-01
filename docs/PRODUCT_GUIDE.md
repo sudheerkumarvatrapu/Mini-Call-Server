@@ -21,6 +21,10 @@ Status: Final public MIT engineering baseline
 
 PlaySBC v2.6.0 is an engineering and interoperability lab. It is not a production-certified carrier SBC, and this guide does not make unmeasured capacity, compliance, or availability claims.
 
+## Copying Commands
+
+PDF viewers such as macOS Preview and browser PDF viewers keep every command selectable, but they do not permit a PDF to write to the system clipboard. Use `output/html/PlaySBC-v2.6.0-Product-Guide.html` in a browser for working COPY buttons on every command block.
+
 ## Contents
 
 - Product overview and feature baseline
@@ -317,6 +321,35 @@ kind delete cluster --name playsbc
 
 If Helm is `pending-upgrade` after an interruption, roll back to the last `deployed` revision. If pods still reference the interrupted image, delete only those failed pods and let the rolled-back StatefulSet recreate them.
 
+## kind Troubleshooting And Recovery
+
+Start with a read-only snapshot. The context can remain in kubeconfig even when Docker Desktop or the kind control-plane container is stopped.
+
+```bash
+docker info
+kind get clusters
+kubectl --context kind-playsbc cluster-info
+helm --kube-context kind-playsbc -n playsbc status playsbc
+kubectl --context kind-playsbc -n playsbc get pods,svc,statefulset,deployment -o wide
+kubectl --context kind-playsbc -n playsbc get events --sort-by=.lastTimestamp | tail -60
+```
+
+Use these commands to inspect a specific failed pod and compare the live release with a non-mutating chart render.
+
+```bash
+kubectl --context kind-playsbc -n playsbc describe pod <pod-name>
+kubectl --context kind-playsbc -n playsbc logs <pod-name> --all-containers --previous
+helm --kube-context kind-playsbc -n playsbc get values playsbc -a
+helm template playsbc charts/playsbc -n playsbc \
+  -f configs/kubernetes/active-active-values.yaml >/tmp/playsbc-rendered.yaml
+```
+
+| Symptom | Diagnosis | Recovery |
+| --- | --- | --- |
+| `127.0.0.1:<port>: connect: connection refused` | Docker or `playsbc-control-plane` is stopped | Start Docker Desktop, then `docker start playsbc-control-plane`; recreate only if `kind get clusters` does not list `playsbc`. |
+| Pod `Pending` | Storage, scheduling, or resource pressure | Describe the pod and PVC; inspect node CPU, memory, taints, and events. |
+| `ImagePullBackOff` | Missing GHCR tag or incompatible pull policy | Inspect the exact image; use GHCR with `Always`, or a locally loaded image with `Never`. |
+
 # Minikube Compatibility Model
 
 [[MINIKUBE_DIAGRAM]]
@@ -374,6 +407,18 @@ minikube delete --profile playsbc
 ```
 
 Selected Kubernetes profiles may be run against this context after validating image availability and service reachability. Run the full release gate on kind.
+
+## Minikube Troubleshooting
+
+```bash
+minikube status --profile playsbc
+minikube logs --profile playsbc --problems
+kubectl --context playsbc -n playsbc get events --sort-by=.lastTimestamp | tail -60
+```
+
+- If the API is unavailable, start the runtime required by the selected driver and run `minikube start --profile playsbc`.
+- If a locally loaded image cannot be pulled, verify it with `minikube -p playsbc image ls` and use the repository/tag that was actually loaded.
+- `kubectl port-forward` is appropriate for Grafana, Prometheus, and TCP checks; it does not provide UDP SIP or RTP exposure.
 
 # Generic Helm Kubernetes Model
 
@@ -433,6 +478,18 @@ helm --kube-context "$KUBE_CONTEXT" -n playsbc uninstall playsbc
 ```
 
 Run selected regression profiles first. Promote to a full suite only after platform-specific SIP and RTP networking is verified.
+
+## Generic Kubernetes Troubleshooting
+
+Render before mutation and compare the rendered workload with the live objects. Most platform failures occur at the boundaries the chart cannot own: CNI, storage, LoadBalancer implementation, firewall rules, identity, and Secrets.
+
+```bash
+kubectl --context "$KUBE_CONTEXT" -n playsbc get events \
+  --sort-by=.lastTimestamp | tail -80
+kubectl --context "$KUBE_CONTEXT" -n playsbc describe pod <pod-name>
+kubectl --context "$KUBE_CONTEXT" -n playsbc describe svc <service-name>
+helm --kube-context "$KUBE_CONTEXT" -n playsbc get values playsbc -a
+```
 
 # Azure AKS Administration and Deployment Model
 
@@ -570,6 +627,40 @@ kubectl -n playsbc get deployment,statefulset \
 
 A pending external IP is not solved by restarting PlaySBC. Check Service events, static public-IP names, resource groups, and managed identity permission. Wait for both ingress addresses before registration, calls, or AKS regression.
 
+## Troubleshoot Pending Azure LoadBalancers
+
+```bash
+kubectl -n playsbc describe svc \
+  playsbc-playsbc-azure-sip-public | sed -n '/Events:/,$p'
+kubectl -n playsbc describe svc \
+  playsbc-playsbc-azure-rtp-public | sed -n '/Events:/,$p'
+
+az role assignment list --scope "$NETWORK_RG_ID" \
+  --assignee "$AKS_OBJECT_ID" -o table
+```
+
+- `EnsuringLoadBalancer` without an authorization error can be normal while Azure allocates the resource.
+- `AuthorizationFailed` for `Microsoft.Network/publicIPAddresses/read` means the AKS identity lacks Network Contributor at the network resource-group scope, or RBAC has not propagated yet.
+- A wrong ingress address usually means the Service annotations point to the wrong network resource group or public-IP resource name.
+- Do not repeatedly restart pods: LoadBalancer reconciliation is controlled by Azure and the Kubernetes cloud provider.
+
+After correcting identity or annotation values, rerun the same atomic Helm upgrade. Delete and recreate only the two LoadBalancer Services if their reconciliation remains stale; leave the workloads and evidence intact.
+
+## Verify Health Before Calls
+
+```bash
+kubectl -n playsbc rollout status deployment/playsbc-playsbc --timeout=240s
+kubectl -n playsbc rollout status deployment/playsbc-playsbc-rtpengine --timeout=240s
+
+kubectl -n playsbc exec deployment/playsbc-playsbc -- \
+  python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8080/readyz').read().decode())"
+
+kubectl -n playsbc exec deployment/playsbc-playsbc -- \
+  python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8080/metrics').read().decode()[:1000])"
+```
+
+Expected results include `ready`, the v2.6.0 images, both configured public ingress addresses, and `playsbc_active_calls 0` before an idle test.
+
 ## Run AKS Regression: 12-Profile Readiness Suite
 
 ```bash
@@ -589,6 +680,8 @@ python3 tools/run_k8s_regression_job.py \
 
 Download `latest-aks-regression.tgz` immediately because Cloud Shell storage can be ephemeral.
 
+If a mixed SRTP profile receives encrypted packets but returns none, inspect the profile's `core-secure-srtp-sender/` or `peer-secure-srtp-sender/` evidence before changing Azure networking. These helpers bind the reserved one-call RTP/RTCP ports `6000/6001`; plain RTP profiles use dynamic media ports.
+
 ## Credential Recovery
 
 Use the normal CLI first. If the installed CLI selects an unsupported API version, retrieve the credential payload with an explicitly supported API version.
@@ -598,18 +691,39 @@ az aks get-credentials \
   -g "$AKS_RG" -n "$AKS_NAME" --overwrite-existing
 ```
 
-Fallback:
+Before the fallback, verify the active subscription contains the cluster. An empty resource group in the REST URL indicates the wrong subscription or failed discovery.
 
 ```bash
+az account show --query '{subscription:name,id:id}' -o table
+az aks list --query '[].{name:name,resourceGroup:resourceGroup}' -o table
+```
+
+Guarded fallback (it replaces kubeconfig only after a non-empty credential is returned):
+
+```bash
+set -euo pipefail
+
+export AKS_NAME=playsbc-aks
+export AKS_RG=$(az aks list \
+  --query "[?name=='$AKS_NAME'].resourceGroup | [0]" -o tsv)
 export SUB_ID=$(az account show --query id -o tsv)
-mkdir -p ~/.kube
+: "${SUB_ID:?Subscription ID is empty}"
+: "${AKS_RG:?AKS cluster was not found in the active subscription}"
+: "${AKS_NAME:?AKS name is empty}"
+
+TMP_KUBECONFIG=$(mktemp)
 
 az rest --method post \
   --url "https://management.azure.com/subscriptions/$SUB_ID/resourceGroups/$AKS_RG/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME/listClusterUserCredential?api-version=2025-04-01" \
   --query 'kubeconfigs[0].value' -o tsv \
-  | base64 -d >~/.kube/config
+  | base64 -d >"$TMP_KUBECONFIG"
 
+test -s "$TMP_KUBECONFIG"
+mkdir -p ~/.kube
+mv "$TMP_KUBECONFIG" ~/.kube/config
 chmod 600 ~/.kube/config
+kubectl config current-context
+kubectl get nodes
 kubectl get pods -n playsbc
 ```
 
@@ -627,6 +741,18 @@ for RG in "$AKS_RG" "$NETWORK_RG"; do
     az group delete --subscription "$SUB_ID" \
       --name "$RG" --yes --no-wait
   fi
+done
+```
+
+Do not delete the AKS-managed `MC_*` resource group separately. Confirm both named PlaySBC resource groups disappear; until then, the lab may still incur cost.
+
+```bash
+while true; do
+  AKS_EXISTS=$(az group exists --subscription "$SUB_ID" --name "$AKS_RG")
+  NETWORK_EXISTS=$(az group exists --subscription "$SUB_ID" --name "$NETWORK_RG")
+  echo "AKS_RG=$AKS_EXISTS NETWORK_RG=$NETWORK_EXISTS"
+  [ "$AKS_EXISTS" = false ] && [ "$NETWORK_EXISTS" = false ] && break
+  sleep 30
 done
 ```
 
@@ -714,6 +840,27 @@ python3 tools/run_real_device_capture.py \
 ```
 
 The output bundle contains one combined packet capture and synchronized workload logs. Interrupt once with `Ctrl+C`; the collector performs graceful finalization.
+
+## Real-Device Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| No REGISTER | Confirm the dedicated context, Mac LAN IP, SIP `5062/UDP`, endpoint provisioning, and home-router SIP ALG behavior. |
+| Repeated `401` | Verify user, password, digest realm, and that the endpoint sends the authenticated retry. |
+| `404` or incomplete address | Confirm both users are registered and inspect `INVITE ROUTE SELECTED`. |
+| `480` | Answer before the configured B2BUA invitation timeout. |
+| One-way or no audio | Compare SDP addresses, RTPengine advertised IP, UDP `30000-30049`, NAT learning, and the combined PCAP. |
+| RTP after `180` | Distinguish tiny NAT probes from G.711 speech packets in media evidence. |
+| Call remains connected | Verify BYE/200 on both B2BUA legs and the RTPengine delete. |
+| Capture pod remains | Confirm evidence was copied, then delete only the stale capture pod. |
+
+```bash
+kubectl --context "$REAL_DEVICE_CONTEXT" -n playsbc get pods,svc -o wide
+kubectl --context "$REAL_DEVICE_CONTEXT" -n playsbc logs \
+  deployment/playsbc-playsbc --tail=200
+kubectl --context "$REAL_DEVICE_CONTEXT" -n playsbc logs \
+  deployment/playsbc-playsbc-rtpengine --tail=200
+```
 
 ## Monitor, Roll Back, And Clean Up
 
@@ -852,6 +999,11 @@ The public chart and suite include active-active, node-drain, shared-state, and 
 | One-way/no audio | Wrong RTP IP/range or NAT | Compare SDP, RTP LB, RTPengine interface, and PCAP. |
 | Long-run time gap | Host sleep or shell disconnect | Use caffeinate-enabled launcher and preserve remote Job. |
 | PCAP lacks a leg | Missing/empty role capture | Inspect pcap-legs.json; v2.6.0 fails the evidence gate. |
+| Helm operation stuck pending | Interrupted install/upgrade | Inspect history and roll back to the last deployed revision. |
+| Pod `CrashLoopBackOff` | Bad configuration, missing Secret, startup failure | Read current/previous logs and events before restarting. |
+| AKS credentials fail | Wrong subscription or CLI API mismatch | Discover the cluster in the active subscription; use the guarded REST fallback. |
+| Secure media profile is one-sided | SRTP helper did not bind or authenticate | Inspect the secure sender evidence and ports `6000/6001` before changing firewall rules. |
+| Real device returns `480` | Callee did not answer before timeout | Verify registration, ringing, endpoint behavior, and invitation timeout. |
 
 # Capacity and Product Boundaries
 

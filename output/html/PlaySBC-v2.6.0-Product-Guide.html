@@ -1,0 +1,887 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PlaySBC v2.6.0 Product Guide</title>
+<style>
+:root{--navy:#16324f;--blue:#2166a5;--line:#c9d4dd;--pale:#f5f8fa;--ink:#202b33;--muted:#5a6975}
+*{box-sizing:border-box} body{margin:0;color:var(--ink);font:16px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#eef3f6}
+.layout{display:grid;grid-template-columns:280px minmax(0,920px);gap:28px;max-width:1260px;margin:auto;padding:28px}
+nav{position:sticky;top:20px;align-self:start;max-height:calc(100vh - 40px);overflow:auto;background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px}
+nav h2{margin-top:0} nav a{display:block;color:var(--blue);text-decoration:none;padding:4px 0} nav .toc-2{padding-left:13px;font-size:13px}
+main{background:#fff;border:1px solid var(--line);border-radius:12px;padding:42px 52px;box-shadow:0 12px 35px #16324f12}
+h1{color:var(--navy);border-bottom:2px solid var(--line);padding-bottom:10px;margin-top:54px} h1:first-child{margin-top:0} h2{color:var(--blue);margin-top:38px} h3{color:var(--navy)}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace} .command{border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:5px;margin:16px 0 22px;background:var(--pale);overflow:hidden}
+.command header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#e7eef4;color:var(--muted);font-size:12px;font-weight:700}
+.copy{border:0;border-radius:5px;background:var(--blue);color:white;font-weight:750;padding:7px 14px;cursor:pointer} .copy:focus-visible{outline:3px solid #f5a623;outline-offset:2px}
+pre{margin:0;padding:16px;overflow:auto;white-space:pre} .copy-status{height:0;margin:0;overflow:hidden} .command.copied header{background:#dff3e7} .command.copied .copy{background:#257548}
+.table-wrap{overflow:auto;margin:16px 0 24px} table{border-collapse:collapse;width:100%;font-size:14px} th{background:var(--navy);color:white;text-align:left} th,td{border:1px solid var(--line);padding:8px;vertical-align:top} tr:nth-child(even) td{background:var(--pale)}
+.browser-note{background:#eaf2f8;border-left:4px solid var(--blue);padding:12px 16px;margin-bottom:24px}
+@media(max-width:850px){.layout{display:block;padding:10px}nav{position:relative;max-height:none;margin-bottom:12px}main{padding:24px 18px}}
+</style></head><body><div class="layout"><nav><h2>Contents</h2><a class="toc-1" href="#playsbc-v2-6-0-product-guide">PlaySBC v2.6.0 Product Guide</a>
+<a class="toc-1" href="#document-control">Document Control</a>
+<a class="toc-2" href="#important-product-boundary">Important Product Boundary</a>
+<a class="toc-2" href="#copying-commands">Copying Commands</a>
+<a class="toc-2" href="#contents">Contents</a>
+<a class="toc-1" href="#product-overview">Product Overview</a>
+<a class="toc-2" href="#core-capabilities">Core Capabilities</a>
+<a class="toc-2" href="#validated-endpoint-baseline">Validated Endpoint Baseline</a>
+<a class="toc-2" href="#public-release-gate">Public Release Gate</a>
+<a class="toc-1" href="#system-architecture">System Architecture</a>
+<a class="toc-2" href="#component-responsibilities">Component Responsibilities</a>
+<a class="toc-2" href="#call-model">Call Model</a>
+<a class="toc-1" href="#protocol-and-media-behavior">Protocol and Media Behavior</a>
+<a class="toc-2" href="#signalling-baseline">Signalling Baseline</a>
+<a class="toc-2" href="#media-baseline">Media Baseline</a>
+<a class="toc-2" href="#evidence-versus-certification">Evidence Versus Certification</a>
+<a class="toc-1" href="#deployment-model-selection">Deployment Model Selection</a>
+<a class="toc-2" href="#common-isolation-and-safety-rules">Common Isolation And Safety Rules</a>
+<a class="toc-1" href="#docker-deployment-model">Docker Deployment Model</a>
+<a class="toc-2" href="#purpose-and-prerequisites">Purpose And Prerequisites</a>
+<a class="toc-2" href="#build-or-refresh-images">Build Or Refresh Images</a>
+<a class="toc-2" href="#run-fast-application-regression">Run Fast Application Regression</a>
+<a class="toc-2" href="#run-the-real-address-docker-topology">Run The Real-Address Docker Topology</a>
+<a class="toc-2" href="#verify-inspect-and-clean-up">Verify, Inspect, And Clean Up</a>
+<a class="toc-1" href="#kind-canonical-regression-model">kind Canonical Regression Model</a>
+<a class="toc-2" href="#purpose-and-prerequisites">Purpose And Prerequisites</a>
+<a class="toc-2" href="#create-or-recover-the-cluster">Create Or Recover The Cluster</a>
+<a class="toc-2" href="#install-or-upgrade-v2-6-0">Install Or Upgrade v2.6.0</a>
+<a class="toc-2" href="#verify-the-upgrade">Verify The Upgrade</a>
+<a class="toc-2" href="#run-all-70-profiles">Run All 70 Profiles</a>
+<a class="toc-2" href="#run-selected-profiles">Run Selected Profiles</a>
+<a class="toc-2" href="#roll-back-and-clean-up">Roll Back And Clean Up</a>
+<a class="toc-2" href="#kind-troubleshooting-and-recovery">kind Troubleshooting And Recovery</a>
+<a class="toc-1" href="#minikube-compatibility-model">Minikube Compatibility Model</a>
+<a class="toc-2" href="#purpose-and-prerequisites">Purpose And Prerequisites</a>
+<a class="toc-2" href="#make-images-available">Make Images Available</a>
+<a class="toc-2" href="#install-or-upgrade">Install Or Upgrade</a>
+<a class="toc-2" href="#verify-test-roll-back-and-clean-up">Verify, Test, Roll Back, And Clean Up</a>
+<a class="toc-2" href="#minikube-troubleshooting">Minikube Troubleshooting</a>
+<a class="toc-1" href="#generic-helm-kubernetes-model">Generic Helm Kubernetes Model</a>
+<a class="toc-2" href="#operator-responsibilities">Operator Responsibilities</a>
+<a class="toc-2" href="#prepare-and-render-before-applying">Prepare And Render Before Applying</a>
+<a class="toc-2" href="#install-or-upgrade">Install Or Upgrade</a>
+<a class="toc-2" href="#verify-test-roll-back-and-clean-up">Verify, Test, Roll Back, And Clean Up</a>
+<a class="toc-2" href="#generic-kubernetes-troubleshooting">Generic Kubernetes Troubleshooting</a>
+<a class="toc-1" href="#azure-aks-administration-and-deployment-model">Azure AKS Administration and Deployment Model</a>
+<a class="toc-2" href="#purpose-and-required-resources">Purpose And Required Resources</a>
+<a class="toc-2" href="#set-variables-and-register-providers">Set Variables And Register Providers</a>
+<a class="toc-2" href="#create-acr-and-aks">Create ACR And AKS</a>
+<a class="toc-2" href="#create-static-public-ips-and-grant-identity-access">Create Static Public IPs And Grant Identity Access</a>
+<a class="toc-2" href="#import-and-verify-all-four-images">Import And Verify All Four Images</a>
+<a class="toc-2" href="#install-or-upgrade-aks">Install Or Upgrade AKS</a>
+<a class="toc-2" href="#verify-azure-services-and-runtime">Verify Azure Services And Runtime</a>
+<a class="toc-2" href="#troubleshoot-pending-azure-loadbalancers">Troubleshoot Pending Azure LoadBalancers</a>
+<a class="toc-2" href="#verify-health-before-calls">Verify Health Before Calls</a>
+<a class="toc-2" href="#run-aks-regression-12-profile-readiness-suite">Run AKS Regression: 12-Profile Readiness Suite</a>
+<a class="toc-2" href="#credential-recovery">Credential Recovery</a>
+<a class="toc-2" href="#roll-back-and-clean-up">Roll Back And Clean Up</a>
+<a class="toc-1" href="#local-kind-real-device-model">Local kind Real-Device Model</a>
+<a class="toc-2" href="#validated-baseline">Validated Baseline</a>
+<a class="toc-2" href="#determine-the-lan-address-and-create-the-cluster">Determine The LAN Address And Create The Cluster</a>
+<a class="toc-2" href="#install-or-upgrade">Install Or Upgrade</a>
+<a class="toc-2" href="#verify-and-configure-endpoints">Verify And Configure Endpoints</a>
+<a class="toc-2" href="#call-and-capture-acceptance">Call And Capture Acceptance</a>
+<a class="toc-2" href="#real-device-troubleshooting">Real-Device Troubleshooting</a>
+<a class="toc-2" href="#monitor-roll-back-and-clean-up">Monitor, Roll Back, And Clean Up</a>
+<a class="toc-1" href="#helm-configuration-and-lifecycle">Helm Configuration and Lifecycle</a>
+<a class="toc-1" href="#operations-and-observability">Operations and Observability</a>
+<a class="toc-2" href="#image-and-version-verification">Image and Version Verification</a>
+<a class="toc-2" href="#health-and-metrics">Health and Metrics</a>
+<a class="toc-1" href="#regression-and-evidence-administration">Regression and Evidence Administration</a>
+<a class="toc-2" href="#evidence-contract">Evidence Contract</a>
+<a class="toc-2" href="#open-clickable-evidence">Open Clickable Evidence</a>
+<a class="toc-1" href="#security-ha-and-recovery">Security, HA, and Recovery</a>
+<a class="toc-2" href="#security-baseline">Security Baseline</a>
+<a class="toc-2" href="#ha-baseline">HA Baseline</a>
+<a class="toc-2" href="#recovery-sequence">Recovery Sequence</a>
+<a class="toc-1" href="#troubleshooting-guide">Troubleshooting Guide</a>
+<a class="toc-1" href="#capacity-and-product-boundaries">Capacity and Product Boundaries</a>
+<a class="toc-2" href="#what-v2-6-0-can-claim">What v2.6.0 Can Claim</a>
+<a class="toc-2" href="#what-it-does-not-claim">What It Does Not Claim</a>
+<a class="toc-1" href="#command-reference">Command Reference</a>
+<a class="toc-2" href="#inspect-workloads">Inspect Workloads</a>
+<a class="toc-2" href="#restart-observability">Restart Observability</a>
+<a class="toc-2" href="#monitor-calls-and-media">Monitor Calls and Media</a>
+<a class="toc-2" href="#release-artifact-verification">Release Artifact Verification</a>
+<a class="toc-2" href="#canonical-references">Canonical References</a></nav><main>
+<div class="browser-note"><strong>Browser edition:</strong> use COPY on any command block. The PDF edition keeps commands selectable but cannot access the clipboard in Preview or browser PDF viewers.</div>
+<h1 id="playsbc-v2-6-0-product-guide">PlaySBC v2.6.0 Product Guide</h1>
+<p>Features, Architecture, and Administration</p>
+<p>Contributor: Sudheer Kumar Vatrapu</p>
+<p>Status: Final public MIT engineering baseline</p>
+<h1 id="document-control">Document Control</h1>
+<div class=table-wrap><table>
+<tr><th>Field</th><th>Value</th></tr>
+<tr><td>Product</td><td>PlaySBC</td></tr>
+<tr><td>Release</td><td>v2.6.0</td></tr>
+<tr><td>Status</td><td>Final public MIT engineering baseline</td></tr>
+<tr><td>Contributor</td><td>Sudheer Kumar Vatrapu</td></tr>
+<tr><td>Audience</td><td>SIP engineers, platform engineers, lab administrators, and evaluators</td></tr>
+<tr><td>Scope</td><td>Features, architecture, deployment, administration, operations, evidence, and limitations</td></tr>
+</table></div>
+<h2 id="important-product-boundary">Important Product Boundary</h2>
+<p>PlaySBC v2.6.0 is an engineering and interoperability lab. It is not a production-certified carrier SBC, and this guide does not make unmeasured capacity, compliance, or availability claims.</p>
+<h2 id="copying-commands">Copying Commands</h2>
+<p>PDF viewers such as macOS Preview and browser PDF viewers keep every command selectable, but they do not permit a PDF to write to the system clipboard. Use <code>output/html/PlaySBC-v2.6.0-Product-Guide.html</code> in a browser for working COPY buttons on every command block.</p>
+<h2 id="contents">Contents</h2>
+<ul>
+<li>Product overview and feature baseline</li>
+<li>System architecture and protocol behavior</li>
+<li>Docker, kind, minikube, Azure AKS, and real-device deployment models</li>
+<li>Helm lifecycle, operations, observability, and evidence</li>
+<li>Security, HA, recovery, troubleshooting, and honest capacity limits</li>
+</ul>
+<h1 id="product-overview">Product Overview</h1>
+<p>PlaySBC combines SIP signalling, B2BUA routing, RTPengine media control, AI voice experiments, observability, and evidence-driven regression in one lab platform.</p>
+<h2 id="core-capabilities">Core Capabilities</h2>
+<ul>
+<li>SIP REGISTER and B2BUA calls over UDP, TCP, and TLS.</li>
+<li>Digest registration for synthetic endpoints and real devices.</li>
+<li>RTPengine anchoring with RTP/RTCP, G.711 transcoding, SRTP interworking, and NAT learning.</li>
+<li>Active-active and failure-injection lab foundations with Helm-managed Kubernetes topology.</li>
+<li>Rasa, STT, TTS, DTMF, and scripted AI Voice Gateway regression foundations.</li>
+<li>RFC 5359 call hold/resume signalling profiles.</li>
+<li>Prometheus metrics, Grafana dashboards, canonical ladders, logs, and combined PCAP evidence.</li>
+</ul>
+<h2 id="validated-endpoint-baseline">Validated Endpoint Baseline</h2>
+<p>OBi1022 user <code>1001</code> and Zoiper user <code>1002</code> have been registered through Azure AKS and used for two-way RTPengine-anchored audio. The local real-device lane advertises the Mac LAN address and remains isolated from the full regression cluster.</p>
+<h2 id="public-release-gate">Public Release Gate</h2>
+<p>v2.6.0 contains 70 selectable Kubernetes regression profiles, live <code>X/70</code> launcher progress, macOS host-sleep inhibition, and role-aware merged-PCAP certification.</p>
+<h1 id="system-architecture">System Architecture</h1>
+<p>PlaySBC separates signalling, media anchoring, test orchestration, and observability so each layer can be inspected independently.</p>
+<h2 id="component-responsibilities">Component Responsibilities</h2>
+<div class=table-wrap><table>
+<tr><th>Component</th><th>Responsibility</th></tr>
+<tr><td>PlaySBC</td><td>SIP listener, registrar, B2BUA routing, dialog handling, policy, health, and metrics.</td></tr>
+<tr><td>RTPengine</td><td>Media anchoring, address/port rewriting, G.711 handling, RTP/RTCP, SRTP, and NAT learning.</td></tr>
+<tr><td>SIPp agents</td><td>Core and peer endpoint roles used by deterministic regression profiles.</td></tr>
+<tr><td>Regression runner</td><td>Helm profile application, orchestration, verdicts, collection, and HTML/archive output.</td></tr>
+<tr><td>Prometheus/Grafana</td><td>Metrics retention, dashboards, traffic, media, AI, and HA visibility.</td></tr>
+</table></div>
+<h2 id="call-model">Call Model</h2>
+<p>The inbound SIP dialog and outbound SIP dialog are separate B2BUA legs with distinct Call-IDs. v2.6.0 packet evidence checks for both roles and both INVITE legs in plain-SIP bridged profiles.</p>
+<h1 id="protocol-and-media-behavior">Protocol and Media Behavior</h1>
+<h2 id="signalling-baseline">Signalling Baseline</h2>
+<ul>
+<li>SIP UDP <code>5062</code>, SIP TCP <code>5062</code>, and SIP TLS <code>5061</code>.</li>
+<li>REGISTER challenge and authenticated registration for configured users.</li>
+<li>INVITE routing to registered contacts, provisional/final responses, ACK, BYE, and CANCEL handling.</li>
+<li>OPTIONS health checks and transport-policy profiles.</li>
+<li>In-dialog hold/resume re-INVITE signalling in the public lab baseline.</li>
+</ul>
+<h2 id="media-baseline">Media Baseline</h2>
+<ul>
+<li>RTPengine NG control on UDP <code>2223</code>.</li>
+<li>Local and AKS real-device RTP range <code>30000-30049/UDP</code>.</li>
+<li>Load-only regression profiles may use a larger profile-scoped RTP range.</li>
+<li>PCMU/PCMA G.711 operation, transcoding evidence, RTP/RTCP direction verdicts, and SRTP interworking profiles.</li>
+</ul>
+<h2 id="evidence-versus-certification">Evidence Versus Certification</h2>
+<p>A passing profile proves the behavior and evidence asserted by that profile. It does not automatically certify every RFC clause, endpoint, network, scale, or failure mode.</p>
+<h1 id="deployment-model-selection">Deployment Model Selection</h1>
+<p>Choose one lane for one purpose. Do not reuse cloud values in local clusters or local real-device values in AKS.</p>
+<div class=table-wrap><table>
+<tr><th>Model</th><th>Topology</th><th>Primary use</th><th>Exposure</th></tr>
+<tr><td>Docker</td><td>PlaySBC, RTPengine, SIPp containers</td><td>Fast development and dual-realm checks</td><td>Local Docker networks</td></tr>
+<tr><td>kind regression</td><td>2 PlaySBC + 2 RTPengine</td><td>Canonical 70-profile regression and HA lab</td><td>Docker Desktop</td></tr>
+<tr><td>Minikube</td><td>Chart compatibility topology</td><td>Kubernetes portability checks</td><td>Local NodePort/tunnel</td></tr>
+<tr><td>Generic Kubernetes</td><td>Deployment or StatefulSet</td><td>Platform integration with operator-owned networking</td><td>Platform-defined</td></tr>
+<tr><td>kind real device</td><td>1 PlaySBC + 1 RTPengine</td><td>LAN OBi/Zoiper calls and packet capture</td><td>Mac LAN ports</td></tr>
+<tr><td>Azure AKS</td><td>1+1 readiness or active-active</td><td>Azure ACR, identity, static SIP/RTP LBs</td><td>Public/private Azure networking</td></tr>
+</table></div>
+<h2 id="common-isolation-and-safety-rules">Common Isolation And Safety Rules</h2>
+<ul>
+<li>Set <code>PLAYSBC_VERSION=2.6.0</code> before cloning, importing images, upgrading, or running regression.</li>
+<li>Use context <code>kind-playsbc</code> only for canonical local regression.</li>
+<li>Use context <code>kind-playsbc-real-device</code> only for LAN phone testing.</li>
+<li>Use the AKS context only with Azure values, ACR images, and Azure LoadBalancer resources.</li>
+<li>Always set both image repositories and both image tags during an upgrade. Setting only a tag can produce nonexistent defaults such as <code>playsbc:2.6.0</code> or <code>drachtio/rtpengine:2.6.0</code>.</li>
+<li>Verify context, Helm status, workload images, advertised addresses, and RTP range before a call or regression run.</li>
+<li>Use <code>--atomic --wait</code> for normal upgrades. If an interrupted operation leaves Helm pending, inspect history and roll back before starting another upgrade.</li>
+</ul>
+<h1 id="docker-deployment-model">Docker Deployment Model</h1>
+<h2 id="purpose-and-prerequisites">Purpose And Prerequisites</h2>
+<p>Docker is the fastest lane for application, signalling, media, and dual-realm topology checks. On macOS, start Docker Desktop and keep the Mac awake for load or soak work.</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>cd /Users/sudheerkumar/Documents/Codex/2026-05-18/Mini-Call-Server
+export PLAYSBC_VERSION=2.6.0
+
+open -a Docker
+until docker info &gt;/dev/null 2&gt;&amp;1; do
+  echo &quot;Waiting for Docker Desktop...&quot;
+  sleep 5
+done</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="build-or-refresh-images">Build Or Refresh Images</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>docker build -f docker/playsbc.Dockerfile \
+  -t &quot;playsbc:$PLAYSBC_VERSION&quot; .
+
+docker build -f docker/rtpengine.Dockerfile \
+  -t &quot;playsbc-rtpengine:$PLAYSBC_VERSION&quot; .
+
+docker image inspect &quot;playsbc:$PLAYSBC_VERSION&quot; &gt;/dev/null
+docker image inspect &quot;playsbc-rtpengine:$PLAYSBC_VERSION&quot; &gt;/dev/null</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="run-fast-application-regression">Run Fast Application Regression</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache \
+python3 tools/run_regression_suite.py \
+  --skip-sipp-smoke \
+  --all-b2bua-profiles \
+  --timeout 420</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>Report: <code>logs/reports/latest.html</code>.</p>
+<h2 id="run-the-real-address-docker-topology">Run The Real-Address Docker Topology</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache \
+python3 tools/run_real_topology.py --rebuild</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>This lane creates distinct core and peer Docker networks, a PlaySBC container, an RTPengine container, SIPp endpoints, RTP/RTCP helpers, and a combined evidence bundle.</p>
+<h2 id="verify-inspect-and-clean-up">Verify, Inspect, And Clean Up</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>docker compose -f docker-compose.topology.yml ps
+docker compose -f docker-compose.topology.yml logs --tail=100 playsbc rtpengine
+
+docker compose -f docker-compose.topology.yml down \
+  --remove-orphans --volumes</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>To roll back, rebuild the previously accepted Git tag under a different immutable local tag and rerun the same profile. Do not retag an unverified image as the accepted release.</p>
+<h1 id="kind-canonical-regression-model">kind Canonical Regression Model</h1>
+<h2 id="purpose-and-prerequisites">Purpose And Prerequisites</h2>
+<p>The <code>kind-playsbc</code> context is the canonical 70-profile, active-active, HA-foundation regression lane. kind nodes are Docker containers, so Docker Desktop must remain running.</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>cd /Users/sudheerkumar/Documents/Codex/2026-05-18/Mini-Call-Server
+export PLAYSBC_VERSION=2.6.0
+
+open -a Docker
+until docker info &gt;/dev/null 2&gt;&amp;1; do sleep 5; done
+
+kind get clusters</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="create-or-recover-the-cluster">Create Or Recover The Cluster</h2>
+<p>Create the cluster only when <code>kind get clusters</code> does not list <code>playsbc</code>.</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>kind create cluster --name playsbc --wait 180s
+
+kubectl config use-context kind-playsbc
+kubectl create namespace playsbc \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl config set-context --current --namespace=playsbc
+kubectl get nodes</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>If the context exists but <code>127.0.0.1:&lt;port&gt;</code> is refused, start Docker Desktop and the existing control-plane container first.</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>open -a Docker
+until docker info &gt;/dev/null 2&gt;&amp;1; do sleep 5; done
+docker start playsbc-control-plane 2&gt;/dev/null || true
+kubectl --context kind-playsbc get nodes</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="install-or-upgrade-v2-6-0">Install Or Upgrade v2.6.0</h2>
+<p>Both repositories are mandatory. The active-active values create two StatefulSet replicas for PlaySBC and RTPengine plus Prometheus and Grafana.</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>helm upgrade --install playsbc \
+  &quot;https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz&quot; \
+  --kube-context kind-playsbc \
+  --namespace playsbc \
+  --create-namespace \
+  --atomic --wait --timeout 10m \
+  -f configs/kubernetes/active-active-values.yaml \
+  --set image.repository=ghcr.io/sudheerkumarvatrapu/playsbc \
+  --set-string image.tag=&quot;$PLAYSBC_VERSION&quot; \
+  --set image.pullPolicy=Always \
+  --set rtpengine.enabled=true \
+  --set rtpengine.image.repository=ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine \
+  --set-string rtpengine.image.tag=&quot;$PLAYSBC_VERSION&quot; \
+  --set rtpengine.image.pullPolicy=Always \
+  --set rtpengine.hostNetwork=false \
+  --set playsbc.config.media_backend=rtpengine \
+  --set-string playsbc.config.rtpengine_url=udp://playsbc-playsbc-rtpengine:2223 \
+  --set observability.enabled=true \
+  --set observability.prometheus.retention=31d \
+  --set observability.prometheus.persistence.size=5Gi \
+  --set observability.grafana.persistence.size=2Gi</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="verify-the-upgrade">Verify The Upgrade</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>helm --kube-context kind-playsbc -n playsbc status playsbc
+
+kubectl --context kind-playsbc -n playsbc get pods -o wide
+kubectl --context kind-playsbc -n playsbc get statefulset
+
+kubectl --context kind-playsbc -n playsbc get statefulset \
+  playsbc-playsbc playsbc-playsbc-rtpengine \
+  -o custom-columns=&#x27;NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image,READY:.status.readyReplicas&#x27;
+
+kubectl --context kind-playsbc -n playsbc exec \
+  statefulset/playsbc-playsbc -- \
+  python3 -c &#x27;import mini_call_server as s; print(s.PLAYSBC_VERSION)&#x27;</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>Expected images are the two GHCR repositories with tag <code>2.6.0</code>; the runtime version must print <code>2.6.0</code>.</p>
+<h2 id="run-all-70-profiles">Run All 70 Profiles</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache \
+python3 tools/run_k8s_regression_job.py \
+  --all-profiles \
+  --runner-image ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.6.0 \
+  --sipp-image ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.6.0 \
+  --playsbc-image ghcr.io/sudheerkumarvatrapu/playsbc:2.6.0 \
+  --rtpengine-image ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:2.6.0 \
+  --set-playsbc-image \
+  --set-rtpengine-image \
+  --no-load-playsbc-image \
+  --no-load-rtpengine-image \
+  --no-load-sipp-image \
+  --kind-cluster playsbc</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>The launcher prints <code>Regression progress: X/70</code>. The final report is under <code>logs/k8s-job/&lt;run-id&gt;/k8s-reports/latest.html</code>.</p>
+<h2 id="run-selected-profiles">Run Selected Profiles</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache \
+python3 tools/run_k8s_regression_job.py \
+  --profile rfc5359-call-hold-resume \
+  --profile rtpengine-media \
+  --runner-image ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.6.0 \
+  --sipp-image ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.6.0 \
+  --playsbc-image ghcr.io/sudheerkumarvatrapu/playsbc:2.6.0 \
+  --rtpengine-image ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:2.6.0 \
+  --set-playsbc-image --set-rtpengine-image \
+  --no-load-playsbc-image --no-load-rtpengine-image --no-load-sipp-image \
+  --kind-cluster playsbc</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="roll-back-and-clean-up">Roll Back And Clean Up</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>helm --kube-context kind-playsbc -n playsbc history playsbc
+helm --kube-context kind-playsbc -n playsbc rollback playsbc &lt;REVISION&gt; \
+  --wait --timeout 10m
+
+helm --kube-context kind-playsbc -n playsbc uninstall playsbc
+kind delete cluster --name playsbc</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>If Helm is <code>pending-upgrade</code> after an interruption, roll back to the last <code>deployed</code> revision. If pods still reference the interrupted image, delete only those failed pods and let the rolled-back StatefulSet recreate them.</p>
+<h2 id="kind-troubleshooting-and-recovery">kind Troubleshooting And Recovery</h2>
+<p>Start with a read-only snapshot. The context can remain in kubeconfig even when Docker Desktop or the kind control-plane container is stopped.</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>docker info
+kind get clusters
+kubectl --context kind-playsbc cluster-info
+helm --kube-context kind-playsbc -n playsbc status playsbc
+kubectl --context kind-playsbc -n playsbc get pods,svc,statefulset,deployment -o wide
+kubectl --context kind-playsbc -n playsbc get events --sort-by=.lastTimestamp | tail -60</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>Use these commands to inspect a specific failed pod and compare the live release with a non-mutating chart render.</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>kubectl --context kind-playsbc -n playsbc describe pod &lt;pod-name&gt;
+kubectl --context kind-playsbc -n playsbc logs &lt;pod-name&gt; --all-containers --previous
+helm --kube-context kind-playsbc -n playsbc get values playsbc -a
+helm template playsbc charts/playsbc -n playsbc \
+  -f configs/kubernetes/active-active-values.yaml &gt;/tmp/playsbc-rendered.yaml</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<div class=table-wrap><table>
+<tr><th>Symptom</th><th>Diagnosis</th><th>Recovery</th></tr>
+<tr><td><code>127.0.0.1:&lt;port&gt;: connect: connection refused</code></td><td>Docker or <code>playsbc-control-plane</code> is stopped</td><td>Start Docker Desktop, then <code>docker start playsbc-control-plane</code>; recreate only if <code>kind get clusters</code> does not list <code>playsbc</code>.</td></tr>
+<tr><td>Pod <code>Pending</code></td><td>Storage, scheduling, or resource pressure</td><td>Describe the pod and PVC; inspect node CPU, memory, taints, and events.</td></tr>
+<tr><td><code>ImagePullBackOff</code></td><td>Missing GHCR tag or incompatible pull policy</td><td>Inspect the exact image; use GHCR with <code>Always</code>, or a locally loaded image with <code>Never</code>.</td></tr>
+</table></div>
+<h1 id="minikube-compatibility-model">Minikube Compatibility Model</h1>
+<h2 id="purpose-and-prerequisites">Purpose And Prerequisites</h2>
+<p>Minikube checks chart portability. The Docker driver requires Docker Desktop; VM drivers require their matching hypervisor. kind remains the release-gating local lane.</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>export PLAYSBC_VERSION=2.6.0
+minikube start --driver=docker --profile playsbc
+
+kubectl config use-context playsbc
+kubectl create namespace playsbc \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl config set-context --current --namespace=playsbc</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="make-images-available">Make Images Available</h2>
+<p>Use GHCR images with pull policy <code>Always</code>, or load locally built images into the profile. Do not combine a GHCR repository with <code>pullPolicy: Never</code>.</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>minikube -p playsbc image load &quot;playsbc:$PLAYSBC_VERSION&quot;
+minikube -p playsbc image load &quot;playsbc-rtpengine:$PLAYSBC_VERSION&quot;</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="install-or-upgrade">Install Or Upgrade</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>helm upgrade --install playsbc \
+  &quot;https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz&quot; \
+  --kube-context playsbc \
+  -n playsbc --create-namespace --atomic --wait --timeout 10m \
+  -f configs/kubernetes/minikube-values.yaml \
+  --set image.repository=ghcr.io/sudheerkumarvatrapu/playsbc \
+  --set-string image.tag=&quot;$PLAYSBC_VERSION&quot; \
+  --set image.pullPolicy=Always \
+  --set rtpengine.image.repository=ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine \
+  --set-string rtpengine.image.tag=&quot;$PLAYSBC_VERSION&quot; \
+  --set rtpengine.image.pullPolicy=Always</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="verify-test-roll-back-and-clean-up">Verify, Test, Roll Back, And Clean Up</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>kubectl --context playsbc -n playsbc get pods,svc -o wide
+helm --kube-context playsbc -n playsbc history playsbc
+
+helm --kube-context playsbc -n playsbc rollback playsbc &lt;REVISION&gt; \
+  --wait --timeout 10m
+
+helm --kube-context playsbc -n playsbc uninstall playsbc
+minikube delete --profile playsbc</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>Selected Kubernetes profiles may be run against this context after validating image availability and service reachability. Run the full release gate on kind.</p>
+<h2 id="minikube-troubleshooting">Minikube Troubleshooting</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>minikube status --profile playsbc
+minikube logs --profile playsbc --problems
+kubectl --context playsbc -n playsbc get events --sort-by=.lastTimestamp | tail -60</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<ul>
+<li>If the API is unavailable, start the runtime required by the selected driver and run <code>minikube start --profile playsbc</code>.</li>
+<li>If a locally loaded image cannot be pulled, verify it with <code>minikube -p playsbc image ls</code> and use the repository/tag that was actually loaded.</li>
+<li><code>kubectl port-forward</code> is appropriate for Grafana, Prometheus, and TCP checks; it does not provide UDP SIP or RTP exposure.</li>
+</ul>
+<h1 id="generic-helm-kubernetes-model">Generic Helm Kubernetes Model</h1>
+<h2 id="operator-responsibilities">Operator Responsibilities</h2>
+<p>The chart can render for another conformant Kubernetes cluster, but the operator owns the CNI, storage classes, LoadBalancer implementation, SIP/RTP firewall policy, certificates, identity, secrets, and capacity. An HTTP ingress controller does not replace SIP UDP/TCP/TLS or RTP/RTCP exposure.</p>
+<h2 id="prepare-and-render-before-applying">Prepare And Render Before Applying</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>export PLAYSBC_VERSION=2.6.0
+export KUBE_CONTEXT=&lt;your-context&gt;
+
+kubectl --context &quot;$KUBE_CONTEXT&quot; get nodes
+helm lint charts/playsbc
+
+helm template playsbc \
+  &quot;https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz&quot; \
+  --namespace playsbc \
+  -f &lt;platform-values.yaml&gt; \
+  --set image.repository=ghcr.io/sudheerkumarvatrapu/playsbc \
+  --set-string image.tag=&quot;$PLAYSBC_VERSION&quot; \
+  --set rtpengine.image.repository=ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine \
+  --set-string rtpengine.image.tag=&quot;$PLAYSBC_VERSION&quot; \
+  &gt;/tmp/playsbc-rendered.yaml</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>Inspect <code>/tmp/playsbc-rendered.yaml</code> for workload kind, replicas, images, Services, Secrets, storage, advertised IPs, and RTP range.</p>
+<h2 id="install-or-upgrade">Install Or Upgrade</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>helm upgrade --install playsbc \
+  &quot;https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz&quot; \
+  --kube-context &quot;$KUBE_CONTEXT&quot; \
+  -n playsbc --create-namespace --atomic --wait --timeout 10m \
+  -f &lt;platform-values.yaml&gt; \
+  --set image.repository=ghcr.io/sudheerkumarvatrapu/playsbc \
+  --set-string image.tag=&quot;$PLAYSBC_VERSION&quot; \
+  --set rtpengine.image.repository=ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine \
+  --set-string rtpengine.image.tag=&quot;$PLAYSBC_VERSION&quot;</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="verify-test-roll-back-and-clean-up">Verify, Test, Roll Back, And Clean Up</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>kubectl --context &quot;$KUBE_CONTEXT&quot; -n playsbc get \
+  pods,svc,deploy,statefulset,pvc -o wide
+
+helm --kube-context &quot;$KUBE_CONTEXT&quot; -n playsbc history playsbc
+helm --kube-context &quot;$KUBE_CONTEXT&quot; -n playsbc rollback playsbc &lt;REVISION&gt; \
+  --wait --timeout 10m
+
+helm --kube-context &quot;$KUBE_CONTEXT&quot; -n playsbc uninstall playsbc</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>Run selected regression profiles first. Promote to a full suite only after platform-specific SIP and RTP networking is verified.</p>
+<h2 id="generic-kubernetes-troubleshooting">Generic Kubernetes Troubleshooting</h2>
+<p>Render before mutation and compare the rendered workload with the live objects. Most platform failures occur at the boundaries the chart cannot own: CNI, storage, LoadBalancer implementation, firewall rules, identity, and Secrets.</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>kubectl --context &quot;$KUBE_CONTEXT&quot; -n playsbc get events \
+  --sort-by=.lastTimestamp | tail -80
+kubectl --context &quot;$KUBE_CONTEXT&quot; -n playsbc describe pod &lt;pod-name&gt;
+kubectl --context &quot;$KUBE_CONTEXT&quot; -n playsbc describe svc &lt;service-name&gt;
+helm --kube-context &quot;$KUBE_CONTEXT&quot; -n playsbc get values playsbc -a</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h1 id="azure-aks-administration-and-deployment-model">Azure AKS Administration and Deployment Model</h1>
+<h2 id="purpose-and-required-resources">Purpose And Required Resources</h2>
+<p>The AKS lane validates Azure identity, ACR, static public IPs, Azure Load Balancers, public SIP/RTP reachability, cloud regression, and internet real-device calls.</p>
+<ul>
+<li>AKS resource group and cluster.</li>
+<li>Network resource group with separate static SIP and RTP public IP resources.</li>
+<li>Azure Container Registry containing all four v2.6.0 images.</li>
+<li>Network Contributor permission for the AKS identity on the network resource group.</li>
+<li>Firewall/source-range policy for SIP, health, and RTP ports.</li>
+</ul>
+<h2 id="set-variables-and-register-providers">Set Variables And Register Providers</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>export PLAYSBC_VERSION=2.6.0
+export LOCATION=eastus
+export AKS_RG=playsbc-aks-rg
+export NETWORK_RG=playsbc-network-rg
+export AKS_NAME=playsbc-aks
+export ACR_NAME=playsbcacr$RANDOM
+export SIP_PIP_NAME=playsbc-sip-pip
+export RTP_PIP_NAME=playsbc-rtp-pip
+
+for PROVIDER in Microsoft.ContainerService Microsoft.ContainerRegistry \
+  Microsoft.Network Microsoft.Compute Microsoft.ManagedIdentity; do
+  az provider register --namespace &quot;$PROVIDER&quot;
+done
+
+az group create -n &quot;$AKS_RG&quot; -l &quot;$LOCATION&quot;
+az group create -n &quot;$NETWORK_RG&quot; -l &quot;$LOCATION&quot;</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="create-acr-and-aks">Create ACR And AKS</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>az acr create -g &quot;$AKS_RG&quot; -n &quot;$ACR_NAME&quot; --sku Basic
+
+az aks create \
+  -g &quot;$AKS_RG&quot; -n &quot;$AKS_NAME&quot; -l &quot;$LOCATION&quot; \
+  --tier free --node-count 1 --node-vm-size Standard_D2as_v7 \
+  --load-balancer-sku standard --attach-acr &quot;$ACR_NAME&quot; \
+  --generate-ssh-keys
+
+az aks get-credentials \
+  -g &quot;$AKS_RG&quot; -n &quot;$AKS_NAME&quot; --overwrite-existing
+kubectl get nodes</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="create-static-public-ips-and-grant-identity-access">Create Static Public IPs And Grant Identity Access</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>az network public-ip create \
+  -g &quot;$NETWORK_RG&quot; -n &quot;$SIP_PIP_NAME&quot; -l &quot;$LOCATION&quot; \
+  --sku Standard --allocation-method Static
+
+az network public-ip create \
+  -g &quot;$NETWORK_RG&quot; -n &quot;$RTP_PIP_NAME&quot; -l &quot;$LOCATION&quot; \
+  --sku Standard --allocation-method Static
+
+AKS_OBJECT_ID=$(az aks show -g &quot;$AKS_RG&quot; -n &quot;$AKS_NAME&quot; \
+  --query identity.principalId -o tsv)
+NETWORK_RG_ID=$(az group show -n &quot;$NETWORK_RG&quot; --query id -o tsv)
+
+az role assignment create \
+  --assignee-object-id &quot;$AKS_OBJECT_ID&quot; \
+  --assignee-principal-type ServicePrincipal \
+  --role &quot;Network Contributor&quot; \
+  --scope &quot;$NETWORK_RG_ID&quot;</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>This role assignment is persistent for the current managed identity and network resource group. Recreate it when either resource is recreated with a new identity or scope.</p>
+<h2 id="import-and-verify-all-four-images">Import And Verify All Four Images</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>for IMAGE in playsbc playsbc-rtpengine playsbc-k8s-regression playsbc-sipp; do
+  az acr import --name &quot;$ACR_NAME&quot; \
+    --source &quot;ghcr.io/sudheerkumarvatrapu/$IMAGE:$PLAYSBC_VERSION&quot; \
+    --image &quot;$IMAGE:$PLAYSBC_VERSION&quot; --force
+
+  az acr repository show --name &quot;$ACR_NAME&quot; \
+    --image &quot;$IMAGE:$PLAYSBC_VERSION&quot; -o none
+done</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="install-or-upgrade-aks">Install Or Upgrade AKS</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>export ACR_LOGIN_SERVER=$(az acr show -g &quot;$AKS_RG&quot; -n &quot;$ACR_NAME&quot; \
+  --query loginServer -o tsv)
+export NODE_RG=$(az aks show -g &quot;$AKS_RG&quot; -n &quot;$AKS_NAME&quot; \
+  --query nodeResourceGroup -o tsv)
+export SIP_PUBLIC_IP=$(az network public-ip show -g &quot;$NETWORK_RG&quot; \
+  -n &quot;$SIP_PIP_NAME&quot; --query ipAddress -o tsv)
+export RTP_PUBLIC_IP=$(az network public-ip show -g &quot;$NETWORK_RG&quot; \
+  -n &quot;$RTP_PIP_NAME&quot; --query ipAddress -o tsv)
+
+helm upgrade --install playsbc \
+  &quot;https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz&quot; \
+  -n playsbc --create-namespace --atomic --wait --timeout 15m \
+  -f configs/kubernetes/aks-values.yaml \
+  --set cloud.azure.nodeResourceGroup=&quot;$NODE_RG&quot; \
+  --set cloud.azure.sip.public.publicIPResourceGroup=&quot;$NETWORK_RG&quot; \
+  --set cloud.azure.sip.public.publicIPName=&quot;$SIP_PIP_NAME&quot; \
+  --set cloud.azure.media.public.enabled=true \
+  --set cloud.azure.media.public.publicIPResourceGroup=&quot;$NETWORK_RG&quot; \
+  --set cloud.azure.media.public.publicIPName=&quot;$RTP_PIP_NAME&quot; \
+  --set image.repository=&quot;$ACR_LOGIN_SERVER/playsbc&quot; \
+  --set-string image.tag=&quot;$PLAYSBC_VERSION&quot; \
+  --set rtpengine.image.repository=&quot;$ACR_LOGIN_SERVER/playsbc-rtpengine&quot; \
+  --set-string rtpengine.image.tag=&quot;$PLAYSBC_VERSION&quot; \
+  --set-string rtpengine.advertisedIP=&quot;$RTP_PUBLIC_IP&quot; \
+  --set-string playsbc.config.sip_advertised_ip=&quot;$SIP_PUBLIC_IP&quot; \
+  --set-string playsbc.config.b2bua_advertised_ip=&quot;$SIP_PUBLIC_IP&quot;</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="verify-azure-services-and-runtime">Verify Azure Services And Runtime</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>kubectl -n playsbc get pods -o wide
+kubectl -n playsbc get svc \
+  playsbc-playsbc-azure-sip-public \
+  playsbc-playsbc-azure-rtp-public -o wide
+
+kubectl -n playsbc describe svc \
+  playsbc-playsbc-azure-sip-public | sed -n &#x27;/Events:/,$p&#x27;
+
+kubectl -n playsbc get deployment,statefulset \
+  -o custom-columns=&#x27;KIND:.kind,NAME:.metadata.name,IMAGES:.spec.template.spec.containers[*].image&#x27;</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>A pending external IP is not solved by restarting PlaySBC. Check Service events, static public-IP names, resource groups, and managed identity permission. Wait for both ingress addresses before registration, calls, or AKS regression.</p>
+<h2 id="troubleshoot-pending-azure-loadbalancers">Troubleshoot Pending Azure LoadBalancers</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>kubectl -n playsbc describe svc \
+  playsbc-playsbc-azure-sip-public | sed -n &#x27;/Events:/,$p&#x27;
+kubectl -n playsbc describe svc \
+  playsbc-playsbc-azure-rtp-public | sed -n &#x27;/Events:/,$p&#x27;
+
+az role assignment list --scope &quot;$NETWORK_RG_ID&quot; \
+  --assignee &quot;$AKS_OBJECT_ID&quot; -o table</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<ul>
+<li><code>EnsuringLoadBalancer</code> without an authorization error can be normal while Azure allocates the resource.</li>
+<li><code>AuthorizationFailed</code> for <code>Microsoft.Network/publicIPAddresses/read</code> means the AKS identity lacks Network Contributor at the network resource-group scope, or RBAC has not propagated yet.</li>
+<li>A wrong ingress address usually means the Service annotations point to the wrong network resource group or public-IP resource name.</li>
+<li>Do not repeatedly restart pods: LoadBalancer reconciliation is controlled by Azure and the Kubernetes cloud provider.</li>
+</ul>
+<p>After correcting identity or annotation values, rerun the same atomic Helm upgrade. Delete and recreate only the two LoadBalancer Services if their reconciliation remains stale; leave the workloads and evidence intact.</p>
+<h2 id="verify-health-before-calls">Verify Health Before Calls</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>kubectl -n playsbc rollout status deployment/playsbc-playsbc --timeout=240s
+kubectl -n playsbc rollout status deployment/playsbc-playsbc-rtpengine --timeout=240s
+
+kubectl -n playsbc exec deployment/playsbc-playsbc -- \
+  python3 -c &quot;import urllib.request; print(urllib.request.urlopen(&#x27;http://127.0.0.1:8080/readyz&#x27;).read().decode())&quot;
+
+kubectl -n playsbc exec deployment/playsbc-playsbc -- \
+  python3 -c &quot;import urllib.request; print(urllib.request.urlopen(&#x27;http://127.0.0.1:8080/metrics&#x27;).read().decode()[:1000])&quot;</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>Expected results include <code>ready</code>, the v2.6.0 images, both configured public ingress addresses, and <code>playsbc_active_calls 0</code> before an idle test.</p>
+<h2 id="run-aks-regression-12-profile-readiness-suite">Run AKS Regression: 12-Profile Readiness Suite</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>PYTHONPYCACHEPREFIX=/tmp/playsbc-pycache \
+python3 tools/run_k8s_regression_job.py \
+  --aks-profiles \
+  --runner-image &quot;$ACR_LOGIN_SERVER/playsbc-k8s-regression:$PLAYSBC_VERSION&quot; \
+  --runner-image-pull-policy Always \
+  --sipp-image &quot;$ACR_LOGIN_SERVER/playsbc-sipp:$PLAYSBC_VERSION&quot; \
+  --sipp-image-pull-policy Always \
+  --playsbc-image &quot;$ACR_LOGIN_SERVER/playsbc:$PLAYSBC_VERSION&quot; \
+  --rtpengine-image &quot;$ACR_LOGIN_SERVER/playsbc-rtpengine:$PLAYSBC_VERSION&quot; \
+  --set-playsbc-image --set-rtpengine-image \
+  --aks-load-balancer-wait-timeout 1200 \
+  --job-timeout 3600</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>Download <code>latest-aks-regression.tgz</code> immediately because Cloud Shell storage can be ephemeral.</p>
+<p>If a mixed SRTP profile receives encrypted packets but returns none, inspect the profile&#x27;s <code>core-secure-srtp-sender/</code> or <code>peer-secure-srtp-sender/</code> evidence before changing Azure networking. These helpers bind the reserved one-call RTP/RTCP ports <code>6000/6001</code>; plain RTP profiles use dynamic media ports.</p>
+<h2 id="credential-recovery">Credential Recovery</h2>
+<p>Use the normal CLI first. If the installed CLI selects an unsupported API version, retrieve the credential payload with an explicitly supported API version.</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>az aks get-credentials \
+  -g &quot;$AKS_RG&quot; -n &quot;$AKS_NAME&quot; --overwrite-existing</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>Before the fallback, verify the active subscription contains the cluster. An empty resource group in the REST URL indicates the wrong subscription or failed discovery.</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>az account show --query &#x27;{subscription:name,id:id}&#x27; -o table
+az aks list --query &#x27;[].{name:name,resourceGroup:resourceGroup}&#x27; -o table</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>Guarded fallback (it replaces kubeconfig only after a non-empty credential is returned):</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>set -euo pipefail
+
+export AKS_NAME=playsbc-aks
+export AKS_RG=$(az aks list \
+  --query &quot;[?name==&#x27;$AKS_NAME&#x27;].resourceGroup | [0]&quot; -o tsv)
+export SUB_ID=$(az account show --query id -o tsv)
+: &quot;${SUB_ID:?Subscription ID is empty}&quot;
+: &quot;${AKS_RG:?AKS cluster was not found in the active subscription}&quot;
+: &quot;${AKS_NAME:?AKS name is empty}&quot;
+
+TMP_KUBECONFIG=$(mktemp)
+
+az rest --method post \
+  --url &quot;https://management.azure.com/subscriptions/$SUB_ID/resourceGroups/$AKS_RG/providers/Microsoft.ContainerService/managedClusters/$AKS_NAME/listClusterUserCredential?api-version=2025-04-01&quot; \
+  --query &#x27;kubeconfigs[0].value&#x27; -o tsv \
+  | base64 -d &gt;&quot;$TMP_KUBECONFIG&quot;
+
+test -s &quot;$TMP_KUBECONFIG&quot;
+mkdir -p ~/.kube
+mv &quot;$TMP_KUBECONFIG&quot; ~/.kube/config
+chmod 600 ~/.kube/config
+kubectl config current-context
+kubectl get nodes
+kubectl get pods -n playsbc</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="roll-back-and-clean-up">Roll Back And Clean Up</h2>
+<p>Resource-group deletion is asynchronous. A stale kube context may show cached objects briefly and later fail DNS/API access after the control plane is removed.</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>helm -n playsbc history playsbc
+helm -n playsbc rollback playsbc &lt;REVISION&gt; --wait --timeout 15m
+
+export SUB_ID=$(az account show --query id -o tsv)
+for RG in &quot;$AKS_RG&quot; &quot;$NETWORK_RG&quot;; do
+  if [ &quot;$(az group exists --subscription &quot;$SUB_ID&quot; --name &quot;$RG&quot;)&quot; = true ]; then
+    az group delete --subscription &quot;$SUB_ID&quot; \
+      --name &quot;$RG&quot; --yes --no-wait
+  fi
+done</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>Do not delete the AKS-managed <code>MC_*</code> resource group separately. Confirm both named PlaySBC resource groups disappear; until then, the lab may still incur cost.</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>while true; do
+  AKS_EXISTS=$(az group exists --subscription &quot;$SUB_ID&quot; --name &quot;$AKS_RG&quot;)
+  NETWORK_EXISTS=$(az group exists --subscription &quot;$SUB_ID&quot; --name &quot;$NETWORK_RG&quot;)
+  echo &quot;AKS_RG=$AKS_EXISTS NETWORK_RG=$NETWORK_EXISTS&quot;
+  [ &quot;$AKS_EXISTS&quot; = false ] &amp;&amp; [ &quot;$NETWORK_EXISTS&quot; = false ] &amp;&amp; break
+  sleep 30
+done</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h1 id="local-kind-real-device-model">Local kind Real-Device Model</h1>
+<h2 id="validated-baseline">Validated Baseline</h2>
+<div class=table-wrap><table>
+<tr><th>Endpoint</th><th>User</th><th>Password</th><th>Transport</th></tr>
+<tr><td>OBi1022</td><td>1001</td><td>secret-password</td><td>UDP</td></tr>
+<tr><td>Zoiper</td><td>1002</td><td>secret-password</td><td>UDP</td></tr>
+</table></div>
+<p>This lane uses a separate <code>playsbc-real-device</code> cluster. PlaySBC and RTPengine advertise the Mac LAN IPv4 and expose SIP plus RTP/RTCP one-to-one through kind port mappings.</p>
+<h2 id="determine-the-lan-address-and-create-the-cluster">Determine The LAN Address And Create The Cluster</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>export PLAYSBC_VERSION=2.6.0
+export REAL_DEVICE_CLUSTER=playsbc-real-device
+export REAL_DEVICE_CONTEXT=kind-playsbc-real-device
+export LAN_IF=$(route -n get default | awk &#x27;/interface:/{print $2; exit}&#x27;)
+export LAN_IP=$(ipconfig getifaddr &quot;$LAN_IF&quot;)
+: &quot;${LAN_IP:?Could not determine Mac LAN IPv4}&quot;
+
+kind create cluster \
+  --name &quot;$REAL_DEVICE_CLUSTER&quot; \
+  --config configs/kubernetes/kind-real-device-cluster.yaml \
+  --wait 180s</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="install-or-upgrade">Install Or Upgrade</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>helm upgrade --install playsbc \
+  &quot;https://github.com/sudheerkumarvatrapu/PlaySBC/releases/download/v${PLAYSBC_VERSION}/playsbc-${PLAYSBC_VERSION}.tgz&quot; \
+  --kube-context &quot;$REAL_DEVICE_CONTEXT&quot; \
+  -n playsbc --create-namespace --atomic --wait --timeout 5m \
+  -f configs/kubernetes/kind-real-device-values.yaml \
+  --set-string localRealDevice.lanIPv4=&quot;$LAN_IP&quot; \
+  --set image.repository=ghcr.io/sudheerkumarvatrapu/playsbc \
+  --set-string image.tag=&quot;$PLAYSBC_VERSION&quot; \
+  --set rtpengine.image.repository=ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine \
+  --set-string rtpengine.image.tag=&quot;$PLAYSBC_VERSION&quot; \
+  --set-string playsbc.config.sip_advertised_ip=&quot;$LAN_IP&quot; \
+  --set-string playsbc.config.b2bua_advertised_ip=&quot;$LAN_IP&quot; \
+  --set-string rtpengine.advertisedIP=&quot;$LAN_IP&quot;</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>The TLS lane also requires Secret <code>playsbc-real-device-tls</code>. Validate UDP registration and calls before troubleshooting device certificate trust.</p>
+<h2 id="verify-and-configure-endpoints">Verify And Configure Endpoints</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>kubectl --context &quot;$REAL_DEVICE_CONTEXT&quot; -n playsbc get pods -o wide
+python3 tools/check_kind_real_device_lab.py \
+  --context &quot;$REAL_DEVICE_CONTEXT&quot; \
+  --cluster &quot;$REAL_DEVICE_CLUSTER&quot; \
+  --lan-ip &quot;$LAN_IP&quot; \
+  --expected-version &quot;$PLAYSBC_VERSION&quot;</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<ul>
+<li>Proxy and registrar: <code>$LAN_IP</code>.</li>
+<li>UDP/TCP SIP port: <code>5062</code>.</li>
+<li>TLS SIP port: <code>5061</code> after certificate trust is configured.</li>
+<li>OBi1022: user <code>1001</code>; Zoiper: user <code>1002</code>.</li>
+<li>Outbound proxy: blank for this baseline.</li>
+<li>Media: RTP/AVP G.711 with RTPengine range <code>30000-30049/UDP</code>.</li>
+</ul>
+<h2 id="call-and-capture-acceptance">Call And Capture Acceptance</h2>
+<ul>
+<li>Both users register after the digest challenge.</li>
+<li><code>1001 -&gt; 1002</code> and <code>1002 -&gt; 1001</code> ring, answer, and tear down cleanly.</li>
+<li>Both parties hear audio in both directions.</li>
+<li>RTPengine evidence reports both media directions and RTCP where endpoints generate it.</li>
+</ul>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache \
+python3 tools/run_real_device_capture.py \
+  --context &quot;$REAL_DEVICE_CONTEXT&quot; \
+  --namespace playsbc \
+  --duration 120 \
+  --capture-image nicolaka/netshoot:latest</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>The output bundle contains one combined packet capture and synchronized workload logs. Interrupt once with <code>Ctrl+C</code>; the collector performs graceful finalization.</p>
+<h2 id="real-device-troubleshooting">Real-Device Troubleshooting</h2>
+<div class=table-wrap><table>
+<tr><th>Symptom</th><th>Check</th></tr>
+<tr><td>No REGISTER</td><td>Confirm the dedicated context, Mac LAN IP, SIP <code>5062/UDP</code>, endpoint provisioning, and home-router SIP ALG behavior.</td></tr>
+<tr><td>Repeated <code>401</code></td><td>Verify user, password, digest realm, and that the endpoint sends the authenticated retry.</td></tr>
+<tr><td><code>404</code> or incomplete address</td><td>Confirm both users are registered and inspect <code>INVITE ROUTE SELECTED</code>.</td></tr>
+<tr><td><code>480</code></td><td>Answer before the configured B2BUA invitation timeout.</td></tr>
+<tr><td>One-way or no audio</td><td>Compare SDP addresses, RTPengine advertised IP, UDP <code>30000-30049</code>, NAT learning, and the combined PCAP.</td></tr>
+<tr><td>RTP after <code>180</code></td><td>Distinguish tiny NAT probes from G.711 speech packets in media evidence.</td></tr>
+<tr><td>Call remains connected</td><td>Verify BYE/200 on both B2BUA legs and the RTPengine delete.</td></tr>
+<tr><td>Capture pod remains</td><td>Confirm evidence was copied, then delete only the stale capture pod.</td></tr>
+</table></div>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>kubectl --context &quot;$REAL_DEVICE_CONTEXT&quot; -n playsbc get pods,svc -o wide
+kubectl --context &quot;$REAL_DEVICE_CONTEXT&quot; -n playsbc logs \
+  deployment/playsbc-playsbc --tail=200
+kubectl --context &quot;$REAL_DEVICE_CONTEXT&quot; -n playsbc logs \
+  deployment/playsbc-playsbc-rtpengine --tail=200</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="monitor-roll-back-and-clean-up">Monitor, Roll Back, And Clean Up</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>kubectl --context &quot;$REAL_DEVICE_CONTEXT&quot; -n playsbc logs -f \
+  -l app.kubernetes.io/instance=playsbc \
+  --all-containers=true --prefix --max-log-requests=10 --since=10m \
+  | grep -aE &#x27;SIP (INVITE|ACK|BYE|CANCEL)|SIP TX response|SIP response|SDP SUMMARY|RTPENGINE|RTP packet|RTCP|1001|1002&#x27;
+
+helm --kube-context &quot;$REAL_DEVICE_CONTEXT&quot; -n playsbc history playsbc
+helm --kube-context &quot;$REAL_DEVICE_CONTEXT&quot; -n playsbc rollback playsbc &lt;REVISION&gt; \
+  --wait --timeout 5m
+
+helm --kube-context &quot;$REAL_DEVICE_CONTEXT&quot; -n playsbc uninstall playsbc
+kind delete cluster --name &quot;$REAL_DEVICE_CLUSTER&quot;</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h1 id="helm-configuration-and-lifecycle">Helm Configuration and Lifecycle</h1>
+<div class=table-wrap><table>
+<tr><th>Group</th><th>Administrative Responsibility</th></tr>
+<tr><td>image / rtpengine.image</td><td>Repository, immutable tag, and pull policy.</td></tr>
+<tr><td>playsbc.config</td><td>SIP ports, advertised addresses, RTP range, media backend, TLS, and policy.</td></tr>
+<tr><td>rtpengine</td><td>Enablement, control URL, RTP range, host networking, and advertised media IP.</td></tr>
+<tr><td>cloud.azure</td><td>Static public-IP names, network resource group, and LB exposure.</td></tr>
+<tr><td>observability</td><td>Prometheus/Grafana enablement, persistence, and retention.</td></tr>
+<tr><td>authSecret</td><td>Lab digest users; production secret management is not provided.</td></tr>
+</table></div>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>helm -n playsbc list
+helm -n playsbc get values playsbc -a
+helm -n playsbc history playsbc
+helm -n playsbc rollback playsbc &lt;REVISION&gt; --wait --timeout 10m
+
+kubectl -n playsbc rollout status deployment/playsbc-playsbc --timeout=240s
+kubectl -n playsbc rollout status deployment/playsbc-playsbc-rtpengine --timeout=240s</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>Verify configured images and the runtime-reported PlaySBC version after every upgrade.</p>
+<h1 id="operations-and-observability">Operations and Observability</h1>
+<h2 id="image-and-version-verification">Image and Version Verification</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>kubectl -n playsbc get deployment,statefulset \
+  -l &#x27;app.kubernetes.io/instance=playsbc,app.kubernetes.io/name in (playsbc,playsbc-rtpengine)&#x27; \
+  -o custom-columns=&#x27;KIND:.kind,NAME:.metadata.name,IMAGES:.spec.template.spec.containers[*].image&#x27;
+
+kubectl -n playsbc exec deployment/playsbc-playsbc -- \
+  python3 -c &#x27;import mini_call_server as s; print(s.PLAYSBC_VERSION)&#x27;</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="health-and-metrics">Health and Metrics</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>kubectl -n playsbc exec deployment/playsbc-playsbc -- \
+  python3 -c &quot;import urllib.request; print(urllib.request.urlopen(&#x27;http://127.0.0.1:8080/readyz&#x27;).read().decode())&quot;
+
+kubectl -n playsbc port-forward deployment/playsbc-playsbc-grafana 3000:3000
+kubectl -n playsbc port-forward deployment/playsbc-playsbc-prometheus 9090:9090</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>Grafana visualizes Prometheus data. When a panel looks wrong, inspect the Prometheus query and raw PlaySBC metrics before changing dashboard colors or thresholds.</p>
+<h1 id="regression-and-evidence-administration">Regression and Evidence Administration</h1>
+<p>The canonical local Kubernetes suite contains 70 profiles. The launcher prints live progress and inhibits macOS sleep for the lifetime of a non-dry-run Job.</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>PYTHONPYCACHEPREFIX=/private/tmp/playsbc-pycache \
+python3 tools/run_k8s_regression_job.py \
+  --all-profiles \
+  --runner-image ghcr.io/sudheerkumarvatrapu/playsbc-k8s-regression:2.6.0 \
+  --sipp-image ghcr.io/sudheerkumarvatrapu/playsbc-sipp:2.6.0 \
+  --playsbc-image ghcr.io/sudheerkumarvatrapu/playsbc:2.6.0 \
+  --rtpengine-image ghcr.io/sudheerkumarvatrapu/playsbc-rtpengine:2.6.0 \
+  --set-playsbc-image --set-rtpengine-image \
+  --no-load-playsbc-image --no-load-rtpengine-image --no-load-sipp-image \
+  --kind-cluster playsbc</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="evidence-contract">Evidence Contract</h2>
+<div class=table-wrap><table>
+<tr><th>Artifact</th><th>Purpose</th></tr>
+<tr><td>latest.html</td><td>Profile verdicts and links to retained evidence.</td></tr>
+<tr><td>sipmsg.log</td><td>Combined readable SIP messages.</td></tr>
+<tr><td>capture.pcap</td><td>Combined non-load signalling/media/network packet evidence.</td></tr>
+<tr><td>pcap-legs.json</td><td>Expected roles, packet counts, SIP events, and B2BUA INVITE legs.</td></tr>
+<tr><td>log.sip / log.media</td><td>Protocol and media decisions.</td></tr>
+<tr><td>archive</td><td>Portable evidence bundle for review outside the cluster.</td></tr>
+</table></div>
+<h2 id="open-clickable-evidence">Open Clickable Evidence</h2>
+<p>Do not open <code>latest.html</code> with <code>file://</code> in a restricted browser. Start the localhost-only evidence viewer from the repository and keep that terminal running while reviewing the report.</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>python3 tools/serve_regression_report.py \
+  /absolute/path/to/k8s-regression-&lt;run-id&gt;/k8s-reports/latest.html</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>The printed <code>http://127.0.0.1:8765/...</code> report renders text evidence safely in the browser. PCAP links show the retained file checksum and exact Wireshark command.</p>
+<h1 id="security-ha-and-recovery">Security, HA, and Recovery</h1>
+<h2 id="security-baseline">Security Baseline</h2>
+<ul>
+<li>Use TLS secrets and trusted certificates for TLS labs.</li>
+<li>Keep credentials outside source-controlled values in any non-lab environment.</li>
+<li>Restrict public SIP, health, and RTP exposure with firewall and network policy controls.</li>
+<li>Use immutable image tags and verify digests before promotion.</li>
+<li>Review logs, transcripts, and media before sharing evidence.</li>
+</ul>
+<h2 id="ha-baseline">HA Baseline</h2>
+<p>The public chart and suite include active-active, node-drain, shared-state, and failure-injection foundations. They are lab evidence, not a claim of lossless carrier-grade failover or RTPengine media-session migration.</p>
+<h2 id="recovery-sequence">Recovery Sequence</h2>
+<ul>
+<li>Confirm kube context, node readiness, and current Helm revision.</li>
+<li>Inspect pod state and events before restarting workloads.</li>
+<li>Verify images, ConfigMap values, advertised addresses, and RTP range.</li>
+<li>Roll back Helm when a known-good revision is safer than an in-place repair.</li>
+<li>Collect logs and evidence before deleting a failed pod when possible.</li>
+</ul>
+<h1 id="troubleshooting-guide">Troubleshooting Guide</h1>
+<div class=table-wrap><table>
+<tr><th>Symptom</th><th>Likely Cause</th><th>Action</th></tr>
+<tr><td>127.0.0.1 refused</td><td>Docker/kind API stopped</td><td>Start Docker and control-plane; verify context.</td></tr>
+<tr><td>InvalidImageName</td><td>Empty ACR/version variable</td><td>Export variables and verify the tag before Helm.</td></tr>
+<tr><td>ImagePullBackOff</td><td>Missing tag or ACR auth</td><td>Check ACR tag and AKS pull role.</td></tr>
+<tr><td>Azure IP pending</td><td>Static IP or identity permission</td><td>Describe Service; verify IP names and Network Contributor.</td></tr>
+<tr><td>REGISTER absent</td><td>Wrong IP/port/transport</td><td>Test OPTIONS; inspect LB and endpoint profile.</td></tr>
+<tr><td>One-way/no audio</td><td>Wrong RTP IP/range or NAT</td><td>Compare SDP, RTP LB, RTPengine interface, and PCAP.</td></tr>
+<tr><td>Long-run time gap</td><td>Host sleep or shell disconnect</td><td>Use caffeinate-enabled launcher and preserve remote Job.</td></tr>
+<tr><td>PCAP lacks a leg</td><td>Missing/empty role capture</td><td>Inspect pcap-legs.json; v2.6.0 fails the evidence gate.</td></tr>
+<tr><td>Helm operation stuck pending</td><td>Interrupted install/upgrade</td><td>Inspect history and roll back to the last deployed revision.</td></tr>
+<tr><td>Pod <code>CrashLoopBackOff</code></td><td>Bad configuration, missing Secret, startup failure</td><td>Read current/previous logs and events before restarting.</td></tr>
+<tr><td>AKS credentials fail</td><td>Wrong subscription or CLI API mismatch</td><td>Discover the cluster in the active subscription; use the guarded REST fallback.</td></tr>
+<tr><td>Secure media profile is one-sided</td><td>SRTP helper did not bind or authenticate</td><td>Inspect the secure sender evidence and ports <code>6000/6001</code> before changing firewall rules.</td></tr>
+<tr><td>Real device returns <code>480</code></td><td>Callee did not answer before timeout</td><td>Verify registration, ringing, endpoint behavior, and invitation timeout.</td></tr>
+</table></div>
+<h1 id="capacity-and-product-boundaries">Capacity and Product Boundaries</h1>
+<h2 id="what-v2-6-0-can-claim">What v2.6.0 Can Claim</h2>
+<ul>
+<li>Repeatable lab registration, signalling, media, AI-foundation, HA-foundation, observability, and evidence scenarios.</li>
+<li>Validated OBi1022/Zoiper calls in documented AKS and local-LAN topologies.</li>
+<li>A structured path for measuring behavior through Docker, Kubernetes, AKS, and real devices.</li>
+</ul>
+<h2 id="what-it-does-not-claim">What It Does Not Claim</h2>
+<ul>
+<li>Production certification for 300,000 registered devices or 2,500 concurrent calls.</li>
+<li>Lossless mid-call migration for PlaySBC or RTPengine failures.</li>
+<li>Complete RFC 3261, carrier interconnect, STIR/SHAKEN, lawful intercept, emergency calling, or regulatory certification.</li>
+<li>Production distributed state, multi-zone recovery, or commercial support SLA.</li>
+</ul>
+<p>Capacity statements must come from repeatable tests that publish topology, image digests, workload, duration, CPU, memory, packet rate, CPS, registrations per second, media quality, and failure behavior.</p>
+<h1 id="command-reference">Command Reference</h1>
+<h2 id="inspect-workloads">Inspect Workloads</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>kubectl -n playsbc get pods,svc,deploy,statefulset -o wide</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="restart-observability">Restart Observability</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>kubectl -n playsbc rollout restart deployment/playsbc-playsbc-grafana
+kubectl -n playsbc rollout restart deployment/playsbc-playsbc-prometheus
+kubectl -n playsbc rollout status deployment/playsbc-playsbc-grafana --timeout=180s
+kubectl -n playsbc rollout status deployment/playsbc-playsbc-prometheus --timeout=180s</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="monitor-calls-and-media">Monitor Calls and Media</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>kubectl -n playsbc logs -f \
+  -l app.kubernetes.io/instance=playsbc \
+  --all-containers=true --prefix --max-log-requests=10 --since=10m \
+  | grep -aE &#x27;SIP (INVITE|ACK|BYE|CANCEL)|SIP TX response|SIP response|SDP SUMMARY|RTPENGINE|RTP packet|RTCP|1001|1002&#x27;</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="release-artifact-verification">Release Artifact Verification</h2>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>shasum -a 256 -c release/helm/playsbc-2.6.0.tgz.sha256
+helm lint charts/playsbc
+helm template playsbc charts/playsbc \
+  -f configs/kubernetes/active-active-values.yaml &gt;/tmp/playsbc.yaml</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<h2 id="canonical-references">Canonical References</h2>
+<ul>
+<li><code>docs/PRODUCT_GUIDE.md</code> - editable source for this administration guide.</li>
+<li><code>docs/KUBERNETES_LOCAL.md</code> - local topology and network model.</li>
+<li><code>docs/RTPENGINE_LOCAL.md</code> - RTPengine design and focused media behavior.</li>
+<li><code>docs/OBSERVABILITY.md</code> - Grafana and Prometheus operations.</li>
+<li><code>docs/AI_VOICE_GATEWAY.md</code> - public AI lab baseline.</li>
+<li><code>release/RELEASE_NOTES_2.6.0.md</code> - immutable release record.</li>
+</ul></main></div>
+<script>
+async function copyText(button){
+  const card=button.closest('.command'), text=card.querySelector('pre code').innerText;
+  let copied=false;
+  try{await navigator.clipboard.writeText(text);copied=true}catch(error){
+    const area=document.createElement('textarea');area.value=text;area.setAttribute('readonly','');area.style.position='fixed';area.style.opacity='0';document.body.appendChild(area);area.select();copied=document.execCommand('copy');area.remove();
+  }
+  button.textContent=copied?'COPIED':'SELECT';card.classList.toggle('copied',copied);card.querySelector('.copy-status').textContent=copied?'Command copied to clipboard':'Copy was blocked; select the command text manually';
+  setTimeout(()=>{button.textContent='COPY';card.classList.remove('copied')},1600);
+}
+document.addEventListener('click',event=>{if(event.target.matches('.copy'))copyText(event.target)});
+</script></body></html>

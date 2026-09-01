@@ -17,6 +17,7 @@ from reportlab.platypus import (
     Flowable,
     Frame,
     Image,
+    KeepTogether,
     NextPageTemplate,
     PageBreak,
     PageTemplate,
@@ -328,22 +329,53 @@ def code_block(text: str, style_map, available_width: float):
     if max_length > 102:
         style.fontSize = max(5.5, 6.6 * 102 / max_length)
         style.leading = max(7.0, style.fontSize + 1.5)
-    content = Preformatted(text.rstrip(), style)
-    table = Table([[content]], colWidths=[available_width], hAlign="LEFT")
-    table.setStyle(
-        TableStyle(
+    code_text = text.rstrip()
+    label_style = style_map["small"].clone("GuideCodeLabel")
+    label_style.fontName = "Helvetica-Bold"
+    label_style.fontSize = 6.6
+    label_style.textColor = MUTED
+    action_style = label_style.clone("GuideCodeAction")
+    action_style.fontSize = 6.1
+    action_style.alignment = 2
+    lines = code_text.splitlines() or [""]
+    chunks = [lines[index:index + 22] for index in range(0, len(lines), 22)]
+    flowables = [Spacer(1, 3)]
+    for index, chunk in enumerate(chunks):
+        content = Preformatted("\n".join(chunk), style)
+        label = "COMMAND" if index == 0 else "COMMAND (CONTINUED)"
+        table = Table(
             [
-                ("BACKGROUND", (0, 0), (-1, -1), PALE),
-                ("BOX", (0, 0), (-1, -1), 0.6, LINE),
-                ("LINEBEFORE", (0, 0), (0, -1), 2.2, BLUE),
-                ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 7),
-                ("TOPPADDING", (0, 0), (-1, -1), 6),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ]
+                [Paragraph(label, label_style), Paragraph("<b>SELECT + COPY</b>", action_style)],
+                [content, ""],
+            ],
+            colWidths=[available_width - 74, 74],
+            hAlign="LEFT",
+            splitByRow=0,
         )
-    )
-    return [Spacer(1, 3), table, Spacer(1, 7)]
+        table.setStyle(
+            TableStyle(
+                [
+                    ("SPAN", (0, 1), (1, 1)),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E7EEF4")),
+                    ("BACKGROUND", (0, 1), (-1, 1), PALE),
+                    ("BOX", (0, 0), (-1, -1), 0.6, LINE),
+                    ("LINEBEFORE", (0, 0), (0, -1), 2.2, BLUE),
+                    ("LINEBELOW", (0, 0), (-1, 0), 0.4, LINE),
+                    ("VALIGN", (0, 0), (-1, 0), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+                    ("TOPPADDING", (0, 0), (-1, 0), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, 0), 4),
+                    ("TOPPADDING", (0, 1), (-1, 1), 6),
+                    ("BOTTOMPADDING", (0, 1), (-1, 1), 6),
+                ]
+            )
+        )
+        if index:
+            flowables.append(Spacer(1, 3))
+        flowables.append(KeepTogether([table]))
+    flowables.append(Spacer(1, 7))
+    return flowables
 
 
 def markdown_table(lines: list[str], style_map, available_width: float):

@@ -22,6 +22,7 @@ PlaySBC is a Python SIP/RTP lab for B2BUA routing, G.711 media, RTPengine, HA ex
 | --- | --- |
 | Choose the correct workflow | [Documentation index](docs/README.md) |
 | Read the product and administration guide | [PlaySBC v2.6.0 Product Guide](output/pdf/PlaySBC-v2.6.0-Product-Guide.pdf) |
+| Copy commands in a browser | [PlaySBC v2.6.0 Browser Guide](output/html/PlaySBC-v2.6.0-Product-Guide.html) |
 | Understand kind/minikube topology | [Local Kubernetes lab](docs/KUBERNETES_LOCAL.md) |
 | Run Rasa voice/chat profiles | [AI Voice Gateway](docs/AI_VOICE_GATEWAY.md) |
 | Use Grafana and Prometheus | [Observability](docs/OBSERVABILITY.md) |
