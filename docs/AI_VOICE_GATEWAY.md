@@ -2,8 +2,6 @@
 
 PlaySBC can answer a SIP call as an AI endpoint, anchor its media through RTPengine, convert speech to text, send the transcript to Rasa, synthesize the response, and preserve the evidence in one report.
 
-The public MIT feature line ends at v2.6.0. Existing AI scenarios in that release remain under their published MIT terms. Product development after the exact v2.6.0 fork is outside this public baseline.
-
 ```text
 SIPp caller -> PlaySBC -> RTPengine -> STT -> Rasa -> TTS -> RTP response
 ```
@@ -65,7 +63,7 @@ python3 tools/run_k8s_regression_job.py \
   --kind-cluster playsbc
 ```
 
-Use the [PlaySBC v2.6.0 Product Guide](../output/pdf/PlaySBC-v2.6.0-Product-Guide.pdf) for installation, image, observability, and cleanup commands.
+Use [KUBERNETES_HELM_RUNBOOK.md](KUBERNETES_HELM_RUNBOOK.md) for installation, image, observability, and cleanup commands.
 
 ## Configuration
 

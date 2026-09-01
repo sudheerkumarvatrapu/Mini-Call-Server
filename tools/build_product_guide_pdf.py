@@ -34,6 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = ROOT / "docs" / "PRODUCT_GUIDE.md"
 DEFAULT_OUTPUT = ROOT / "output" / "pdf" / "PlaySBC-v2.6.0-Product-Guide.pdf"
 LOGO = ROOT / "docs" / "assets" / "playsbc-logo-corporate-mediaflow.png"
+GUIDE_VERSION = "2.6.0"
 
 NAVY = colors.HexColor("#16324F")
 BLUE = colors.HexColor("#2166A5")
@@ -507,7 +508,7 @@ def later_page(canvas, doc):
     canvas.line(20 * mm, height - 16 * mm, width - 20 * mm, height - 16 * mm)
     canvas.setFillColor(NAVY)
     canvas.setFont("Helvetica-Bold", 7.5)
-    canvas.drawString(20 * mm, height - 12.5 * mm, "PlaySBC v2.6.0 Product Guide")
+    canvas.drawString(20 * mm, height - 12.5 * mm, f"PlaySBC v{GUIDE_VERSION} Product Guide")
     canvas.setFillColor(MUTED)
     canvas.setFont("Helvetica", 7)
     canvas.drawRightString(width - 20 * mm, height - 12.5 * mm, "Final public MIT engineering baseline")
@@ -519,7 +520,9 @@ def later_page(canvas, doc):
     canvas.restoreState()
 
 
-def build(source_path: Path, output_path: Path):
+def build(source_path: Path, output_path: Path, version: str = "2.6.0"):
+    global GUIDE_VERSION
+    GUIDE_VERSION = version
     style_map = styles()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     width, height = A4
@@ -534,7 +537,7 @@ def build(source_path: Path, output_path: Path):
         rightMargin=margin_x,
         topMargin=19 * mm,
         bottomMargin=17 * mm,
-        title="PlaySBC v2.6.0 Product Guide",
+        title=f"PlaySBC v{version} Product Guide",
         author="Sudheer Kumar Vatrapu",
         subject="Features, architecture, and administration guide",
     )
@@ -582,7 +585,7 @@ def build(source_path: Path, output_path: Path):
             Paragraph("Product and Administration Guide", title_style),
             Paragraph("Features, architecture, deployment, operations, regression, and evidence", subtitle_style),
             Spacer(1, 27 * mm),
-            Paragraph("Version 2.6.0", cover_meta),
+            Paragraph(f"Version {version}", cover_meta),
             Paragraph("Final public MIT engineering baseline", cover_meta),
             Spacer(1, 8 * mm),
             Paragraph("Contributor", cover_meta),
@@ -612,8 +615,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--version", default="2.6.0")
     args = parser.parse_args()
-    build(args.source, args.output)
+    build(args.source, args.output, args.version)
     print(args.output)
     return 0
 

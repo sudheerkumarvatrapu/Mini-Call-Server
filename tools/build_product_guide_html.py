@@ -97,12 +97,12 @@ def render_markdown(source: str) -> tuple[str, str]:
     return "\n".join(body), "\n".join(toc)
 
 
-def build(source_path: Path, output_path: Path):
+def build(source_path: Path, output_path: Path, version: str = "2.6.0"):
     body, toc = render_markdown(source_path.read_text(encoding="utf-8"))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PlaySBC v2.6.0 Product Guide</title>
+<title>PlaySBC v{version} Product Guide</title>
 <style>
 :root{{--navy:#16324f;--blue:#2166a5;--line:#c9d4dd;--pale:#f5f8fa;--ink:#202b33;--muted:#5a6975}}
 *{{box-sizing:border-box}} body{{margin:0;color:var(--ink);font:16px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#eef3f6}}
@@ -139,7 +139,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    args = parser.parse_args(); build(args.source, args.output); print(args.output); return 0
+    parser.add_argument("--version", default="2.6.0")
+    args = parser.parse_args(); build(args.source, args.output, args.version); print(args.output); return 0
 
 
 if __name__ == "__main__": raise SystemExit(main())
