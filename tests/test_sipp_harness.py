@@ -2026,6 +2026,7 @@ Content-Length: 0
             bundle.mkdir()
             (bundle / "log.sipp").write_text("SIPp passed\n", encoding="utf-8")
             (bundle / "sipmsg.log").write_text("OPTIONS sip:playsbc SIP/2.0\n", encoding="utf-8")
+            (bundle / "capture.pcap").write_bytes(b"pcap-evidence")
             rows = [
                 run_regression_suite.ReportRow(
                     "SIPp Smoke",
@@ -2067,6 +2068,26 @@ Content-Length: 0
             self.assertIn("log.sipp", report)
             self.assertIn("sipmsg.log", report)
             self.assertIn("Test Execution", report)
+            self.assertIn('href="evidence/options/log.sipp.html"', report)
+            self.assertIn('href="evidence/options/sipmsg.log.html"', report)
+            self.assertIn('href="evidence/options/capture.pcap.html"', report)
+            self.assertNotIn('href="../options/', report)
+            self.assertEqual(
+                (report_dir / "evidence" / "options" / "log.sipp").read_text(encoding="utf-8"),
+                "SIPp passed\n",
+            )
+            self.assertEqual(
+                (report_dir / "evidence" / "options" / "sipmsg.log").read_text(encoding="utf-8"),
+                "OPTIONS sip:playsbc SIP/2.0\n",
+            )
+            viewer = (report_dir / "evidence" / "options" / "sipmsg.log.html").read_text(encoding="utf-8")
+            self.assertIn("OPTIONS sip:playsbc SIP/2.0", viewer)
+            self.assertIn("Download raw file", viewer)
+            self.assertIn('href="../../latest.html"', viewer)
+            self.assertIn('href="sipmsg.log?raw=1" download', viewer)
+            pcap_viewer = (report_dir / "evidence" / "options" / "capture.pcap.html").read_text(encoding="utf-8")
+            self.assertIn("This binary evidence cannot be rendered as text in a browser.", pcap_viewer)
+            self.assertIn('href="capture.pcap?raw=1" download', pcap_viewer)
 
     def test_regression_evidence_server_wraps_text_and_binary_files(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2080,7 +2101,8 @@ Content-Length: 0
             binary_page = serve_regression_report.render_binary_evidence(pcap_path, root).decode("utf-8")
             evidence_paths = {}
             rewritten = serve_regression_report.rewrite_report_links(
-                '<a href="../evidence/sipmsg.log">SIP messages</a>',
+                '<a href="../evidence/sipmsg.log">SIP messages</a>'
+                '<a href="capture.pcap?raw=1" download>Download raw file</a>',
                 "/k8s-reports/latest.html",
                 evidence_paths,
             ).decode("utf-8")
@@ -2090,6 +2112,7 @@ Content-Length: 0
             self.assertIn("open -a Wireshark", binary_page)
             self.assertIn(hashlib.sha256(b"pcap-evidence").hexdigest(), binary_page)
             self.assertRegex(rewritten, r'/evidence/[0-9a-f]{24}')
+            self.assertIn('href="capture.pcap?raw=1" download', rewritten)
             self.assertEqual(list(evidence_paths.values()), ["evidence/sipmsg.log"])
 
     def test_regression_report_embeds_single_call_sip_ladder(self):
@@ -2148,8 +2171,10 @@ Content-Length: 0
             self.assertIn("data:audio/wav;base64,", report)
             self.assertIn("embedded WAV", report)
             self.assertIn("Open WAV file", report)
-            self.assertIn("../bundle/ai-speech-input-call.wav", report)
-            self.assertIn("../bundle/ai-tts-output-call.wav", report)
+            self.assertIn("evidence/bundle/ai-speech-input-call.wav", report)
+            self.assertIn("evidence/bundle/ai-tts-output-call.wav", report)
+            self.assertTrue((report_dir / "evidence" / "bundle" / "ai-speech-input-call.wav").is_file())
+            self.assertTrue((report_dir / "evidence" / "bundle" / "ai-tts-output-call.wav").is_file())
 
     def test_regression_report_reads_measured_robot_phases_from_platform_log(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -63,9 +63,10 @@ class EvidenceLinkRewriter(HTMLParser):
         return f' {name}="{html.escape(value, quote=True)}"'
 
     def handle_starttag(self, tag: str, attrs) -> None:
+        is_download = tag == "a" and any(name == "download" for name, _value in attrs)
         rendered = []
         for name, value in attrs:
-            if tag == "a" and name == "href" and value is not None:
+            if tag == "a" and not is_download and name == "href" and value is not None:
                 value = self.rewritten_href(value)
             rendered.append(self.attribute(name, value))
         self.parts.append(f"<{tag}{''.join(rendered)}>")
@@ -202,6 +203,14 @@ class EvidenceHandler(SimpleHTTPRequestHandler):
             self.send_response(HTTPStatus.FOUND)
             self.send_header("Location", self.report_url)
             self.end_headers()
+            return
+
+        if parse_qs(parsed.query).get("raw") == ["1"]:
+            path = self.requested_file()
+            if path is None or not path.is_file():
+                self.send_error(HTTPStatus.NOT_FOUND, "Evidence file was not found")
+                return
+            super().do_GET()
             return
 
         if parsed.path.startswith("/evidence/") or parsed.path == "/evidence":
