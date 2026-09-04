@@ -64,6 +64,44 @@ Status: Validated v2.6.0 deployment and administration commands
 ## Using This Guide
 
 The browser edition provides working COPY buttons. PDF viewers keep command text selectable but cannot write to the clipboard. Each chapter below identifies its original tagged Markdown source.
+
+## Opening Regression Evidence
+
+Every generated regression report now packages its linked artifacts in an
+`evidence/` directory beside `latest.html`. Keep the complete report directory
+together when moving or archiving results; copying `latest.html` alone breaks
+its relative links.
+
+- Text evidence such as SIP traces, workload logs, Kubernetes snapshots,
+  values YAML, and JSON opens in a browser-safe HTML viewer.
+- Each viewer provides **Back to report** and **Download raw file** actions.
+- Packet captures and other binary evidence open a metadata page with a raw
+  download action for Wireshark or the appropriate desktop application.
+- Embedded or linked WAV evidence remains available from AI speech reports.
+- A separate localhost server is no longer required for normal viewing. The
+  `tools/serve_regression_report.py` command remains available as an optional
+  presentation mode.
+
+Open a copied Kubernetes regression report directly on macOS:
+
+```bash
+open "/absolute/path/to/k8s-reports/latest.html"
+```
+
+For the links to remain portable, preserve this structure:
+
+```text
+k8s-reports/
+|-- latest.html
+|-- <run-id>.html
+|-- <run-id>.json
+`-- evidence/
+    `-- <profile>/
+        |-- log.sip
+        |-- log.sip.html
+        |-- capture.pcap
+        `-- capture.pcap.html
+```
 """
     chapters = [prefix]
     for name, content in recovered:

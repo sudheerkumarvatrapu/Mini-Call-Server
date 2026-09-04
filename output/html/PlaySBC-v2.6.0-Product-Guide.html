@@ -19,6 +19,7 @@ pre{margin:0;padding:16px;overflow:auto;white-space:pre} .copy-status{height:0;m
 </style></head><body><div class="layout"><nav><h2>Contents</h2><a class="toc-1" href="#playsbc-v2-6-0-product-guide">PlaySBC v2.6.0 Product Guide</a>
 <a class="toc-1" href="#document-control">Document Control</a>
 <a class="toc-2" href="#using-this-guide">Using This Guide</a>
+<a class="toc-2" href="#opening-regression-evidence">Opening Regression Evidence</a>
 <a class="toc-1" href="#restored-runbook-docs-ai-voice-gateway-md">Restored Runbook: docs/AI_VOICE_GATEWAY.md</a>
 <a class="toc-1" href="#playsbc-ai-voice-gateway">PlaySBC AI Voice Gateway</a>
 <a class="toc-2" href="#component-roles">Component Roles</a>
@@ -122,6 +123,31 @@ pre{margin:0;padding:16px;overflow:auto;white-space:pre} .copy-status{height:0;m
 </table></div>
 <h2 id="using-this-guide">Using This Guide</h2>
 <p>The browser edition provides working COPY buttons. PDF viewers keep command text selectable but cannot write to the clipboard. Each chapter below identifies its original tagged Markdown source.</p>
+<h2 id="opening-regression-evidence">Opening Regression Evidence</h2>
+<p>Every generated regression report now packages its linked artifacts in an <code>evidence/</code> directory beside <code>latest.html</code>. Keep the complete report directory together when moving or archiving results; copying <code>latest.html</code> alone breaks its relative links.</p>
+<ul>
+<li>Text evidence such as SIP traces, workload logs, Kubernetes snapshots,</li>
+<p>values YAML, and JSON opens in a browser-safe HTML viewer.</p>
+<li>Each viewer provides <strong>Back to report</strong> and <strong>Download raw file</strong> actions.</li>
+<li>Packet captures and other binary evidence open a metadata page with a raw</li>
+<p>download action for Wireshark or the appropriate desktop application.</p>
+<li>Embedded or linked WAV evidence remains available from AI speech reports.</li>
+<li>A separate localhost server is no longer required for normal viewing. The</li>
+<p><code>tools/serve_regression_report.py</code> command remains available as an optional presentation mode.</p>
+</ul>
+<p>Open a copied Kubernetes regression report directly on macOS:</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>open &quot;/absolute/path/to/k8s-reports/latest.html&quot;</code></pre><p class="copy-status" aria-live="polite"></p></section>
+<p>For the links to remain portable, preserve this structure:</p>
+<section class="command"><header><span>COMMAND</span><button type="button" class="copy">COPY</button></header><pre><code>k8s-reports/
+|-- latest.html
+|-- &lt;run-id&gt;.html
+|-- &lt;run-id&gt;.json
+`-- evidence/
+    `-- &lt;profile&gt;/
+        |-- log.sip
+        |-- log.sip.html
+        |-- capture.pcap
+        `-- capture.pcap.html</code></pre><p class="copy-status" aria-live="polite"></p></section>
 <h1 id="restored-runbook-docs-ai-voice-gateway-md">Restored Runbook: docs/AI_VOICE_GATEWAY.md</h1>
 <h1 id="playsbc-ai-voice-gateway">PlaySBC AI Voice Gateway</h1>
 <p>PlaySBC can answer a SIP call as an AI endpoint, anchor its media through RTPengine, convert speech to text, send the transcript to Rasa, synthesize the response, and preserve the evidence in one report.</p>

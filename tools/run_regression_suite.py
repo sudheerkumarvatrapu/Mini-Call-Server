@@ -257,6 +257,23 @@ REPORT_ARTIFACTS = (
     ("PCAP leg certification", "pcap-legs.json"),
     ("Rasa NLU results", "rasa-nlu-results.json"),
 )
+TEXT_REPORT_ARTIFACT_SUFFIXES = {
+    ".call",
+    ".csv",
+    ".json",
+    ".log",
+    ".media",
+    ".networking",
+    ".platform",
+    ".sip",
+    ".sipp",
+    ".stats",
+    ".transcoding",
+    ".txt",
+    ".xml",
+    ".yaml",
+    ".yml",
+}
 PHASE_ARTIFACTS = {
     "Setup Preparation": ("helm-profile-values.yaml", "kubectl-services.log"),
     "Configuration": ("helm-profile-upgrade.log", "helm-profile-values.yaml"),
@@ -322,6 +339,73 @@ def audio_src_for_report(path: Path, report_dir: Optional[Path]) -> str:
     return urllib.parse.quote(source, safe="/:._~%-")
 
 
+def static_evidence_viewer(path: Path, report_dir: Path) -> str:
+    raw_href = f"{urllib.parse.quote(path.name, safe='._~%-')}?raw=1"
+    back_href = urllib.parse.quote(
+        os.path.relpath(report_dir / "latest.html", path.parent).replace(os.sep, "/"),
+        safe="/:._~%-",
+    )
+    size = path.stat().st_size
+    if path.suffix.lower() in TEXT_REPORT_ARTIFACT_SUFFIXES:
+        content = f"<pre>{html.escape(path.read_text(encoding='utf-8', errors='replace'))}</pre>"
+    else:
+        content = (
+            "<p>This binary evidence cannot be rendered as text in a browser. "
+            "Use the download link above to open it with the appropriate application.</p>"
+        )
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{html.escape(path.name)}</title>
+  <style>
+    body {{ margin: 0; color: #202b33; background: #f5f8fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
+    header {{ position: sticky; top: 0; display: flex; gap: 18px; padding: 14px 24px; background: #16324f; color: white; }}
+    header a {{ color: #d9efff; text-decoration: none; }}
+    main {{ max-width: 1180px; margin: 20px auto; padding: 0 20px 40px; }}
+    .meta {{ color: #5a6975; overflow-wrap: anywhere; }}
+    pre {{ padding: 18px; border: 1px solid #c9d4dd; background: white; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 SFMono-Regular, Consolas, monospace; }}
+  </style>
+</head>
+<body>
+  <header><a href="{back_href}">Back to report</a><a href="{raw_href}" download>Download raw file</a><span>{html.escape(path.name)}</span></header>
+  <main><p class="meta"><strong>Evidence file:</strong> {html.escape(path.name)}<br><strong>Size:</strong> {size} bytes</p>{content}</main>
+</body>
+</html>
+"""
+
+
+def stage_evidence_for_report(
+    path: Path,
+    bundle_root: Path,
+    report_dir: Optional[Path],
+    *,
+    with_viewer: bool = False,
+) -> str:
+    """Copy linked evidence beside the HTML report so file:// links stay usable."""
+    if report_dir is None:
+        return audio_src_for_report(path, report_dir)
+
+    try:
+        relative_path = path.resolve().relative_to(bundle_root.resolve())
+        bundle_name = re.sub(r"[^A-Za-z0-9._-]+", "_", bundle_root.name).strip("._") or "bundle"
+        evidence_root = report_dir / "evidence"
+        target = evidence_root / bundle_name / relative_path
+        target.resolve().relative_to(evidence_root.resolve())
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.resolve() != path.resolve():
+            shutil.copy2(path, target)
+        linked_target = target
+        if with_viewer:
+            linked_target = target.with_name(f"{target.name}.html")
+            linked_target.write_text(static_evidence_viewer(target, report_dir), encoding="utf-8")
+        source = linked_target.relative_to(report_dir).as_posix()
+    except (OSError, ValueError):
+        return audio_src_for_report(path, report_dir)
+    return urllib.parse.quote(source, safe="/:._~%-")
+
+
 def embedded_audio_src(path: Path) -> Optional[str]:
     try:
         if path.stat().st_size > AUDIO_EMBED_MAX_BYTES:
@@ -377,7 +461,7 @@ def discover_report_artifacts(log_path: str, report_dir: Optional[Path] = None) 
                 "label": label,
                 "name": name,
                 "path": str(path),
-                "href": audio_src_for_report(path, report_dir),
+                "href": stage_evidence_for_report(path, root, report_dir, with_viewer=True),
                 "bytes": path.stat().st_size,
             }
         )
@@ -396,7 +480,7 @@ def discover_audio_evidence(log_path: str, report_dir: Optional[Path] = None) ->
     wav_files.sort(key=lambda path: (0 if path.name.lower().startswith("ai-speech-input") else 1, str(path)))
     evidence = []
     for path in wav_files[:6]:
-        file_src = audio_src_for_report(path, report_dir)
+        file_src = stage_evidence_for_report(path, root, report_dir)
         data_src = embedded_audio_src(path)
         evidence.append(AudioEvidence(audio_evidence_label(path), str(path), data_src or file_src, file_src, bool(data_src)))
     return evidence
@@ -1114,7 +1198,7 @@ def render_html(
   <main>
     <div class="eyebrow">Execution and evidence</div>
     <h1>PlaySBC Regression Evidence Report</h1>
-    <p class="browser-note"><strong>Evidence links:</strong> browsers may block raw local files when this report is opened with <code>file://</code>. Run <code>python3 tools/serve_regression_report.py /absolute/path/to/latest.html</code> and use the printed localhost URL.</p>
+    <p class="browser-note"><strong>Evidence links:</strong> linked files are packaged in this report's <code>evidence/</code> directory and open directly, including with <code>file://</code>. Text files open in a browser viewer; binary files open a metadata page with a raw download link. No local server is required; <code>tools/serve_regression_report.py</code> remains available for optional localhost viewing.</p>
     <p class="meta">Run <code>{html.escape(run_id)}</code> | Generated {html.escape(generated_at)} | Expand a test to open its measured phases, logs, ladder, and packet evidence.</p>
     <div class="summary {summary_class}">
       <strong>Total: {len(rows)}</strong>
@@ -1133,6 +1217,9 @@ def render_html(
 
 def write_reports(rows: List[ReportRow], report_dir: Path, run_id: str, include_rasa_test_section: bool = False) -> Path:
     report_dir.mkdir(parents=True, exist_ok=True)
+    evidence_dir = report_dir / "evidence"
+    if evidence_dir.exists():
+        shutil.rmtree(evidence_dir)
     generated_at = time.strftime("%Y-%m-%d %H:%M:%S %Z", time.localtime())
     html_text = render_html(
         rows,
